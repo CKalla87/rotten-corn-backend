@@ -5,10 +5,8 @@ export function uploads(
   public_id?: string,
   overwrite?: boolean,
   invalidate?: boolean,
-  resource_type?: string,
 ): Promise<UploadApiResponse | UploadApiErrorResponse | undefined> {
   return new Promise((resolve) => {
-    console.info({file, public_id, overwrite,invalidate, resource_type});
     cloudinary.v2.uploader.upload(
       file,
       {
