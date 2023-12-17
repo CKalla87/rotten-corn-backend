@@ -24,6 +24,7 @@
   "homepage": "https://github.com/CKalla87/rotten-corn-backend#readme",
   "devDependencies": {
     "@types/bcryptjs": "^2.4.2",
+    "@types/bull": "^4.10.0",
     "@types/bunyan": "^1.8.8",
     "@types/compression": "^1.7.2",
     "@types/cookie-session": "^2.0.44",
@@ -42,8 +43,11 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
+    "@bull-board/express": "^5.0.0",
+    "@bull-board/ui": "^5.0.0",
     "@socket.io/redis-adapter": "^8.1.0",
     "bcryptjs": "^2.4.3",
+    "bull": "^4.10.4",
     "bunyan": "^1.8.15",
     "cloudinary": "^1.34.0",
     "compression": "^1.7.4",
@@ -60,6 +64,7 @@
     "lodash": "^4.17.21",
     "mongoose": "^6.10.0",
     "redis": "^4.6.5",
+    "redis-commander": "^0.8.0",
     "socket.io": "^4.6.1",
     "ttypescript": "^1.5.15",
     "typescript-transform-paths": "^3.4.6"
