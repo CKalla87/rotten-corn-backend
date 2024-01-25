@@ -143,4 +143,7 @@ build
 # SvelteKit build / generate output
 .svelte-kit
 
+# Ignore redis binary dump (dump.rdb) files
+*.rdb
+
 # End of https://www.toptal.com/developers/gitignore/api/node
