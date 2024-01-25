@@ -17,7 +17,6 @@ import publicIP from 'ip';
 export class Password {
   @joiValidation(emailSchema)
   public async create(req: Request, res: Response): Promise<void> {
-    console.info('batman!');
     const { email } = req.body;
     const existingUser: IAuthDocument = await authService.getAuthUserByEmail(email);
     if (!existingUser) {
@@ -36,7 +35,6 @@ export class Password {
 
   @joiValidation(passwordSchema)
   public async update(req: Request, res: Response): Promise<void> {
-    console.info('taco?');
     const { password, confirmPassword } = req.body;
     const { token } = req.params;
 
