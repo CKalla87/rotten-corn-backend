@@ -161,7 +161,7 @@ export class PostCache extends BaseCache {
       const replies: PostCacheMultiType = await multi.exec() as PostCacheMultiType;
       const postReplies: IPostDocument[] = [];
       for(const post of replies as IPostDocument[]) {
-        post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
+        post.commentsCount = Number(Helpers.parseJson(`${post.commentsCount}`));
         post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
         post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
         postReplies.push(post);
@@ -233,7 +233,7 @@ export class PostCache extends BaseCache {
       multi.HGETALL(`posts:${key}`);
       const reply: PostCacheMultiType = await multi.exec() as PostCacheMultiType;
       const postReply = reply as IPostDocument[];
-      postReply[0].commentsCount = Helpers.parseJson(`${postReply[0].commentsCount}`) as number;
+      postReply[0].commentsCount = Number(Helpers.parseJson(`${postReply[0].commentsCount}`));
       postReply[0].reactions = Helpers.parseJson(`${postReply[0].reactions}`) as IReactions;
       postReply[0].createdAt = new Date(Helpers.parseJson(`${postReply[0].createdAt}`)) as Date;
 
