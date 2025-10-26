@@ -12,11 +12,12 @@ const userCache: UserCache = new UserCache();
 
 class ReactionService {
   public async addReactionDataToDB(reactionData: IReactionJob): Promise<void> {
-    const { postId, userTo, userFrom, username, type, previousReaction, reactionObject } = reactionData;
+    const { postId, userTo, username, type, previousReaction, reactionObject } = reactionData;
     let updatedReactionObject: IReactionDocument = reactionObject as IReactionDocument;
     if (previousReaction) {
       updatedReactionObject = omit(reactionObject, ['_id']);
     }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const updatedReaction: [IUserDocument, IReactionDocument, IPostDocument] = await Promise.all([
       userCache.getUserFromCache(`${userTo}`),
       ReactionModel.replaceOne({ postId, type: previousReaction, username }, updatedReactionObject, { upsert: true }),
