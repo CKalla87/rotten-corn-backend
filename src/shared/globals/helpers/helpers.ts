@@ -29,6 +29,13 @@ export class Helpers {
       return prop;
     }
   }
+
+  static isDataURL(value: string): boolean {
+    const dataURLRegex = /^\s*data:([a-z]+\/[a-z0-9-+.]+(;[a-z-]+=[a-z0-9-]+)?)?(;base64)?,([a-z0-9!$&',()*+;=\-._~:@\\/?%\s]*)\s*$/i;
+    return dataURLRegex.test(value);
+  }
+
+  static isCloudinaryUrl(value: string): boolean {
+    return /^https?:\/\/res\.cloudinary\.com\//.test(value);
+  }
 }
-
-

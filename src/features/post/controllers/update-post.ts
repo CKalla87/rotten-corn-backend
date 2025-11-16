@@ -3,6 +3,7 @@ import HTTP_STATUS from 'http-status-codes';
 import { PostCache } from '@service/redis/post.cache';
 import { socketIOPostObject } from '@socket/post';
 import { postQueue } from '@service/queues/post.queue';
+import { imageQueue } from '@service/queues/image.queue';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
 import { postSchema, postWithImageSchema } from '@post/schemes/post.schemes';
 import { IPostDocument } from '@post/interfaces/post.interface';
@@ -89,6 +90,11 @@ export class Update {
     socketIOPostObject.emit('update post', postUpdated, 'posts');
     postQueue.addPostJob('updatePostInDB', { key: postId, value: postUpdated });
     // call image queue to add image to mongodb database
+    imageQueue.addImageJob('addImageToDB', {
+      key: `${req.currentUser!.userId}`,
+      imgId: result.public_id,
+      imgVersion: result.version.toString()
+    });
 
     return result;
   }
