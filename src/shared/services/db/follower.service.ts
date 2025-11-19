@@ -24,13 +24,13 @@ class FollowerService {
     const users: Promise<BulkWriteResult> = UserModel.bulkWrite([
       {
         updateOne: {
-          filter: { _id: userId },
+          filter: { _id: followerObjectId },
           update: { $inc: { followingCount: 1 } }
         }
       },
       {
         updateOne: {
-          filter: { _id: followeeId },
+          filter: { _id: followeeObjectId },
           update: { $inc: { followersCount: 1 } }
         }
       }
@@ -38,7 +38,7 @@ class FollowerService {
 
     const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([
       users,
-      UserModel.findOne({ _id: followeeId })
+      UserModel.findOne({ _id: followeeObjectId })
     ]);
 
     if (response[1]?.notifications?.follows && userId !== followeeId) {
@@ -65,11 +65,14 @@ class FollowerService {
         header: 'Follower Notification'
       };
       const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
-      emailQueue.addEmailJob('followersEmail', {
-        receiverEmail: response[1]?.email!,
-        template,
-        subject: `${username} is now following you.`
-      });
+      const receiverEmail = response[1]?.email;
+      if (receiverEmail) {
+        emailQueue.addEmailJob('followersEmail', {
+          receiverEmail,
+          template,
+          subject: `${username} is now following you.`
+        });
+      }
     }
   }
 
@@ -85,19 +88,19 @@ class FollowerService {
     const users: Promise<BulkWriteResult> = UserModel.bulkWrite([
       {
         updateOne: {
-          filter: { _id: followeeId },
+          filter: { _id: followeeObjectId },
           update: { $inc: { followersCount: -1 } }
         }
       },
       {
         updateOne: {
-          filter: { _id: followerId },
+          filter: { _id: followerObjectId },
           update: { $inc: { followingCount: -1 } }
         }
       }
     ]);
 
-    await Promise.all([users, UserModel.findOne({ _id: followeeId })]);
+    await Promise.all([users, UserModel.findOne({ _id: followeeObjectId })]);
   }
 
   public async getFolloweeData(userObjectId: ObjectId): Promise<IFollowerData[]> {
@@ -164,6 +167,11 @@ class FollowerService {
       }
     ]);
     return follower;
+  }
+
+  public async getFolloweesIds(userId: string): Promise<string[]> {
+    const followees = await FollowerModel.find({ followerId: new mongoose.Types.ObjectId(userId) }).exec();
+    return followees.map((followee) => followee.followeeId.toString());
   }
 }
 

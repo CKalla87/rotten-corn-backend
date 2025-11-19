@@ -45,6 +45,28 @@ Accept: application/json
 withCredentials: true
 
 ###
+GET {{baseUrl}}/{{urlPath}}/post/videos/1
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
+
+###
+POST {{baseUrl}}/{{urlPath}}/post/video/post
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
+
+{
+  "post": "",
+  "bgColor": "#ffffff",
+  "privacy": "Public",
+  "gifUrl": "",
+  "profilePicture": "https://res.cloudinary.com/dyamr9ym3/image/upload/v1667295707/6360e9dabe985bcf3c52d0f2",
+  "feelings": "",
+  "video": "aHR0cHM6Ly95b3V0dS5iZS9yZGlNMmVTZ0ExOD9zaT1UWXcyMkZ4dzh4d1k1TlMx"
+}
+
+###
 DELETE {{baseUrl}}/{{urlPath}}/post/65c98969dab1372b3ea7044d
 Content-Type: application/json
 Accept: application/json
