@@ -1,4 +1,5 @@
 {
+  "include": ["src/**/*", "src/types/**/*"],
   "compilerOptions": {
     "target": "es2015",
     "module": "commonjs",
@@ -12,6 +13,7 @@
     "noUnusedParameters": false,
     "moduleResolution": "node",
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "sourceMap": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
@@ -19,9 +21,11 @@
     "allowSyntheticDefaultImports": true,
     "pretty": true,
     "resolveJsonModule": true,
+    "typeRoots": ["./node_modules/@types", "./src/types"],
+    "types": [],
     "plugins": [
       { "transform": "typescript-transform-paths" },
-      { "transform": "typescript-transform-paths", "afterDeclarations": true },
+      { "transform": "typescript-transform-paths", "afterDeclarations": true }
     ],
     "paths": {
       "@auth/*": ["src/features/auth/*"],

@@ -10,6 +10,7 @@ import { Server } from 'socket.io';
 import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Logger from 'bunyan';
+import statusMonitor from 'express-status-monitor';
 import 'express-async-errors';
 import { config } from '@root/config';
 import applicationRoutes from '@root/routes';
@@ -35,6 +36,7 @@ export class RottenCornServer {
     this.securityMiddleware(this.app);
     this.standardMiddleware(this.app);
     this.routeMiddleware(this.app);
+    this.apiMonitoring(this.app);
     this.globalErrorHandler(this.app);
     this.startServer(this.app);
   }
@@ -70,6 +72,30 @@ export class RottenCornServer {
     applicationRoutes(app);
   }
 
+  private apiMonitoring(app: Application): void {
+    app.use(
+      statusMonitor({
+        path: '/api-monitoring',
+        title: 'API Monitoring',
+        spans: [
+          { interval: 1, retention: 60 },
+          { interval: 5, retention: 60 },
+          { interval: 15, retention: 60 }
+        ],
+        chartVisibility: {
+          cpu: true,
+          mem: true,
+          load: true,
+          heap: true,
+          responseTime: true,
+          rps: true,
+          statusCodes: true
+        },
+        healthChecks: []
+      })
+    );
+  }
+
   private globalErrorHandler(app: Application): void {
     // Handling urls that do not exist.
     app.all('*', (req: Request, res: Response) => {
@@ -86,6 +112,7 @@ export class RottenCornServer {
   }
 
   private async startServer(app: Application): Promise<void> {
+    if (!config.JWT_TOKEN) throw new Error('JWT_TOKEN must be provided');
     try {
       const httpServer: http.Server = new http.Server(app);
       const sockeIO: Server = await this.createSocketID(httpServer);
@@ -111,6 +138,7 @@ export class RottenCornServer {
   }
 
   private startHttpServer(httpServer: http.Server): void {
+    log.info(`Worker with process id of ${process.pid} has started.`);
     log.info(`Server has started with process ${process.pid}`);
     httpServer.listen(SERVER_PORT, () => {
       log.info(`Server running on port ${SERVER_PORT}`);
