@@ -3,7 +3,6 @@ import { IUserDocument, ISearchUser, IBasicInfo, INotificationSettings, ISocialL
 import mongoose from 'mongoose';
 import { followerService } from '@service/db/follower.service';
 import { AuthModel } from '@auth/models/auth.schema';
-import { Helpers } from '@global/helpers/helpers';
 
 class UserService {
   public async addUserData(data: IUserDocument): Promise<void> {
@@ -85,7 +84,7 @@ class UserService {
     const users = await AuthModel.aggregate([
       { $match: { username: regex } },
       { $lookup: { from: 'User', localField: '_id', foreignField: 'authId', as: 'user' } },
-      { $unwind: '$user' },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
       {
         $project: {
           _id: '$user._id',
