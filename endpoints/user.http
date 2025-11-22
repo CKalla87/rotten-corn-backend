@@ -27,3 +27,9 @@ GET {{baseUrl}}/{{urlPath}}/user/profile/posts/{{username}}/{{userId}}/{{uId}}
 Content-Type: application/json
 Accept: application/json
 withCredentials: true
+
+###
+GET {{baseUrl}}/{{urlPath}}/user/profile/search/{{username}}
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
