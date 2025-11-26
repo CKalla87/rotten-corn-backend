@@ -68,12 +68,15 @@ class ReactionService {
         message: `${username} reacted to your post.`,
         header: 'Post reaction notification'
       };
-      const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
-      emailQueue.addEmailJob('reactionsEmail', {
-        receiverEmail: updatedReaction[0]?.email!,
-        template,
-        subject: 'Post reaction notification'
-      });
+      const recipientEmail = updatedReaction[0]?.email;
+      if (recipientEmail) {
+        const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
+        emailQueue.addEmailJob('reactionsEmail', {
+          receiverEmail: recipientEmail,
+          template,
+          subject: 'Post reaction notification'
+        });
+      }
     }
   }
 
