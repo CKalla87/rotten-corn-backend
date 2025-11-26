@@ -1,0 +1,43 @@
+@baseUrl = http://localhost:5000
+@urlPath = api/v1
+
+###
+POST {{baseUrl}}/{{urlPath}}/post/reaction
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
+
+{
+  "userTo": "65dbec7ccf728c3c89a131f7",
+  "postId": "65dbec7ccf728c3c89a131f7",
+  "type": "sad",
+  "previousReaction": "",
+  "postReactions": {"like": 0,"love": 0,"happy": 0,"sad": 1,"wow": 0,"angry": 0},
+  "profilePicture": "https://res/cloudingary.com/dajmo61zu/image/upload/v1702853730/657f7c61c3a369eaa09690b8"
+}
+
+###
+DELETE {{baseUrl}}/{{urlPath}}/post/reaction/65dbec7ccf728c3c89a131f7/sad/{"like":0,"love":0,"happy":0,"sad":0,"wow":0,"angry":0}
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
+
+{}
+
+###
+GET {{baseUrl}}/{{urlPath}}/post/reactions/65dbec7ccf728c3c89a131f7
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
+
+###
+GET {{baseUrl}}/{{urlPath}}/post/single/reaction/username/Margret/65dbec7ccf728c3c89a131f7
+Content-Type: application/json
+Accept: application/json
+withCredentials: true
+
+###
+GET {{baseUrl}}/{{urlPath}}/post/single/reactions/username/Margret
+Content-Type: application/json
+Accept: application/json
+withCredentials: true

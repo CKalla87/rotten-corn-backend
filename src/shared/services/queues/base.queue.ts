@@ -1,4 +1,4 @@
-import { IAuthJob } from './../../../features/auth/interfaces/auth.interface';
+import { IAuthJob } from '@auth/interfaces/auth.interface';
 import Queue, { Job } from 'bull';
 import Logger from 'bunyan';
 import { createBullBoard } from '@bull-board/api';
@@ -6,8 +6,24 @@ import { BullAdapter } from '@bull-board/api/bullAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { config } from '@root/config';
 import { IEmailJob } from '@user/interfaces/user.interface';
+import { IPostJobData } from '@post/interfaces/post.interface';
+import { IReactionJob } from '@reaction/interfaces/reaction.interface';
+import { ICommentJob } from '@comment/interfaces/comment.interface';
+import { IFollowerJobData, IBlockedUserJobData } from '@follower/interfaces/follower.interface';
+import { IFileImageJobData } from '@image/interfaces/image.interface';
+import { IChatJobData, IMessageData } from '@chat/interfaces/chat.interface';
 
-type IBaseJobData = IAuthJob | IEmailJob;
+type IBaseJobData =
+  | IAuthJob
+  | IEmailJob
+  | IPostJobData
+  | IReactionJob
+  | ICommentJob
+  | IFollowerJobData
+  | IBlockedUserJobData
+  | IFileImageJobData
+  | IChatJobData
+  | IMessageData;
 
 let bullAdapters: BullAdapter[] = [];
 export let serverAdapter: ExpressAdapter;

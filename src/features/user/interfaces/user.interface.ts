@@ -93,3 +93,10 @@ export interface IAllUsers {
   users: IUserDocument[];
   totalUsers: number;
 }
+
+export interface IUserAll {
+  newSkip: number;
+  limit: number;
+  skip: number;
+  userId: string;
+}
