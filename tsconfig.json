@@ -1,5 +1,11 @@
 {
   "include": ["src/**/*", "src/types/**/*"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/mocks/**/*",
+    "src/seed.ts"
+  ],
   "compilerOptions": {
     "target": "es2015",
     "module": "commonjs",

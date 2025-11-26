@@ -1,0 +1,2 @@
+ec2_key_pair_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFHWwk3j0uNwUYuKgG19WUajLC32B3kEQdfyQnlnnzqD chatapp-server-key"
+
