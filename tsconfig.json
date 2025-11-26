@@ -1,17 +1,25 @@
 {
+  "include": ["src/**/*", "src/types/**/*"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/mocks/**/*",
+    "src/seed.ts"
+  ],
   "compilerOptions": {
     "target": "es2015",
     "module": "commonjs",
     "lib": ["DOM", "ES2015"],
     "baseUrl": ".",
     "outDir": "./build",
-    "rootDir": "src",
+    "rootDir": ".",
     "strict": true,
     "noImplicitAny": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "moduleResolution": "node",
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "sourceMap": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
@@ -19,13 +27,22 @@
     "allowSyntheticDefaultImports": true,
     "pretty": true,
     "resolveJsonModule": true,
+    "typeRoots": ["./node_modules/@types", "./src/types"],
+    "types": [],
     "plugins": [
       { "transform": "typescript-transform-paths" },
-      { "transform": "typescript-transform-paths", "afterDeclarations": true },
+      { "transform": "typescript-transform-paths", "afterDeclarations": true }
     ],
     "paths": {
       "@auth/*": ["src/features/auth/*"],
       "@user/*": ["src/features/user/*"],
+      "@post/*": ["src/features/post/*"],
+      "@reaction/*": ["src/features/reactions/*"],
+      "@comment/*": ["src/features/comments/*"],
+      "@notification/*": ["src/features/notifications/*"],
+      "@follower/*": ["src/features/followers/*"],
+      "@image/*": ["src/features/images/*"],
+      "@chat/*": ["src/features/chat/*"],
       "@global/*": ["src/shared/globals/*"],
       "@service/*": ["src/shared/services/*"],
       "@socket/*": ["src/shared/sockets/*"],
@@ -34,4 +51,3 @@
     }
   }
 }
-
