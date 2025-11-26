@@ -209,6 +209,8 @@ jobs:
       - deploy_staging
       - deploy_production
     if: always()
+    environment:
+      name: ${{ github.ref == 'refs/heads/develop' && 'develop' || github.ref == 'refs/heads/staging' && 'staging' || github.ref == 'refs/heads/main' && 'production' || 'notify' }}
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
