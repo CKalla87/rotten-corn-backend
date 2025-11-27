@@ -61,21 +61,20 @@ variable "dev_api_server_domain" {
 variable "ec2_iam_role_name" {
   description = "EC2 IAM Role Name"
   type        = string
-  default     = "chatapp-server-ec2-role"
+  default     = ""
 }
 
 variable "ec2_iam_role_policy_name" {
   description = "EC2 IAM Role Policy Name"
   type        = string
-  default     = "chatapp-server-ec2-role-policy"
+  default     = ""
 }
 
 variable "ec2_instance_profile_name" {
   description = "EC2 Instance Profile Name"
   type        = string
-  default     = "chatapp-server-ec2-instance-profile"
+  default     = ""
 }
-
 variable "elasticache_node_type" {
   description = "Elasticache Node Type"
   type        = string
@@ -103,7 +102,7 @@ variable "bastion_host_type" {
 variable "code_deploy_role_name" {
   description = "CodeDeploy IAM Role"
   type        = string
-  default     = "chatapp-server-code-deploy-role"
+  default     = ""
 }
 
 variable "prefix" {
