@@ -80,7 +80,9 @@ export const updatedPost = {
   privacy: 'Private',
   gifUrl: '',
   imgId: '',
-  imgVersion: ''
+  imgVersion: '',
+  videoId: '',
+  videoVersion: ''
 };
 
 export const updatedPostWithImage = {
@@ -92,5 +94,7 @@ export const updatedPostWithImage = {
   gifUrl: '',
   imgId: '',
   imgVersion: '',
+  videoId: '',
+  videoVersion: '',
   image: ''
 };

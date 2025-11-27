@@ -1,0 +1,335 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - develop
+      - staging
+      - main
+  pull_request:
+    branches:
+      - develop
+      - staging
+      - main
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  quality:
+    name: Lint, Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint:check
+
+      - name: Run unit tests
+        run: npm run test
+
+      - name: Build TypeScript output
+        run: npm run build
+
+      - name: Create deployment package
+        run: |
+          chmod +x create-deployment-package.sh
+          ./create-deployment-package.sh
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatapp-${{ github.sha }}
+          path: chatapp.zip
+          compression-level: 0
+
+  deploy_develop:
+    name: Deploy to Develop
+    needs: quality
+    runs-on: ubuntu-latest
+    environment:
+      name: develop
+    if: github.ref == 'refs/heads/develop'
+    outputs:
+      bundle_key: ${{ steps.bundle.outputs.bundle_key }}
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    steps:
+      - name: Download deployment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chatapp-${{ github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload bundle to S3
+        id: bundle
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          BUNDLE_KEY="artifacts/develop/chatapp-${GITHUB_SHA}.zip"
+          echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
+          aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
+
+      - name: Create CodeDeploy deployment
+        id: deploy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
+            --file-exists-behavior OVERWRITE \
+            --query "deploymentId" \
+            --output text)
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "Triggered deployment ${DEPLOYMENT_ID}"
+
+  deploy_staging:
+    name: Deploy to Staging
+    needs: quality
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    if: github.ref == 'refs/heads/staging'
+    outputs:
+      bundle_key: ${{ steps.bundle.outputs.bundle_key }}
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    steps:
+      - name: Download deployment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chatapp-${{ github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload bundle to S3
+        id: bundle
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          BUNDLE_KEY="artifacts/staging/chatapp-${GITHUB_SHA}.zip"
+          echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
+          aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
+
+      - name: Create CodeDeploy deployment
+        id: deploy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
+            --file-exists-behavior OVERWRITE \
+            --query "deploymentId" \
+            --output text)
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "Triggered deployment ${DEPLOYMENT_ID}"
+
+  deploy_production:
+    name: Deploy to Production
+    needs: quality
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      bundle_key: ${{ steps.bundle.outputs.bundle_key }}
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    steps:
+      - name: Download deployment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chatapp-${{ github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload bundle to S3
+        id: bundle
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          BUNDLE_KEY="artifacts/production/chatapp-${GITHUB_SHA}.zip"
+          echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
+          aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
+
+      - name: Create CodeDeploy deployment
+        id: deploy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
+            --file-exists-behavior OVERWRITE \
+            --query "deploymentId" \
+            --output text)
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "Triggered deployment ${DEPLOYMENT_ID}"
+
+  notify:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    needs:
+      - quality
+      - deploy_develop
+      - deploy_staging
+      - deploy_production
+    if: always()
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Determine deployment status
+        id: status
+        run: |
+          QUALITY_RESULT="${{ needs.quality.result }}"
+          TARGET_ENV="none"
+          DEPLOY_RESULT="skipped"
+          DEPLOYMENT_ID=""
+          BUNDLE_KEY=""
+
+          case "${GITHUB_REF}" in
+            refs/heads/develop)
+              TARGET_ENV="develop"
+              DEPLOY_RESULT="${{ needs.deploy_develop.result }}"
+              DEPLOYMENT_ID="${{ needs.deploy_develop.outputs.deployment_id }}"
+              BUNDLE_KEY="${{ needs.deploy_develop.outputs.bundle_key }}"
+              ;;
+            refs/heads/staging)
+              TARGET_ENV="staging"
+              DEPLOY_RESULT="${{ needs.deploy_staging.result }}"
+              DEPLOYMENT_ID="${{ needs.deploy_staging.outputs.deployment_id }}"
+              BUNDLE_KEY="${{ needs.deploy_staging.outputs.bundle_key }}"
+              ;;
+            refs/heads/main)
+              TARGET_ENV="production"
+              DEPLOY_RESULT="${{ needs.deploy_production.result }}"
+              DEPLOYMENT_ID="${{ needs.deploy_production.outputs.deployment_id }}"
+              BUNDLE_KEY="${{ needs.deploy_production.outputs.bundle_key }}"
+              ;;
+          esac
+
+          FINAL_STATE="Job Failed. 🔴"
+          if [ "$QUALITY_RESULT" = "success" ] && { [ "$DEPLOY_RESULT" = "success" ] || [ "$DEPLOY_RESULT" = "skipped" ]; }; then
+            FINAL_STATE="Job Passed. ✅"
+          fi
+
+          echo "quality=$QUALITY_RESULT" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET_ENV" >> "$GITHUB_OUTPUT"
+          echo "deploy=$DEPLOY_RESULT" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
+          echo "final_state=$FINAL_STATE" >> "$GITHUB_OUTPUT"
+
+      - name: Send Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ steps.status.outputs.final_state }}",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Project*:\n${{ github.event.repository.name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Job*:\n${{ github.workflow }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch*:\n${{ github.ref_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment*:\n${{ steps.status.outputs.target }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Quality Gate*:\n${{ steps.status.outputs.quality }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Deploy*:\n${{ steps.status.outputs.deploy }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Deployment Id*:\n${{ steps.status.outputs.deployment_id }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Bundle*:\n${{ steps.status.outputs.bundle_key }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Author*:\n${{ github.triggering_actor }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*When*:\n${{ github.event.head_commit.timestamp }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Job"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
