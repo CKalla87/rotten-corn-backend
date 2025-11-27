@@ -1,5 +1,11 @@
+locals {
+  ec2_role_name         = length(var.ec2_iam_role_name) > 0 ? var.ec2_iam_role_name : "${var.prefix}-ec2-role"
+  ec2_role_policy_name  = length(var.ec2_iam_role_policy_name) > 0 ? var.ec2_iam_role_policy_name : "${var.prefix}-ec2-role-policy"
+  ec2_instance_profiler = length(var.ec2_instance_profile_name) > 0 ? var.ec2_instance_profile_name : "${var.prefix}-ec2-instance-profile"
+}
+
 resource "aws_iam_role" "ec2_iam_role" {
-  name = var.ec2_iam_role_name
+  name = local.ec2_role_name
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -16,7 +22,7 @@ resource "aws_iam_role" "ec2_iam_role" {
 }
 
 resource "aws_iam_role_policy" "ec2_iam_role_policy" {
-  name   = var.ec2_iam_role_policy_name
+  name   = local.ec2_role_policy_name
   role   = aws_iam_role.ec2_iam_role.id
   policy = <<EOF
 {
@@ -43,7 +49,7 @@ EOF
 }
 
 resource "aws_iam_instance_profile" "ec2_instance_profile" {
-  name = var.ec2_instance_profile_name
+  name = local.ec2_instance_profiler
   role = aws_iam_role.ec2_iam_role.name
 }
 
