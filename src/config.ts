@@ -31,7 +31,7 @@ class Config {
     this.SECRET_KEY_TWO = process.env.SECRET_KEY_TWO || '';
     this.CLIENT_URL = process.env.CLIENT_URL || '';
     this.REDIS_HOST = process.env.REDIS_HOST || '';
-    this.CLOUD_NAME = process.env.CLOUD_NAME || '';
+    this.CLOUD_NAME = process.env.CLOUD_NAME || 'dajmo61zu';
     this.CLOUD_API_KEY = process.env.CLOUD_API_KEY || '';
     this.CLOUD_API_SECRET = process.env.CLOUD_API_SECRET || '';
     this.SENDER_EMAIL = process.env.SENDER_EMAIL || '';

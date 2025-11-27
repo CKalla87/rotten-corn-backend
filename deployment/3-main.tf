@@ -8,7 +8,7 @@ terraform {
 }
 
 locals {
-  prefix = "${var.prefix}-${terraform.workspace}"
+  prefix = var.prefix
 
   common_tags = {
     Environment = terraform.workspace
