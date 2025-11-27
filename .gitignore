@@ -149,4 +149,7 @@ build
 # Ignore redis binary dump (dump.rdb) files
 *.rdb
 
+# Terraform variable files (contain secrets)
+*.tfvars
+
 # End of https://www.toptal.com/developers/gitignore/api/node
