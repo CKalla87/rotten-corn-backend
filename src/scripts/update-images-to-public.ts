@@ -1,7 +1,7 @@
 /**
  * Script to update all existing Cloudinary images to public access mode
  * Run this script to fix 401 errors on existing images
- * 
+ *
  * Usage: npx ts-node src/scripts/update-images-to-public.ts
  */
 
@@ -31,7 +31,7 @@ async function updateImageAccessMode(publicId: string, resourceType: 'image' | '
         type: 'upload',
         access_mode: 'public',
       },
-      (error, result) => {
+      (error) => {
         if (error) {
           console.error(`Failed to update ${publicId}:`, error.message);
           resolve(false);
@@ -132,9 +132,8 @@ async function main() {
   try {
     console.log('Connecting to database...');
     databaseConnection();
-    
+
     // Wait for database connection
-    const mongoose = require('mongoose');
     await new Promise((resolve) => {
       if (mongoose.connection.readyState === 1) {
         resolve(true);

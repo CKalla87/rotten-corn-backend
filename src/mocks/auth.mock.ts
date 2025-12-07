@@ -2,6 +2,7 @@
 import { AuthPayload, IAuthDocument } from '@auth/interfaces/auth.interface';
 import { Response } from 'express';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const authMockRequest = (sessionData: IJWT, body: IAuthMock, currentUser?: AuthPayload | null, params?: any) => ({
   session: sessionData,
   body,

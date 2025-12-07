@@ -29,21 +29,21 @@ export class Add {
     }
 
     const url = getCloudinaryImageUrl(result.public_id, result.version);
-    
+
     // Update profileImageVersion first
-    const cachedUserAfterVersion: IUserDocument = (await userCache.updateSingleUserItemInCache(
+    await userCache.updateSingleUserItemInCache(
       `${req.currentUser!.userId}`,
       'profileImageVersion',
       result.version.toString()
-    )) as IUserDocument;
-    
+    );
+
     // Update profileImageId
-    const cachedUserAfterId: IUserDocument = (await userCache.updateSingleUserItemInCache(
+    await userCache.updateSingleUserItemInCache(
       `${req.currentUser!.userId}`,
       'profileImageId',
       result.public_id
-    )) as IUserDocument;
-    
+    );
+
     // Update profilePicture URL
     const cachedUser: IUserDocument = (await userCache.updateSingleUserItemInCache(
       `${req.currentUser!.userId}`,
@@ -58,7 +58,7 @@ export class Add {
       imgId: result.public_id,
       imgVersion: result.version.toString()
     });
-    res.status(HTTP_STATUS.OK).json({ 
+    res.status(HTTP_STATUS.OK).json({
       message: 'Image added successfully',
       user: cachedUser
     });

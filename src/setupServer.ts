@@ -66,7 +66,7 @@ export class RottenCornServer {
     app.use(compression());
     app.use(json({ limit: '50mb' }));
     app.use(urlencoded({ extended: true, limit: '50mb' }));
-    
+
     // Request logging middleware for debugging
     if (config.NODE_ENV === 'development') {
       app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -113,7 +113,7 @@ export class RottenCornServer {
 
   private globalErrorHandler(app: Application): void {
     // Error handler middleware - must come before catch-all route
-    app.use((error: IErrorResponse, req: Request, res: Response, next: NextFunction) => {
+    app.use((error: IErrorResponse, req: Request, res: Response) => {
       log.error(`Error on ${req.method} ${req.originalUrl}:`, error);
       if (error instanceof CustomError) {
         return res.status(error.statusCode).json(error.serializeErrors());
@@ -129,7 +129,7 @@ export class RottenCornServer {
     // Handling urls that do not exist - must come last
     app.all('*', (req: Request, res: Response) => {
       log.warn(`Route not found: ${req.method} ${req.originalUrl}`);
-      res.status(HTTP_STATUS.NOT_FOUND).json({ 
+      res.status(HTTP_STATUS.NOT_FOUND).json({
         message: `${req.originalUrl} not found`,
         status: 'error',
         statusCode: HTTP_STATUS.NOT_FOUND

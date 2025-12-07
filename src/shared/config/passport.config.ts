@@ -4,7 +4,6 @@ import { Strategy as GitHubStrategy } from 'passport-github2';
 import { Strategy as FacebookStrategy } from 'passport-facebook';
 import { config } from '@root/config';
 import { AuthModel } from '@auth/models/auth.schema';
-import { UserModel } from '@user/models/user.schema';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { ObjectId } from 'mongodb';
@@ -27,7 +26,8 @@ passport.use(
       clientSecret: config.GOOGLE_CLIENT_SECRET!,
       callbackURL: '/api/v1/auth/google/callback'
     },
-    async (accessToken: string, refreshToken: string, profile: any, done: (error: any, user?: any) => void) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
       try {
         const email = profile.emails?.[0]?.value;
         if (!email) {
@@ -138,7 +138,8 @@ passport.use(
       clientSecret: config.GITHUB_CLIENT_SECRET!,
       callbackURL: '/api/v1/auth/github/callback'
     },
-    async (accessToken: string, refreshToken: string, profile: any, done: (error: any, user?: any) => void) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
       try {
         // GitHub profile might not include email
         const email = profile.emails?.[0]?.value || `${profile.username}@users.noreply.github.com`;
@@ -248,7 +249,8 @@ passport.use(
       callbackURL: '/api/v1/auth/facebook/callback',
       profileFields: ['id', 'displayName', 'email', 'picture.type(large)']
     },
-    async (accessToken: string, refreshToken: string, profile: any, done: (error: any, user?: any) => void) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
       try {
         const email = profile.emails?.[0]?.value;
         if (!email) {
