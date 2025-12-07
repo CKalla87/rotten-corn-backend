@@ -117,4 +117,3 @@ async function seedUserData(count: number): Promise<void> {
 }
 
 seedUserData(10);
-

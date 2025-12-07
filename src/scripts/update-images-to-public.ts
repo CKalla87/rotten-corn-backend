@@ -29,7 +29,7 @@ async function updateImageAccessMode(publicId: string, resourceType: 'image' | '
       {
         resource_type: resourceType,
         type: 'upload',
-        access_mode: 'public',
+        access_mode: 'public'
       },
       (error) => {
         if (error) {
@@ -48,17 +48,14 @@ async function updateAllImages(): Promise<UpdateResult> {
   const result: UpdateResult = {
     success: 0,
     failed: 0,
-    errors: [],
+    errors: []
   };
 
   try {
     // Update images from posts
     console.log('Updating images from posts...');
     const posts = await PostModel.find({
-      $or: [
-        { imgId: { $exists: true, $ne: '' } },
-        { videoId: { $exists: true, $ne: '' } },
-      ],
+      $or: [{ imgId: { $exists: true, $ne: '' } }, { videoId: { $exists: true, $ne: '' } }]
     }).exec();
 
     for (const post of posts) {
@@ -101,10 +98,7 @@ async function updateAllImages(): Promise<UpdateResult> {
     // Update user profile pictures and background images
     console.log('Updating user profile images...');
     const users = await UserModel.find({
-      $or: [
-        { profilePicture: { $exists: true, $ne: '' } },
-        { bgImageId: { $exists: true, $ne: '' } },
-      ],
+      $or: [{ profilePicture: { $exists: true, $ne: '' } }, { bgImageId: { $exists: true, $ne: '' } }]
     }).exec();
 
     for (const user of users) {
@@ -170,4 +164,3 @@ if (require.main === module) {
 }
 
 export { updateAllImages, updateImageAccessMode };
-

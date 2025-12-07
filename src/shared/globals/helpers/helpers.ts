@@ -134,7 +134,7 @@ export class Helpers {
         /\/null\//,
         /res\.cloudingary\.com/, // Common typo
         /res\/cloudingary\.com/, // Another typo
-        /\/v0\//, // Version 0 often indicates missing/placeholder images
+        /\/v0\// // Version 0 often indicates missing/placeholder images
       ];
 
       for (const pattern of brokenPatterns) {

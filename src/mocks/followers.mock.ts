@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { IJWT } from './auth.mock';
 import { AuthPayload } from '@auth/interfaces/auth.interface';
-import {  existingUser as existingUserTwo } from './user.mock';
+import { existingUser as existingUserTwo } from './user.mock';
 import mongoose from 'mongoose';
 import { IFollowerData } from '@root/features/followers/interfaces/follower.interface';
 

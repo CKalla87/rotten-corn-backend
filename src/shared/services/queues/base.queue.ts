@@ -60,7 +60,7 @@ export abstract class BaseQueue {
   }
 
   protected addJob(name: string, data: IBaseJobData): void {
-    this.queue.add(name, data, { attempts: 3, backoff: { type: 'fixed', delay: 5000 }});
+    this.queue.add(name, data, { attempts: 3, backoff: { type: 'fixed', delay: 5000 } });
   }
 
   protected processJob(name: string, concurrency: number, callback: Queue.ProcessCallbackFunction<void>): void {

@@ -5,18 +5,21 @@ import mongoose from 'mongoose';
 
 class ImageService {
   public async addUserProfileImageToDB(userId: string, url: string, imgId: string, imgVersion: string): Promise<void> {
-    await UserModel.updateOne({ _id: userId }, { 
-      $set: { 
-        profilePicture: url,
-        profileImageId: imgId,
-        profileImageVersion: imgVersion
+    await UserModel.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          profilePicture: url,
+          profileImageId: imgId,
+          profileImageVersion: imgVersion
+        }
       }
-    }).exec();
+    ).exec();
     await this.addImage(userId, imgId, imgVersion, 'profile');
   }
 
   public async addBackgroundImageToDB(userId: string, url: string, imgId: string, imgVersion: string): Promise<void> {
-    await UserModel.updateOne({ _id: userId }, { $set: { bgImageId: imgId, bgImageVersion: imgVersion }}).exec();
+    await UserModel.updateOne({ _id: userId }, { $set: { bgImageId: imgId, bgImageVersion: imgVersion } }).exec();
     await this.addImage(userId, imgId, imgVersion, 'background');
   }
 
@@ -40,9 +43,7 @@ class ImageService {
   }
 
   public async getImages(userId: string): Promise<IFileImageDocument[]> {
-    const images: IFileImageDocument[] = await ImageModel.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId) } }
-    ]);
+    const images: IFileImageDocument[] = await ImageModel.aggregate([{ $match: { userId: new mongoose.Types.ObjectId(userId) } }]);
     return images;
   }
 }

@@ -29,11 +29,7 @@ export class Create {
     let normalizedProfilePicture = '';
     try {
       if (profilePicture) {
-        normalizedProfilePicture = Helpers.normalizeProfilePicture(
-          profilePicture,
-          req.currentUser!.username,
-          req.currentUser!.avatarColor
-        );
+        normalizedProfilePicture = Helpers.normalizeProfilePicture(profilePicture, req.currentUser!.username, req.currentUser!.avatarColor);
       } else {
         // Try to get from cache, but don't block if it fails
         const currentUser = await userCache.getUserFromCache(`${req.currentUser!.userId}`).catch(() => null);
@@ -72,8 +68,8 @@ export class Create {
       uId: `${req.currentUser!.uId}`,
       createdPost
     });
-    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
-    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created successfully'});
+    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost });
+    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created successfully' });
   }
 
   @joiValidation(postWithImageSchema)
@@ -93,7 +89,7 @@ export class Create {
         await cloudinary.v2.uploader.explicit(result.public_id, {
           resource_type: 'image',
           type: 'upload',
-          access_mode: 'public',
+          access_mode: 'public'
         });
         log.info(`Successfully updated ${result.public_id} to public access`);
       } catch (updateError) {
@@ -106,11 +102,7 @@ export class Create {
     let normalizedProfilePicture = '';
     try {
       if (profilePicture) {
-        normalizedProfilePicture = Helpers.normalizeProfilePicture(
-          profilePicture,
-          req.currentUser!.username,
-          req.currentUser!.avatarColor
-        );
+        normalizedProfilePicture = Helpers.normalizeProfilePicture(profilePicture, req.currentUser!.username, req.currentUser!.avatarColor);
       } else {
         const currentUser = await userCache.getUserFromCache(`${req.currentUser!.userId}`).catch(() => null);
         normalizedProfilePicture = currentUser
@@ -147,10 +139,10 @@ export class Create {
       uId: `${req.currentUser!.uId}`,
       createdPost
     });
-    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost });
     // call image queue to add image to mongodb database
 
-    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with image successfully'});
+    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with image successfully' });
   }
 
   @joiValidation(postWithVideoSchema)
@@ -186,15 +178,21 @@ export class Create {
     let result: UploadApiResponse;
     try {
       result = (await videoUpload(videoInput)) as UploadApiResponse;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (uploadError: any) {
       log.error('Video upload error', uploadError);
-      throw new BadRequestError(uploadError?.message || 'Video upload failed. Please provide a valid video file as a base64 data URI (data:video/mp4;base64,...) or a direct video URL.');
+      throw new BadRequestError(
+        uploadError?.message ||
+          'Video upload failed. Please provide a valid video file as a base64 data URI (data:video/mp4;base64,...) or a direct video URL.'
+      );
     }
 
     if (!result?.public_id) {
       log.error('Video upload failed - no public_id returned', result);
-      throw new BadRequestError(result?.message || 'Video upload failed. Please provide a valid video file as a base64 data URI (data:video/mp4;base64,...) or a direct video URL.');
+      throw new BadRequestError(
+        result?.message ||
+          'Video upload failed. Please provide a valid video file as a base64 data URI (data:video/mp4;base64,...) or a direct video URL.'
+      );
     }
 
     log.info('Video upload successful', {
@@ -207,11 +205,7 @@ export class Create {
     let normalizedProfilePicture = '';
     try {
       if (profilePicture) {
-        normalizedProfilePicture = Helpers.normalizeProfilePicture(
-          profilePicture,
-          req.currentUser!.username,
-          req.currentUser!.avatarColor
-        );
+        normalizedProfilePicture = Helpers.normalizeProfilePicture(profilePicture, req.currentUser!.username, req.currentUser!.avatarColor);
       } else {
         const currentUser = await userCache.getUserFromCache(`${req.currentUser!.userId}`).catch(() => null);
         normalizedProfilePicture = currentUser
@@ -250,8 +244,8 @@ export class Create {
       uId: `${req.currentUser!.uId}`,
       createdPost
     });
-    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost });
 
-    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with video successfully'});
+    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with video successfully' });
   }
 }

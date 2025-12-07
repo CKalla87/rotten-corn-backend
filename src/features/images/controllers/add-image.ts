@@ -17,12 +17,7 @@ const userCache: UserCache = new UserCache();
 export class Add {
   @joiValidation(addImageSchema)
   public async profileImage(req: Request, res: Response): Promise<void> {
-    const result: UploadApiResponse = (await uploads(
-      req.body.image,
-      req.currentUser!.userId,
-      true,
-      true
-    )) as UploadApiResponse;
+    const result: UploadApiResponse = (await uploads(req.body.image, req.currentUser!.userId, true, true)) as UploadApiResponse;
 
     if (!result?.public_id) {
       throw new BadRequestError('File upload: Error occurred. Try again.');
@@ -31,18 +26,10 @@ export class Add {
     const url = getCloudinaryImageUrl(result.public_id, result.version);
 
     // Update profileImageVersion first
-    await userCache.updateSingleUserItemInCache(
-      `${req.currentUser!.userId}`,
-      'profileImageVersion',
-      result.version.toString()
-    );
+    await userCache.updateSingleUserItemInCache(`${req.currentUser!.userId}`, 'profileImageVersion', result.version.toString());
 
     // Update profileImageId
-    await userCache.updateSingleUserItemInCache(
-      `${req.currentUser!.userId}`,
-      'profileImageId',
-      result.public_id
-    );
+    await userCache.updateSingleUserItemInCache(`${req.currentUser!.userId}`, 'profileImageId', result.public_id);
 
     // Update profilePicture URL
     const cachedUser: IUserDocument = (await userCache.updateSingleUserItemInCache(

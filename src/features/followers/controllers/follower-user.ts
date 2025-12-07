@@ -16,16 +16,8 @@ export class Add {
   public async follower(req: Request, res: Response): Promise<void> {
     const { followerId } = req.params;
 
-    const followersCount: Promise<void> = followerCache.updateFollowersCountInCache(
-      `${followerId}`,
-      'followersCount',
-      1
-    );
-    const followeeCount: Promise<void> = followerCache.updateFollowersCountInCache(
-      `${req.currentUser!.userId}`,
-      'followingCount',
-      1
-    );
+    const followersCount: Promise<void> = followerCache.updateFollowersCountInCache(`${followerId}`, 'followersCount', 1);
+    const followeeCount: Promise<void> = followerCache.updateFollowersCountInCache(`${req.currentUser!.userId}`, 'followingCount', 1);
 
     await Promise.all([followersCount, followeeCount]);
 
@@ -38,10 +30,8 @@ export class Add {
     const followerData: IFollowerData = Add.prototype.userData(currentUserProfile);
     socketIOFollowerObject.emit('add follower', followerData);
 
-    const addFollowerToCache: Promise<void> = followerCache.saveFollowerToCache(
-      `followers:${followerId}`, `${req.currentUser!.userId}`);
-    const addFolloweeToCache: Promise<void> = followerCache.saveFollowerToCache(
-      `following:${req.currentUser!.userId}`, `${followerId}`);
+    const addFollowerToCache: Promise<void> = followerCache.saveFollowerToCache(`followers:${followerId}`, `${req.currentUser!.userId}`);
+    const addFolloweeToCache: Promise<void> = followerCache.saveFollowerToCache(`following:${req.currentUser!.userId}`, `${followerId}`);
     await Promise.all([addFollowerToCache, addFolloweeToCache]);
 
     const databasePayload: IFollowerJobData = {
@@ -55,7 +45,7 @@ export class Add {
     res.status(HTTP_STATUS.OK).json({ message: 'Following user now' });
   }
 
-  private userData(user: IUserDocument): IFollowerData  {
+  private userData(user: IUserDocument): IFollowerData {
     return {
       _id: new mongoose.Types.ObjectId(user._id),
       username: user.username!,
@@ -68,5 +58,4 @@ export class Add {
       userProfile: user
     };
   }
-
 }

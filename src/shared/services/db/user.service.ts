@@ -12,38 +12,30 @@ class UserService {
 
   public async getUserById(userId: string): Promise<IUserDocument> {
     const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(userId)}},
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
-      { $unwind: '$authId'},
-      { $project: this.aggregateProject()}
+      { $match: { _id: new mongoose.Types.ObjectId(userId) } },
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
+      { $unwind: '$authId' },
+      { $project: this.aggregateProject() }
     ]);
     const user = users[0];
     if (user) {
       // Normalize profile picture - replace broken URLs with initials avatar
-      user.profilePicture = Helpers.normalizeProfilePicture(
-        user.profilePicture,
-        user.username,
-        user.avatarColor
-      );
+      user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
     }
     return user;
   }
 
   public async getUserByAuthId(authId: string): Promise<IUserDocument> {
     const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { authId: new mongoose.Types.ObjectId(authId)}},
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
-      { $unwind: '$authId'},
-      { $project: this.aggregateProject()}
+      { $match: { authId: new mongoose.Types.ObjectId(authId) } },
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
+      { $unwind: '$authId' },
+      { $project: this.aggregateProject() }
     ]);
     const user = users[0];
     if (user) {
       // Normalize profile picture - replace broken URLs with initials avatar
-      user.profilePicture = Helpers.normalizeProfilePicture(
-        user.profilePicture,
-        user.username,
-        user.avatarColor
-      );
+      user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
     }
     return user;
   }
@@ -59,12 +51,8 @@ class UserService {
       { $project: this.aggregateProject() }
     ]);
     // Normalize profile pictures for all users
-    return users.map(user => {
-      user.profilePicture = Helpers.normalizeProfilePicture(
-        user.profilePicture,
-        user.username,
-        user.avatarColor
-      );
+    return users.map((user) => {
+      user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
       return user;
     });
   }
@@ -97,11 +85,7 @@ class UserService {
       const followerIndex = followers.indexOf(user._id.toString());
       if (followerIndex < 0) {
         // Normalize profile picture - replace broken URLs with initials avatar
-        user.profilePicture = Helpers.normalizeProfilePicture(
-          user.profilePicture,
-          user.username,
-          user.avatarColor
-        );
+        user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
         randomUsers.push(user);
       }
     }
@@ -129,13 +113,9 @@ class UserService {
       }
     ]);
     // Normalize profile pictures for search results
-    return users.map(user => ({
+    return users.map((user) => ({
       ...user,
-      profilePicture: Helpers.normalizeProfilePicture(
-        user.profilePicture,
-        user.username,
-        user.avatarColor
-      )
+      profilePicture: Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor)
     }));
   }
 

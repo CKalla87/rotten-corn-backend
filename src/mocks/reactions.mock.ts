@@ -59,7 +59,7 @@ export const commentsData: any = {
   comment: 'This is a comment',
   createdAt: new Date(),
   userTo: '60263f14648fed5246e322d9'
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
