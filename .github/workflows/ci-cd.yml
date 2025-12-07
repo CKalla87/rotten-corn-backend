@@ -7,11 +7,6 @@ on:
       - staging
       - main
   pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - closed
     branches:
       - develop
       - staging
@@ -113,14 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-    if: |
-      github.ref == 'refs/heads/staging' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.action == 'closed' &&
-        github.event.pull_request.merged == true &&
-        github.event.pull_request.base.ref == 'staging'
-      )
+    if: github.ref == 'refs/heads/staging'
     outputs:
       bundle_key: ${{ steps.bundle.outputs.bundle_key }}
       deployment_id: ${{ steps.deploy.outputs.deployment_id }}
@@ -169,14 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-    if: |
-      github.ref == 'refs/heads/main' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.action == 'closed' &&
-        github.event.pull_request.merged == true &&
-        github.event.pull_request.base.ref == 'main'
-      )
+    if: github.ref == 'refs/heads/main'
     outputs:
       bundle_key: ${{ steps.bundle.outputs.bundle_key }}
       deployment_id: ${{ steps.deploy.outputs.deployment_id }}
@@ -228,6 +209,8 @@ jobs:
       - deploy_staging
       - deploy_production
     if: always()
+    environment:
+      name: ${{ github.ref == 'refs/heads/develop' && 'develop' || github.ref == 'refs/heads/staging' && 'staging' || github.ref == 'refs/heads/main' && 'production' || 'notify' }}
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:

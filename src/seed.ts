@@ -5,7 +5,7 @@ import axios from 'axios';
 import { createCanvas } from '@napi-rs/canvas';
 
 dotenv.config({});
-
+// For seed
 function avatarColor(): string {
   const colors: string[] = [
     '#f44336',
