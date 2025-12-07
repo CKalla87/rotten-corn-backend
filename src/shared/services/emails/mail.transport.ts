@@ -24,7 +24,7 @@ class MailTransport {
     if (config.NODE_ENV === 'test' || config.NODE_ENV === 'development') {
       this.developmentEmailSender(receiverEmail, subject, body);
     } else {
-      this.productionEmailSender(receiverEmail,subject, body);
+      this.productionEmailSender(receiverEmail, subject, body);
     }
   }
 
@@ -35,8 +35,8 @@ class MailTransport {
       secure: false,
       auth: {
         user: config.SENDER_EMAIL!,
-        pass: config.SENDER_EMAIL_PASSWORD!,
-      },
+        pass: config.SENDER_EMAIL_PASSWORD!
+      }
     });
 
     const mailOptions: IMailOptions = {

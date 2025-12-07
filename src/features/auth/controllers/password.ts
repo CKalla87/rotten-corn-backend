@@ -29,8 +29,8 @@ export class Password {
 
     const resetLink = `${config.CLIENT_URL}/reset-password?tokent=${randomCharacters}`;
     const template: string = forgotPasswordTemplate.passwordResetTemplate(existingUser.username!, resetLink);
-    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: email, subject: 'Reset your password'});
-    res.status(HTTP_STATUS.OK).json({ message: 'Password reset email sent.'});
+    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: email, subject: 'Reset your password' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Password reset email sent.' });
   }
 
   @joiValidation(passwordSchema)
@@ -58,7 +58,7 @@ export class Password {
       date: moment().format('DD/MM/YYY HH:mm')
     };
     const template: string = resetPasswordTemplate.passwordResetConfirmationTemplate(templateParams);
-    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: existingUser.email!, subject: 'Password Reset Confirmation'});
-    res.status(HTTP_STATUS.OK).json({ message: 'Password successfully updated.'});
+    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: existingUser.email!, subject: 'Password Reset Confirmation' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Password successfully updated.' });
   }
 }

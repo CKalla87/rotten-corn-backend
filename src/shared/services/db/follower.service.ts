@@ -9,6 +9,7 @@ import { notificationTemplate } from '@service/emails/templates/notifications/no
 import { emailQueue } from '@service/queues/email.queue';
 import mongoose from 'mongoose';
 import { ObjectId, BulkWriteResult } from 'mongodb';
+import { Helpers } from '@global/helpers/helpers';
 
 class FollowerService {
   public async addFollowerToDB(userId: string, followeeId: string, username: string, followerDocumentId: ObjectId): Promise<void> {
@@ -36,10 +37,7 @@ class FollowerService {
       }
     ]);
 
-    const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([
-      users,
-      UserModel.findOne({ _id: followeeObjectId })
-    ]);
+    const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([users, UserModel.findOne({ _id: followeeObjectId })]);
 
     if (response[1]?.notifications?.follows && userId !== followeeId) {
       const notificationModel: INotificationDocument = new NotificationModel();
@@ -133,7 +131,11 @@ class FollowerService {
         }
       }
     ]);
-    return followee;
+    // Normalize profile pictures for all followees
+    return followee.map((follower) => {
+      follower.profilePicture = Helpers.normalizeProfilePicture(follower.profilePicture, follower.username, follower.avatarColor);
+      return follower;
+    });
   }
 
   public async getFollowerData(userObjectId: ObjectId): Promise<IFollowerData[]> {
@@ -166,7 +168,15 @@ class FollowerService {
         }
       }
     ]);
-    return follower;
+    // Normalize profile pictures for all followers
+    return follower.map((followerData) => {
+      followerData.profilePicture = Helpers.normalizeProfilePicture(
+        followerData.profilePicture,
+        followerData.username,
+        followerData.avatarColor
+      );
+      return followerData;
+    });
   }
 
   public async getFolloweesIds(userId: string): Promise<string[]> {

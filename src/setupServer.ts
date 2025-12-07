@@ -66,6 +66,21 @@ export class RottenCornServer {
     app.use(compression());
     app.use(json({ limit: '50mb' }));
     app.use(urlencoded({ extended: true, limit: '50mb' }));
+
+    // Request logging middleware for debugging
+    if (config.NODE_ENV === 'development') {
+      app.use((req: Request, _res: Response, next: NextFunction) => {
+        if (req.path.startsWith('/api/v1/post')) {
+          log.info(`[POST DEBUG] ${req.method} ${req.path}`, {
+            bodyKeys: Object.keys(req.body || {}),
+            hasAuth: !!req.session?.jwt,
+            contentType: req.get('content-type'),
+            contentLength: req.get('content-length')
+          });
+        }
+        next();
+      });
+    }
   }
 
   private routeMiddleware(app: Application): void {
@@ -97,17 +112,28 @@ export class RottenCornServer {
   }
 
   private globalErrorHandler(app: Application): void {
-    // Handling urls that do not exist.
-    app.all('*', (req: Request, res: Response) => {
-      res.status(HTTP_STATUS.NOT_FOUND).json({ message: `${req.originalUrl} not found` });
-    });
-
-    app.use((error: IErrorResponse, _req: Request, res: Response, next: NextFunction) => {
-      log.error(error);
+    // Error handler middleware - must come before catch-all route
+    app.use((error: IErrorResponse, req: Request, res: Response) => {
+      log.error(`Error on ${req.method} ${req.originalUrl}:`, error);
       if (error instanceof CustomError) {
         return res.status(error.statusCode).json(error.serializeErrors());
       }
-      next();
+      // Handle non-CustomError errors
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: error.message || 'Internal server error',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    });
+
+    // Handling urls that do not exist - must come last
+    app.all('*', (req: Request, res: Response) => {
+      log.warn(`Route not found: ${req.method} ${req.originalUrl}`);
+      res.status(HTTP_STATUS.NOT_FOUND).json({
+        message: `${req.originalUrl} not found`,
+        status: 'error',
+        statusCode: HTTP_STATUS.NOT_FOUND
+      });
     });
   }
 

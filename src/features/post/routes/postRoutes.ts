@@ -29,6 +29,6 @@ class PostRoutes {
 
     return this.router;
   }
-};
+}
 
 export const postRoutes: PostRoutes = new PostRoutes();

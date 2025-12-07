@@ -56,10 +56,7 @@ export class MessageCache extends BaseCache {
       }
 
       const users: IChatUsers[] = await this.getChatUsersList();
-      const usersIndex: number = findIndex(
-        users,
-        (listItem: IChatUsers) => JSON.stringify(listItem) === JSON.stringify(value)
-      );
+      const usersIndex: number = findIndex(users, (listItem: IChatUsers) => JSON.stringify(listItem) === JSON.stringify(value));
 
       let chatUsers: IChatUsers[] = [];
       if (usersIndex === -1) {
@@ -83,10 +80,7 @@ export class MessageCache extends BaseCache {
       }
 
       const users: IChatUsers[] = await this.getChatUsersList();
-      const usersIndex: number = findIndex(
-        users,
-        (listItem: IChatUsers) => JSON.stringify(listItem) === JSON.stringify(value)
-      );
+      const usersIndex: number = findIndex(users, (listItem: IChatUsers) => JSON.stringify(listItem) === JSON.stringify(value));
 
       let chatUsers: IChatUsers[] = [];
       if (usersIndex > -1) {
@@ -151,12 +145,7 @@ export class MessageCache extends BaseCache {
     }
   }
 
-  public async markMessageAsDeleted(
-    senderId: string,
-    receiverId: string,
-    messageId: string,
-    type: string
-  ): Promise<IMessageData> {
+  public async markMessageAsDeleted(senderId: string, receiverId: string, messageId: string, type: string): Promise<IMessageData> {
     try {
       if (!this.client.isOpen) {
         await this.client.connect();

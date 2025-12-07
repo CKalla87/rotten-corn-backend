@@ -35,18 +35,8 @@ export class AddUser {
   }
 
   private async updateBlockedUser(followerId: string, userId: string, type: 'block' | 'unblock'): Promise<void> {
-    const blocked: Promise<void> = followerCache.updateBlockedUserPropInCache(
-      `${userId}`,
-      'blocked',
-      `${followerId}`,
-      type
-    );
-    const blockedBy: Promise<void> = followerCache.updateBlockedUserPropInCache(
-      `${followerId}`,
-      'blockedBy',
-      `${userId}`,
-      type
-    );
+    const blocked: Promise<void> = followerCache.updateBlockedUserPropInCache(`${userId}`, 'blocked', `${followerId}`, type);
+    const blockedBy: Promise<void> = followerCache.updateBlockedUserPropInCache(`${followerId}`, 'blockedBy', `${userId}`, type);
     await Promise.all([blocked, blockedBy]);
   }
 }

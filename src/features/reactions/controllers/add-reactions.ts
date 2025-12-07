@@ -34,6 +34,6 @@ export class Add {
       reactionObject
     };
     reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
-    response.status(HTTP_STATUS.OK).json({ message: 'Reaction added successfully'});
+    response.status(HTTP_STATUS.OK).json({ message: 'Reaction added successfully' });
   }
 }
