@@ -37,12 +37,12 @@ if [ $(program_is_installed pm2) == 0 ]; then
 fi
 
 cd /home/ec2-user
-git clone -b main https://github.com/uzochukwueddie/chatty-backend.git
+git clone -b develop https://github.com/uzochukwueddie/chatty-backend.git
 cd chatty-backend
 npm install
-aws s3 sync s3://chattapplication1-env-files/production .
+aws s3 sync s3://chattapplication1-env-files/develop .
 unzip env-file.zip
-cp .env.production .env
+cp .env.develop .env
 npm run build
 npm run start
 
