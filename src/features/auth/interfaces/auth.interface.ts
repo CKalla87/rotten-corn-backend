@@ -19,6 +19,21 @@ export interface AuthPayload {
   iat?: number;
 }
 
+export interface IOAuthProvider {
+  google?: {
+    id?: string;
+    email?: string;
+  };
+  github?: {
+    id?: string;
+    username?: string;
+  };
+  facebook?: {
+    id?: string;
+    email?: string;
+  };
+}
+
 export interface IAuthDocument extends Document {
   _id: string | ObjectId;
   uId: string;
@@ -29,6 +44,7 @@ export interface IAuthDocument extends Document {
   createdAt: Date;
   passwordResetToken?: string;
   passwordResetExpires?: number | string;
+  oauth?: IOAuthProvider;
   comparePassword(password: string): Promise<boolean>;
   hashPassword(password: string): Promise<string>;
 }

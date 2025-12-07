@@ -5,7 +5,13 @@ import mongoose from 'mongoose';
 
 class ImageService {
   public async addUserProfileImageToDB(userId: string, url: string, imgId: string, imgVersion: string): Promise<void> {
-    await UserModel.updateOne({ _id: userId }, { $set: { profilePicture: url }}).exec();
+    await UserModel.updateOne({ _id: userId }, { 
+      $set: { 
+        profilePicture: url,
+        profileImageId: imgId,
+        profileImageVersion: imgVersion
+      }
+    }).exec();
     await this.addImage(userId, imgId, imgVersion, 'profile');
   }
 
