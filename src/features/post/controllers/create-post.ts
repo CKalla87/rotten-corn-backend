@@ -186,6 +186,7 @@ export class Create {
     let result: UploadApiResponse;
     try {
       result = (await videoUpload(videoInput)) as UploadApiResponse;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (uploadError: any) {
       log.error('Video upload error', uploadError);
       throw new BadRequestError(uploadError?.message || 'Video upload failed. Please provide a valid video file as a base64 data URI (data:video/mp4;base64,...) or a direct video URL.');

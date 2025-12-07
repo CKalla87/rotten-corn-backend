@@ -98,7 +98,6 @@ export class OAuthController {
    */
   public async exchangeCode(req: Request, res: Response): Promise<void> {
     try {
-      const { provider } = req.params;
       const { code } = req.body;
 
       if (!code) {

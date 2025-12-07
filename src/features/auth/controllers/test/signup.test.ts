@@ -207,6 +207,7 @@ describe('SignUp', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     jest.spyOn(authService, 'getUserByUsernameOrEmail').mockResolvedValue(null as any);
     const userSpy = jest.spyOn(UserCache.prototype, 'saveUserToCache');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     jest.spyOn(cloudinaryUploads, 'uploads').mockImplementation((): any => Promise.resolve({ version: '1234737373', public_id: '123456'}));
 
     await SignUp.prototype.create(req, res);

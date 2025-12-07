@@ -58,7 +58,7 @@ export function uploads(
                  type: 'upload',
                  access_mode: 'public',
                },
-               (updateError, updateResult) => {
+               (updateError) => {
                  if (updateError) {
                    log.error(`Failed to update ${result.public_id} to public`, updateError);
                  } else {
@@ -81,6 +81,7 @@ export function videoUpload(
   invalidate?: boolean
 ): Promise<UploadApiResponse | UploadApiErrorResponse | undefined> {
   return new Promise((resolve) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const uploadOptions: any = {
       resource_type: 'video',
       chunk_size: 50000,
@@ -136,7 +137,7 @@ export function videoUpload(
                  type: 'upload',
                  access_mode: 'public',
                },
-               (updateError, updateResult) => {
+               (updateError) => {
                  if (updateError) {
                    log.error(`Failed to update video ${result.public_id} to public`, updateError);
                  } else {
@@ -212,6 +213,7 @@ export function getCloudinaryVideoUrl(publicId: string, version?: string | numbe
  * @param resourceType - The resource type ('image' or 'video')
  * @returns Promise with the update result
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function updateAssetAccessMode(
   publicId: string,
   resourceType: 'image' | 'video' = 'image'

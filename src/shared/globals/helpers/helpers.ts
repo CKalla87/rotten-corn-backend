@@ -84,21 +84,21 @@ export class Helpers {
    * @param textColor - Text color (defaults to white)
    * @returns Data URI string
    */
-  static generateInitialsAvatar(initials: string, backgroundColor: string, textColor: string = '#FFFFFF'): string {
+  static generateInitialsAvatar(initials: string, backgroundColor: string, textColor = '#FFFFFF'): string {
     const size = 200;
     const fontSize = size * 0.4;
-    
+
     const svg = `
       <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
         <rect width="${size}" height="${size}" fill="${backgroundColor}"/>
-        <text 
-          x="50%" 
-          y="50%" 
-          font-family="Arial, sans-serif" 
-          font-size="${fontSize}" 
-          font-weight="bold" 
-          fill="${textColor}" 
-          text-anchor="middle" 
+        <text
+          x="50%"
+          y="50%"
+          font-family="Arial, sans-serif"
+          font-size="${fontSize}"
+          font-weight="bold"
+          fill="${textColor}"
+          text-anchor="middle"
           dominant-baseline="central"
         >${initials}</text>
       </svg>
@@ -136,13 +136,13 @@ export class Helpers {
         /res\/cloudingary\.com/, // Another typo
         /\/v0\//, // Version 0 often indicates missing/placeholder images
       ];
-      
+
       for (const pattern of brokenPatterns) {
         if (pattern.test(profilePicture)) {
           return false;
         }
       }
-      
+
       // URL format is valid - actual existence will be checked in normalization
       return true;
     }
@@ -180,7 +180,7 @@ export class Helpers {
       const urlParts = profilePicture.match(/\/image\/upload\/v\d+\/([^/?]+)/);
       if (urlParts && urlParts[1]) {
         const publicId = urlParts[1];
-        
+
         // Check if public_id looks like a MongoDB ObjectId (24 hex characters)
         // This pattern often indicates the image was never properly uploaded
         const objectIdPattern = /^[a-f\d]{24}$/i;
