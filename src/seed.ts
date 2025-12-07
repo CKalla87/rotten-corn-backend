@@ -97,10 +97,10 @@ async function seedUserData(count: number): Promise<void> {
           // API returned an error response
           const errorData = requestError.response.data;
           console.error(`✗ Failed to add user ${username}:`, errorData || requestError.response.statusText);
-          // Debug: log what was sent if avatarColor is missing
+          // Log what was sent if avatarColor is missing
           if (errorData?.message?.includes('Avatar color')) {
-            console.error(' Debug - Request body avatarColor:', body.avatarColor);
-            console.error(' Debug - Full request body keys:', Object.keys(body));
+            console.error('Request body avatarColor:', body.avatarColor);
+            console.error('Full request body keys:', Object.keys(body));
           }
         } else if (requestError?.request) {
           // Request was made but no response received
@@ -117,4 +117,3 @@ async function seedUserData(count: number): Promise<void> {
 }
 
 seedUserData(10);
-

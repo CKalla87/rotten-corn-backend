@@ -49,6 +49,7 @@ export const reactionData: IReactionDocument = {
   type: 'love'
 } as IReactionDocument;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const commentsData: any = {
   _id: '6064861bc25eaa5a5d2f9bf4',
   username: 'Danny',
@@ -58,8 +59,10 @@ export const commentsData: any = {
   comment: 'This is a comment',
   createdAt: new Date(),
   userTo: '60263f14648fed5246e322d9'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const commentNames: any = {
   count: 1,
   names: ['Danny']

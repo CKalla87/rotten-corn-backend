@@ -29,7 +29,9 @@ class HealthRoutes {
             url: config.EC2_URL,
             timeout: 2000
           });
-          res.status(HTTP_STATUS.OK).send(`Server is running on EC2 instance with id ${response.data} and process id ${process.pid} on ${moment().format('LL')}`);
+          res
+            .status(HTTP_STATUS.OK)
+            .send(`Server is running on EC2 instance with id ${response.data} and process id ${process.pid} on ${moment().format('LL')}`);
         } else {
           res.status(HTTP_STATUS.OK).send(`Server is running locally with process id ${process.pid} on ${moment().format('LL')}`);
         }
@@ -50,18 +52,30 @@ class HealthRoutes {
             url: config.EC2_URL,
             timeout: 2000
           });
-          res.status(HTTP_STATUS.OK).send(
-            `Fibonacci series of ${num} is ${result} and it took ${end - start}ms with EC2 instance of ${response.data} and process id ${process.pid} on ${moment().format('LL')}`
-          );
+          res
+            .status(HTTP_STATUS.OK)
+            .send(
+              `Fibonacci series of ${num} is ${result} and it took ${end - start}ms with EC2 instance of ${response.data} and process id ${
+                process.pid
+              } on ${moment().format('LL')}`
+            );
         } else {
-          res.status(HTTP_STATUS.OK).send(
-            `Fibonacci series of ${num} is ${result} and it took ${end - start}ms running locally with process id ${process.pid} on ${moment().format('LL')}`
-          );
+          res
+            .status(HTTP_STATUS.OK)
+            .send(
+              `Fibonacci series of ${num} is ${result} and it took ${end - start}ms running locally with process id ${
+                process.pid
+              } on ${moment().format('LL')}`
+            );
         }
       } catch (error) {
-        res.status(HTTP_STATUS.OK).send(
-          `Fibonacci series of ${num} is ${result} and it took ${end - start}ms running locally with process id ${process.pid} on ${moment().format('LL')}`
-        );
+        res
+          .status(HTTP_STATUS.OK)
+          .send(
+            `Fibonacci series of ${num} is ${result} and it took ${end - start}ms running locally with process id ${
+              process.pid
+            } on ${moment().format('LL')}`
+          );
       }
     });
 
@@ -78,4 +92,3 @@ class HealthRoutes {
 }
 
 export const healthRoutes: HealthRoutes = new HealthRoutes();
-

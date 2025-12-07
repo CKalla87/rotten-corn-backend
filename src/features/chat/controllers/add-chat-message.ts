@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
 import { UploadApiResponse } from 'cloudinary';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
-import { uploads } from '@global/helpers/cloudinary-upload';
+import { uploads, getCloudinaryImageUrl } from '@global/helpers/cloudinary-upload';
 import { BadRequestError } from '@global/helpers/error-handler';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserCache } from '@service/redis/user.cache';
@@ -43,16 +43,11 @@ export class Add {
     const sender: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
 
     if (selectedImage && selectedImage.length) {
-      const result: UploadApiResponse = (await uploads(
-        selectedImage,
-        req.currentUser!.userId,
-        true,
-        true
-      )) as UploadApiResponse;
+      const result: UploadApiResponse = (await uploads(selectedImage, req.currentUser!.userId, true, true)) as UploadApiResponse;
       if (!result?.public_id) {
         throw new BadRequestError(result.message);
       }
-      fileUrl = `https://res.cloudinary.com/dynamr9ym3/image/upload/v${result.version}/${result.public_id}`;
+      fileUrl = getCloudinaryImageUrl(result.public_id, result.version);
     }
 
     const messageData: IMessageData = {

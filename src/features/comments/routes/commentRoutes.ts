@@ -19,6 +19,6 @@ class CommentRoutes {
 
     return this.router;
   }
-};
+}
 
 export const commentRoutes: CommentRoutes = new CommentRoutes();

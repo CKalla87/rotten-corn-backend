@@ -65,7 +65,7 @@ describe('Password', () => {
       const res: Response = authMockResponse();
       Password.prototype.update(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toEqual('Password is a required field');
+        expect(error.serializeErrors().message).toEqual('Password is a required field; Confirm password is a required field');
       });
     });
 

@@ -13,7 +13,6 @@ class ResetPasswordTemplate {
       image_url: 'https://png.pngtree.com/png-vector/20190115/ourmid/pngtree-vector-lock-icon-png-image_318067.jpg'
     });
   }
-
 }
 
 export const resetPasswordTemplate: ResetPasswordTemplate = new ResetPasswordTemplate();

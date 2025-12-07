@@ -36,7 +36,7 @@ describe('SignIn', () => {
   });
 
   it('should throw an error if username length is less than minimum length', () => {
-    const req: Request = authMockRequest({}, { username: WRONG_USERNAME, password: WRONG_PASSWORD }) as Request;
+    const req: Request = authMockRequest({}, { username: WRONG_USERNAME, password: PASSWORD }) as Request;
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
@@ -45,7 +45,7 @@ describe('SignIn', () => {
   });
 
   it('should throw an error if username length is greater than maximum length', () => {
-    const req: Request = authMockRequest({}, { username: LONG_USERNAME, password: WRONG_PASSWORD }) as Request;
+    const req: Request = authMockRequest({}, { username: LONG_USERNAME, password: PASSWORD }) as Request;
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);

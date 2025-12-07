@@ -19,11 +19,11 @@ echo "[$(date)] Changed to $DEPLOYMENT_DIR"
 
 # Clean up old environment files
 echo "[$(date)] Cleaning up old environment files"
-sudo rm -rf env-file.zip .env .env.develop
+sudo rm -rf env-file.zip .env .env.production
 
 # Download and extract environment files
 ENV_BUCKET="chattapplication1-env-files"
-ENV_PREFIX="develop"
+ENV_PREFIX="staging"
 
 echo "[$(date)] Downloading environment files from S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"
 aws s3 sync "s3://${ENV_BUCKET}/${ENV_PREFIX}" . 2>&1 || echo "[$(date)] Warning: Failed to sync from S3"
@@ -31,9 +31,9 @@ aws s3 sync "s3://${ENV_BUCKET}/${ENV_PREFIX}" . 2>&1 || echo "[$(date)] Warning
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
   unzip -o env-file.zip
-  if [ -f .env.develop ]; then
-    sudo cp .env.develop .env
-    echo "[$(date)] Copied .env.develop to .env"
+  if [ -f .env.production ]; then
+    sudo cp .env.production .env
+    echo "[$(date)] Copied .env.production to .env"
   fi
 else
   echo "[$(date)] Warning: env-file.zip not found"

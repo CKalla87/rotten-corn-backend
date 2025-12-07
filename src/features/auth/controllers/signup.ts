@@ -10,7 +10,7 @@ import { Request, Response } from 'express';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
 import { signupSchema } from '@auth/schemes/signup';
 import { Helpers } from '@global/helpers/helpers';
-import { uploads } from '@global/helpers/cloudinary-upload';
+import { uploads, getCloudinaryImageUrl } from '@global/helpers/cloudinary-upload';
 import { omit } from 'lodash';
 import JWT from 'jsonwebtoken';
 import { authQueue } from '@service/queues/auth.queue';
@@ -40,14 +40,14 @@ export class SignUp {
       avatarColor
     });
 
-    const result: UploadApiResponse = await uploads(avatarImage, `${userObjectId}`, true, true) as UploadApiResponse;
+    const result: UploadApiResponse = (await uploads(avatarImage, `${userObjectId}`, true, true)) as UploadApiResponse;
     if (!result?.public_id) {
       throw new BadRequestError('File upload: Eerror occured. Try again.');
     }
 
     // Add to redis cache
     const userDataForCache: IUserDocument = SignUp.prototype.userData(authData, userObjectId);
-    userDataForCache.profilePicture = `https://res/cloudingary.com/dajmo61zu/image/upload/v${result.version}/${userObjectId}`;
+    userDataForCache.profilePicture = getCloudinaryImageUrl(result.public_id, result.version);
     await userCache.saveUserToCache(`${userObjectId}`, uId, userDataForCache);
 
     // Add to database

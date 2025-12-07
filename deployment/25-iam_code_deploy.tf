@@ -1,5 +1,9 @@
+locals {
+  code_deploy_role_name = length(var.code_deploy_role_name) > 0 ? var.code_deploy_role_name : "${var.prefix}-code-deploy-role"
+}
+
 resource "aws_iam_role" "code_deploy_iam_role" {
-  name = var.code_deploy_role_name
+  name = local.code_deploy_role_name
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -28,7 +32,7 @@ resource "aws_iam_role_policy_attachment" "AutoScalingFullAccess" {
 
 # Additional permissions for Auto Scaling and EC2 for blue/green deployments
 resource "aws_iam_role_policy" "code_deploy_additional_permissions" {
-  name = "${var.code_deploy_role_name}-additional-permissions"
+  name = "${local.code_deploy_role_name}-additional-permissions"
   role = aws_iam_role.code_deploy_iam_role.id
 
   policy = jsonencode({

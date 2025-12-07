@@ -23,7 +23,7 @@ class CommentService {
       { new: true }
     ) as Query<IPostDocument, IPostDocument>;
     const userPromise: Promise<IUserDocument> = userCache.getUserFromCache(userTo) as Promise<IUserDocument>;
-    const response = await Promise.all([commentPromise, postPromise, userPromise]) as [ICommentDocument, IPostDocument, IUserDocument];
+    const response = (await Promise.all([commentPromise, postPromise, userPromise])) as [ICommentDocument, IPostDocument, IUserDocument];
 
     if (response[2]?.notifications?.comments && userFrom !== userTo) {
       const notificationModel: INotificationDocument = new NotificationModel();
@@ -58,10 +58,7 @@ class CommentService {
   }
 
   public async getPostComments(query: IQueryComment, sort: Record<string, 1 | -1>): Promise<ICommentDocument[]> {
-    const comments: ICommentDocument[] = await CommentsModel.aggregate([
-      { $match: { query } },
-      { $sort: sort },
-    ]);
+    const comments: ICommentDocument[] = await CommentsModel.aggregate([{ $match: { query } }, { $sort: sort }]);
     return comments;
   }
 

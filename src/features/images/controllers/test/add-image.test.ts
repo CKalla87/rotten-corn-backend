@@ -10,11 +10,23 @@ import { existingUser } from '@root/mocks/user.mock';
 import { imageQueue } from '@service/queues/image.queue';
 import * as cloudinaryUploads from '@global/helpers/cloudinary-upload';
 
+jest.mock('@global/helpers/cloudinary-upload', () => {
+  const actual = jest.requireActual('@global/helpers/cloudinary-upload');
+  return {
+    ...actual,
+    uploads: jest.fn(),
+    getCloudinaryImageUrl: jest.fn((publicId: string, version?: string | number) => {
+      if (!publicId) return '';
+      const versionStr = version ? `v${version}/` : '';
+      return `https://res.cloudinary.com/dajmo61zu/image/upload/${versionStr}${publicId}`;
+    })
+  };
+});
+
 jest.useFakeTimers();
 jest.mock('@service/queues/base.queue');
 jest.mock('@service/redis/user.cache');
 jest.mock('@socket/user');
-jest.mock('@global/helpers/cloudinary-upload');
 
 Object.defineProperties(imageServer, {
   socketIOImageObject: {
@@ -37,13 +49,15 @@ describe('Add', () => {
     it('should call image upload method', async () => {
       const req: Request = imagesMockRequest({}, { image: 'testing' }, authUserPayload) as Request;
       const res: Response = imagesMockResponse();
+      jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache').mockResolvedValue(existingUser);
       jest.spyOn(cloudinaryUploads, 'uploads').mockImplementation((): any => Promise.resolve({ version: '1234', public_id: '123456' }));
 
       await Add.prototype.profileImage(req, res);
       expect(cloudinaryUploads.uploads).toHaveBeenCalledWith(req.body.image, req.currentUser?.userId, true, true);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
-        message: 'Image added successfully'
+        message: 'Image added successfully',
+        user: existingUser
       });
     });
 
@@ -61,13 +75,15 @@ describe('Add', () => {
       expect(imageServer.socketIOImageObject.emit).toHaveBeenCalledWith('update user', existingUser);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
-        message: 'Image added successfully'
+        message: 'Image added successfully',
+        user: existingUser
       });
     });
 
     it('should call addImageJob method', async () => {
       const req: Request = imagesMockRequest({}, { image: 'testing' }, authUserPayload) as Request;
       const res: Response = imagesMockResponse();
+      jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache').mockResolvedValue(existingUser);
       jest.spyOn(cloudinaryUploads, 'uploads').mockImplementation((): any => Promise.resolve({ version: '1234', public_id: '123456' }));
       jest.spyOn(imageQueue, 'addImageJob');
 
@@ -80,7 +96,8 @@ describe('Add', () => {
       });
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
-        message: 'Image added successfully'
+        message: 'Image added successfully',
+        user: existingUser
       });
     });
   });

@@ -11,24 +11,16 @@ const followerCache: FollowerCache = new FollowerCache();
 export class Get {
   public async userFollowing(req: Request, res: Response): Promise<void> {
     const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.currentUser!.userId);
-    const cachedFollowee: IFollowerData[] = await followerCache.getFollowersFromCache(
-      `following:${req.currentUser!.userId}`
-    );
-    const following: IFollowerData[] = cachedFollowee.length
-      ? cachedFollowee
-      : await followerService.getFolloweeData(userObjectId);
+    const cachedFollowee: IFollowerData[] = await followerCache.getFollowersFromCache(`following:${req.currentUser!.userId}`);
+    const following: IFollowerData[] = cachedFollowee.length ? cachedFollowee : await followerService.getFolloweeData(userObjectId);
 
     res.status(HTTP_STATUS.OK).json({ message: 'User following', following });
   }
 
   public async userFollowers(req: Request, res: Response): Promise<void> {
     const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.params.userId);
-    const cachedFollower: IFollowerData[] = await followerCache.getFollowersFromCache(
-      `followers:${req.params.userId}`
-    );
-    const followers: IFollowerData[] = cachedFollower.length
-      ? cachedFollower
-      : await followerService.getFollowerData(userObjectId);
+    const cachedFollower: IFollowerData[] = await followerCache.getFollowersFromCache(`followers:${req.params.userId}`);
+    const followers: IFollowerData[] = cachedFollower.length ? cachedFollower : await followerService.getFollowerData(userObjectId);
 
     res.status(HTTP_STATUS.OK).json({ message: 'User followers', followers });
   }
