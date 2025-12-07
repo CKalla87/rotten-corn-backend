@@ -37,6 +37,8 @@ export class UserCache extends BaseCache {
       quote,
       bgImageId,
       bgImageVersion,
+      profileImageId,
+      profileImageVersion,
       social
     } = createdUser;
     const firstList = {
@@ -64,8 +66,9 @@ export class UserCache extends BaseCache {
       'school': `${school}`,
       'quote': `${quote}`,
       'bgImageVersion': `${bgImageVersion}`,
-      'bgImageId': `${bgImageId}`
-
+      'bgImageId': `${bgImageId}`,
+      'profileImageVersion': `${profileImageVersion || ''}`,
+      'profileImageId': `${profileImageId || ''}`
     };
     const dataToSave = {...firstList, ...secondList, ...thirdList};
 
@@ -102,6 +105,15 @@ export class UserCache extends BaseCache {
       response.bgImageId = Helpers.parseJson(`${response.bgImageId}`);
       response.bgImageVersion = Helpers.parseJson(`${response.bgImageVersion}`);
       response.profilePicture = Helpers.parseJson(`${response.profilePicture}`);
+      response.profileImageId = Helpers.parseJson(`${response.profileImageId || ''}`);
+      response.profileImageVersion = Helpers.parseJson(`${response.profileImageVersion || ''}`);
+      
+      // Normalize profile picture - replace broken URLs with initials avatar
+      response.profilePicture = Helpers.normalizeProfilePicture(
+        response.profilePicture,
+        response.username,
+        response.avatarColor
+      );
 
       return response;
     } catch (error) {
@@ -152,6 +164,16 @@ export class UserCache extends BaseCache {
         reply.bgImageId = Helpers.parseJson(`${reply.bgImageId}`);
         reply.bgImageVersion = Helpers.parseJson(`${reply.bgImageVersion}`);
         reply.profilePicture = Helpers.parseJson(`${reply.profilePicture}`);
+        reply.profileImageId = Helpers.parseJson(`${reply.profileImageId || ''}`);
+        reply.profileImageVersion = Helpers.parseJson(`${reply.profileImageVersion || ''}`);
+        
+        // Normalize profile picture - replace broken URLs with initials avatar
+        reply.profilePicture = Helpers.normalizeProfilePicture(
+          reply.profilePicture,
+          reply.username,
+          reply.avatarColor
+        );
+        
         userReplies.push(reply);
       }
       return userReplies;
@@ -206,6 +228,13 @@ export class UserCache extends BaseCache {
         reply.bgImageId = Helpers.parseJson(`${reply.bgImageId}`);
         reply.bgImageVersion = Helpers.parseJson(`${reply.bgImageVersion}`);
         reply.profilePicture = Helpers.parseJson(`${reply.profilePicture}`);
+        
+        // Normalize profile picture - replace broken URLs with initials avatar
+        reply.profilePicture = Helpers.normalizeProfilePicture(
+          reply.profilePicture,
+          reply.username,
+          reply.avatarColor
+        );
       }
       return replies;
     } catch (error) {

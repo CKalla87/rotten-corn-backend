@@ -3,6 +3,7 @@ import { IUserDocument, ISearchUser, IBasicInfo, INotificationSettings, ISocialL
 import mongoose from 'mongoose';
 import { followerService } from '@service/db/follower.service';
 import { AuthModel } from '@auth/models/auth.schema';
+import { Helpers } from '@global/helpers/helpers';
 
 class UserService {
   public async addUserData(data: IUserDocument): Promise<void> {
@@ -16,7 +17,16 @@ class UserService {
       { $unwind: '$authId'},
       { $project: this.aggregateProject()}
     ]);
-    return users[0];
+    const user = users[0];
+    if (user) {
+      // Normalize profile picture - replace broken URLs with initials avatar
+      user.profilePicture = Helpers.normalizeProfilePicture(
+        user.profilePicture,
+        user.username,
+        user.avatarColor
+      );
+    }
+    return user;
   }
 
   public async getUserByAuthId(authId: string): Promise<IUserDocument> {
@@ -26,7 +36,16 @@ class UserService {
       { $unwind: '$authId'},
       { $project: this.aggregateProject()}
     ]);
-    return users[0];
+    const user = users[0];
+    if (user) {
+      // Normalize profile picture - replace broken URLs with initials avatar
+      user.profilePicture = Helpers.normalizeProfilePicture(
+        user.profilePicture,
+        user.username,
+        user.avatarColor
+      );
+    }
+    return user;
   }
 
   public async getAllUsers(userId: string, skip: number, limit: number): Promise<IUserDocument[]> {
@@ -39,7 +58,15 @@ class UserService {
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
     ]);
-    return users;
+    // Normalize profile pictures for all users
+    return users.map(user => {
+      user.profilePicture = Helpers.normalizeProfilePicture(
+        user.profilePicture,
+        user.username,
+        user.avatarColor
+      );
+      return user;
+    });
   }
 
   public async getRandomUsers(userId: string): Promise<IUserDocument[]> {
@@ -69,6 +96,12 @@ class UserService {
     for (const user of users) {
       const followerIndex = followers.indexOf(user._id.toString());
       if (followerIndex < 0) {
+        // Normalize profile picture - replace broken URLs with initials avatar
+        user.profilePicture = Helpers.normalizeProfilePicture(
+          user.profilePicture,
+          user.username,
+          user.avatarColor
+        );
         randomUsers.push(user);
       }
     }
@@ -95,7 +128,15 @@ class UserService {
         }
       }
     ]);
-    return users;
+    // Normalize profile pictures for search results
+    return users.map(user => ({
+      ...user,
+      profilePicture: Helpers.normalizeProfilePicture(
+        user.profilePicture,
+        user.username,
+        user.avatarColor
+      )
+    }));
   }
 
   public async updatePassword(username: string, hashedPassword: string): Promise<void> {
