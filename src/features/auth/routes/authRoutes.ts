@@ -33,6 +33,6 @@ class AuthRoutes {
 
     return this.router;
   }
-};
+}
 
 export const authRoutes: AuthRoutes = new AuthRoutes();

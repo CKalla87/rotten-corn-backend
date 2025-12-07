@@ -39,11 +39,7 @@ class AuthCodeService {
         createdAt: Date.now()
       };
 
-      await this.client.setEx(
-        `auth:code:${code}`,
-        this.CODE_EXPIRY,
-        JSON.stringify(data)
-      );
+      await this.client.setEx(`auth:code:${code}`, this.CODE_EXPIRY, JSON.stringify(data));
 
       return code;
     } catch (error) {

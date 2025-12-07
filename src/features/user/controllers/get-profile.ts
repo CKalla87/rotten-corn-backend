@@ -31,16 +31,12 @@ export class Get {
       userId: `${req.currentUser!.userId}`
     });
     const followers: IFollowerData[] = await Get.prototype.followers(`${req.currentUser!.userId}`);
-    res
-      .status(HTTP_STATUS.OK)
-      .json({ message: 'Get users', users: allUsers.users, totalUsers: allUsers.totalUsers, followers });
+    res.status(HTTP_STATUS.OK).json({ message: 'Get users', users: allUsers.users, totalUsers: allUsers.totalUsers, followers });
   }
 
   public async profile(req: Request, res: Response): Promise<void> {
     const cachedUser: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
-    const existingUser: IUserDocument = cachedUser
-      ? cachedUser
-      : await userService.getUserById(`${req.currentUser!.userId}`);
+    const existingUser: IUserDocument = cachedUser ? cachedUser : await userService.getUserById(`${req.currentUser!.userId}`);
     res.status(HTTP_STATUS.OK).json({ message: 'Get user profile', user: existingUser });
   }
 
@@ -55,10 +51,7 @@ export class Get {
     const { userId, username, uId } = req.params;
     const userName: string = Helpers.firstLetterUppercase(username);
     const cachedUser: IUserDocument = (await userCache.getUserFromCache(userId)) as IUserDocument;
-    const cachedUserPosts: IPostDocument[] = (await postCache.getUserPostsFromCache(
-      'post',
-      parseInt(uId, 10)
-    )) as IPostDocument[];
+    const cachedUserPosts: IPostDocument[] = (await postCache.getUserPostsFromCache('post', parseInt(uId, 10))) as IPostDocument[];
     const existingUser: IUserDocument = cachedUser ? cachedUser : await userService.getUserById(userId);
     const userPosts: IPostDocument[] = cachedUserPosts.length
       ? cachedUserPosts
@@ -82,14 +75,16 @@ export class Get {
   }
 
   private async usersCount(type: string): Promise<number> {
-    const totalUsers: number =
-      type === 'redis' ? await userCache.getTotalUsersInCache() : await userService.getTotalUsersInDB();
+    const totalUsers: number = type === 'redis' ? await userCache.getTotalUsersInCache() : await userService.getTotalUsersInDB();
     return totalUsers;
   }
 
   public async randomUserSuggestions(req: Request, res: Response): Promise<void> {
     let randomUsers: IUserDocument[] = [];
-    const cachedUsers: IUserDocument[] = await userCache.getRandomUsersFromCache(`${req.currentUser!.userId}`, `${req.currentUser!.username}`);
+    const cachedUsers: IUserDocument[] = await userCache.getRandomUsersFromCache(
+      `${req.currentUser!.userId}`,
+      `${req.currentUser!.username}`
+    );
     if (cachedUsers.length) {
       randomUsers = [...cachedUsers];
     } else {

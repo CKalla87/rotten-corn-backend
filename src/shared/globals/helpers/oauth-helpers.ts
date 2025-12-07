@@ -44,10 +44,7 @@ export function generateAvatarColor(): string {
 export function generateUsername(email: string, name?: string): string {
   if (name) {
     // Use name, remove spaces, limit to 8 chars
-    const baseUsername = name
-      .toLowerCase()
-      .replace(/\s+/g, '')
-      .substring(0, 8);
+    const baseUsername = name.toLowerCase().replace(/\s+/g, '').substring(0, 8);
 
     // If too short, pad with numbers
     if (baseUsername.length < 4) {

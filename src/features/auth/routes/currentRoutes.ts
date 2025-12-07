@@ -14,6 +14,6 @@ class CurrentUserRoutes {
 
     return this.router;
   }
-};
+}
 
 export const currentUserRoutes: CurrentUserRoutes = new CurrentUserRoutes();

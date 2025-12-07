@@ -35,12 +35,9 @@ passport.use(
         }
 
         // Find existing user by email or Google OAuth ID
-        let authUser: IAuthDocument | null = await AuthModel.findOne({
-          $or: [
-            { email: Helpers.lowerCase(email) },
-            { 'oauth.google.id': profile.id }
-          ]
-        }).exec() as IAuthDocument | null;
+        let authUser: IAuthDocument | null = (await AuthModel.findOne({
+          $or: [{ email: Helpers.lowerCase(email) }, { 'oauth.google.id': profile.id }]
+        }).exec()) as IAuthDocument | null;
 
         if (authUser) {
           // Update OAuth info if not already set
@@ -145,12 +142,9 @@ passport.use(
         const email = profile.emails?.[0]?.value || `${profile.username}@users.noreply.github.com`;
 
         // Find existing user by email or GitHub OAuth ID
-        let authUser: IAuthDocument | null = await AuthModel.findOne({
-          $or: [
-            { email: Helpers.lowerCase(email) },
-            { 'oauth.github.id': profile.id }
-          ]
-        }).exec() as IAuthDocument | null;
+        let authUser: IAuthDocument | null = (await AuthModel.findOne({
+          $or: [{ email: Helpers.lowerCase(email) }, { 'oauth.github.id': profile.id }]
+        }).exec()) as IAuthDocument | null;
 
         if (authUser) {
           // Update OAuth info if not already set
@@ -258,12 +252,9 @@ passport.use(
         }
 
         // Find existing user by email or Facebook OAuth ID
-        let authUser: IAuthDocument | null = await AuthModel.findOne({
-          $or: [
-            { email: Helpers.lowerCase(email) },
-            { 'oauth.facebook.id': profile.id }
-          ]
-        }).exec() as IAuthDocument | null;
+        let authUser: IAuthDocument | null = (await AuthModel.findOne({
+          $or: [{ email: Helpers.lowerCase(email) }, { 'oauth.facebook.id': profile.id }]
+        }).exec()) as IAuthDocument | null;
 
         if (authUser) {
           // Update OAuth info if not already set

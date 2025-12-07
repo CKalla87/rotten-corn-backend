@@ -37,10 +37,7 @@ class FollowerService {
       }
     ]);
 
-    const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([
-      users,
-      UserModel.findOne({ _id: followeeObjectId })
-    ]);
+    const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([users, UserModel.findOne({ _id: followeeObjectId })]);
 
     if (response[1]?.notifications?.follows && userId !== followeeId) {
       const notificationModel: INotificationDocument = new NotificationModel();
@@ -135,12 +132,8 @@ class FollowerService {
       }
     ]);
     // Normalize profile pictures for all followees
-    return followee.map(follower => {
-      follower.profilePicture = Helpers.normalizeProfilePicture(
-        follower.profilePicture,
-        follower.username,
-        follower.avatarColor
-      );
+    return followee.map((follower) => {
+      follower.profilePicture = Helpers.normalizeProfilePicture(follower.profilePicture, follower.username, follower.avatarColor);
       return follower;
     });
   }
@@ -176,7 +169,7 @@ class FollowerService {
       }
     ]);
     // Normalize profile pictures for all followers
-    return follower.map(followerData => {
+    return follower.map((followerData) => {
       followerData.profilePicture = Helpers.normalizeProfilePicture(
         followerData.profilePicture,
         followerData.username,
