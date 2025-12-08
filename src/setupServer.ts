@@ -126,7 +126,8 @@ export class RottenCornServer {
           });
 
           if (isAllowed) {
-            callback(null, true);
+            // Pass the actual origin to set the Access-Control-Allow-Origin header correctly
+            callback(null, normalizedOrigin);
           } else {
             // Log for debugging
             log.warn(`CORS blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`);
@@ -146,19 +147,27 @@ export class RottenCornServer {
     app.use(urlencoded({ extended: true, limit: '50mb' }));
 
     // Request logging middleware for debugging
-    if (config.NODE_ENV === 'development') {
-      app.use((req: Request, _res: Response, next: NextFunction) => {
-        if (req.path.startsWith('/api/v1/post')) {
-          log.info(`[POST DEBUG] ${req.method} ${req.path}`, {
-            bodyKeys: Object.keys(req.body || {}),
-            hasAuth: !!req.session?.jwt,
-            contentType: req.get('content-type'),
-            contentLength: req.get('content-length')
-          });
-        }
-        next();
-      });
-    }
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      // Log OAuth requests for debugging
+      if (req.path.startsWith('/api/v1/auth/')) {
+        log.info(`[OAUTH] ${req.method} ${req.path}`, {
+          query: req.query,
+          origin: req.get('origin'),
+          referer: req.get('referer'),
+          userAgent: req.get('user-agent')
+        });
+      }
+      // Log POST requests in development
+      if (config.NODE_ENV === 'development' && req.path.startsWith('/api/v1/post')) {
+        log.info(`[POST DEBUG] ${req.method} ${req.path}`, {
+          bodyKeys: Object.keys(req.body || {}),
+          hasAuth: !!req.session?.jwt,
+          contentType: req.get('content-type'),
+          contentLength: req.get('content-length')
+        });
+      }
+      next();
+    });
   }
 
   private routeMiddleware(app: Application): void {
@@ -191,7 +200,7 @@ export class RottenCornServer {
 
   private globalErrorHandler(app: Application): void {
     // Error handler middleware - must come before catch-all route
-    app.use((error: IErrorResponse, req: Request, res: Response) => {
+    app.use((error: IErrorResponse, req: Request, res: Response, next: NextFunction) => {
       log.error(`Error on ${req.method} ${req.originalUrl}:`, error);
       if (error instanceof CustomError) {
         return res.status(error.statusCode).json(error.serializeErrors());
@@ -228,10 +237,27 @@ export class RottenCornServer {
   }
 
   private async createSocketID(httpServer: http.Server): Promise<Server> {
+    // Use the same allowed origins as HTTP CORS
+    const allowedOrigins = [
+      config.CLIENT_URL,
+      'https://dev.chatappserver.space',
+      'https://api.dev.chatappserver.space',
+      'https://chatappserver.space',
+      'http://localhost:3000',
+      'http://localhost:3001'
+    ].filter(Boolean);
+
     const io: Server = new Server(httpServer, {
       cors: {
-        origin: config.CLIENT_URL,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+        origin: (origin, callback) => {
+          if (!origin || allowedOrigins.some(allowed => origin === allowed || origin.includes(allowed?.replace(/^https?:\/\//, '') || ''))) {
+            callback(null, true);
+          } else {
+            callback(new Error('Not allowed by CORS'));
+          }
+        },
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        credentials: true
       }
     });
     const pubClient = createClient({ url: config.REDIS_HOST });
