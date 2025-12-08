@@ -50,6 +50,17 @@ if [ -f ./build/src/app.js ]; then
 
   # Start the application (PM2 runs in daemon mode by default)
   echo "[$(date)] Launching application..."
+  
+  # First, try to run the app directly to capture any immediate errors
+  echo "[$(date)] Testing app startup (will timeout after 5 seconds)..."
+  timeout 5 node ./build/src/app.js 2>&1 | head -50 || APP_ERROR=$?
+  
+  if [ -n "$APP_ERROR" ] && [ "$APP_ERROR" != "124" ]; then
+    echo "[$(date)] App failed to start directly. Error code: $APP_ERROR"
+    echo "[$(date)] This usually indicates a database/Redis connection issue or missing env vars"
+  fi
+  
+  # Now start with PM2
   "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend" || {
     echo "[$(date)] ERROR: PM2 start command failed"
     exit 1
@@ -83,12 +94,23 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       echo "[$(date)] ⚠ PM2 says online but app not responding to HTTP (waited ${ELAPSED}s)"
       echo "[$(date)] Checking if port 5000 is listening..."
       if ! netstat -tln 2>/dev/null | grep -q ":5000 "; then
-        echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
-        echo "[$(date)] PM2 status:"
-        "$PM2_BIN" list | grep chatty-backend || true
-        echo "[$(date)] Recent logs:"
-        "$PM2_BIN" logs chatty-backend --lines 30 --nostream || true
-        exit 1
+      echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
+      echo "[$(date)] PM2 status:"
+      "$PM2_BIN" list | grep chatty-backend || true
+      echo "[$(date)] PM2 error logs (last 50 lines):"
+      "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
+      echo "[$(date)] PM2 output logs (last 50 lines):"
+      "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
+      echo "[$(date)] Checking if .env file exists and has required vars:"
+      if [ -f .env ]; then
+        echo "[$(date)] .env file exists"
+        grep -E "DATABASE_URL|REDIS_HOST|NODE_ENV" .env | sed 's/=.*/=***/' || echo "Required vars not found in .env"
+      else
+        echo "[$(date)] ERROR: .env file not found!"
+      fi
+      echo "[$(date)] Checking process status:"
+      ps aux | grep -E "node|pm2" | grep -v grep || true
+      exit 1
       fi
     fi
   fi
@@ -110,8 +132,10 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     # If it's errored or stopped, show logs and exit
     if [ "$STATUS" = "errored" ] || [ "$STATUS" = "stopped" ]; then
       echo "[$(date)] ERROR: Application status is $STATUS"
-      echo "[$(date)] Showing last 50 lines of logs:"
-      "$PM2_BIN" logs chatty-backend --lines 50 --nostream || true
+      echo "[$(date)] PM2 error logs (last 50 lines):"
+      "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
+      echo "[$(date)] PM2 output logs (last 50 lines):"
+      "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
       exit 1
     fi
   else
@@ -128,7 +152,17 @@ echo "[$(date)] Current PM2 status:"
 "$PM2_BIN" list || true
 echo "[$(date)] Port 5000 status:"
 netstat -tln 2>/dev/null | grep ":5000 " || echo "Port 5000 not listening"
-echo "[$(date)] Showing last 50 lines of logs:"
-"$PM2_BIN" logs chatty-backend --lines 50 --nostream || true
+echo "[$(date)] PM2 error logs (last 100 lines):"
+"$PM2_BIN" logs chatty-backend --err --lines 100 --nostream 2>&1 || true
+echo "[$(date)] PM2 output logs (last 100 lines):"
+"$PM2_BIN" logs chatty-backend --out --lines 100 --nostream 2>&1 || true
+echo "[$(date)] Environment check:"
+if [ -f .env ]; then
+  echo "[$(date)] .env file exists"
+  echo "[$(date)] Checking for DATABASE_URL:"
+  grep "DATABASE_URL" .env | head -1 | sed 's/=.*/=***/' || echo "DATABASE_URL not found"
+else
+  echo "[$(date)] ERROR: .env file not found!"
+fi
 exit 1
 
