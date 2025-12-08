@@ -12,6 +12,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Logger from 'bunyan';
 import statusMonitor from 'express-status-monitor';
 import 'express-async-errors';
+import passport from 'passport';
 import { config } from '@root/config';
 import applicationRoutes from '@root/routes';
 import { CustomError, IErrorResponse } from '@global/helpers/error-handler';
@@ -145,6 +146,9 @@ export class RottenCornServer {
     app.use(compression());
     app.use(json({ limit: '50mb' }));
     app.use(urlencoded({ extended: true, limit: '50mb' }));
+
+    // Initialize Passport middleware (required for OAuth)
+    app.use(passport.initialize());
 
     // Request logging middleware for debugging
     app.use((req: Request, _res: Response, next: NextFunction) => {

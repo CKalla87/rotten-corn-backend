@@ -19,12 +19,35 @@ const log: Logger = config.createLogger('passportConfig');
 const userCache: UserCache = new UserCache();
 
 // Google OAuth Strategy
+// Construct absolute callback URL
+const getGoogleCallbackURL = (): string => {
+  // Use CLIENT_URL if available (should be the frontend domain, which is the same as backend)
+  if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
+    const url = `${config.CLIENT_URL}/api/v1/auth/google/callback`;
+    log.info(`Google OAuth callback URL: ${url}`);
+    return url;
+  }
+  // Check EC2_URL only if it's a valid URL (not the metadata endpoint)
+  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') && (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
+    const url = `${config.EC2_URL}/api/v1/auth/google/callback`;
+    log.info(`Google OAuth callback URL: ${url}`);
+    return url;
+  }
+  // Fallback for development
+  const url = config.NODE_ENV === 'development'
+    ? 'http://localhost:5000/api/v1/auth/google/callback'
+    : 'https://dev.chatappserver.space/api/v1/auth/google/callback';
+  log.info(`Google OAuth callback URL (fallback): ${url}`);
+  return url;
+};
+
+const googleCallbackURL = getGoogleCallbackURL();
 passport.use(
   new GoogleStrategy(
     {
       clientID: config.GOOGLE_CLIENT_ID!,
       clientSecret: config.GOOGLE_CLIENT_SECRET!,
-      callbackURL: '/api/v1/auth/google/callback'
+      callbackURL: googleCallbackURL
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
@@ -128,12 +151,32 @@ passport.use(
 );
 
 // GitHub OAuth Strategy
+const getGitHubCallbackURL = (): string => {
+  // Use CLIENT_URL if available
+  if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
+    const url = `${config.CLIENT_URL}/api/v1/auth/github/callback`;
+    log.info(`GitHub OAuth callback URL: ${url}`);
+    return url;
+  }
+  // Check EC2_URL only if it's a valid URL
+  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') && (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
+    const url = `${config.EC2_URL}/api/v1/auth/github/callback`;
+    log.info(`GitHub OAuth callback URL: ${url}`);
+    return url;
+  }
+  const url = config.NODE_ENV === 'development'
+    ? 'http://localhost:5000/api/v1/auth/github/callback'
+    : 'https://dev.chatappserver.space/api/v1/auth/github/callback';
+  log.info(`GitHub OAuth callback URL (fallback): ${url}`);
+  return url;
+};
+
 passport.use(
   new GitHubStrategy(
     {
       clientID: config.GITHUB_CLIENT_ID!,
       clientSecret: config.GITHUB_CLIENT_SECRET!,
-      callbackURL: '/api/v1/auth/github/callback'
+      callbackURL: getGitHubCallbackURL()
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
@@ -235,12 +278,32 @@ passport.use(
 );
 
 // Facebook OAuth Strategy
+const getFacebookCallbackURL = (): string => {
+  // Use CLIENT_URL if available
+  if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
+    const url = `${config.CLIENT_URL}/api/v1/auth/facebook/callback`;
+    log.info(`Facebook OAuth callback URL: ${url}`);
+    return url;
+  }
+  // Check EC2_URL only if it's a valid URL
+  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') && (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
+    const url = `${config.EC2_URL}/api/v1/auth/facebook/callback`;
+    log.info(`Facebook OAuth callback URL: ${url}`);
+    return url;
+  }
+  const url = config.NODE_ENV === 'development'
+    ? 'http://localhost:5000/api/v1/auth/facebook/callback'
+    : 'https://dev.chatappserver.space/api/v1/auth/facebook/callback';
+  log.info(`Facebook OAuth callback URL (fallback): ${url}`);
+  return url;
+};
+
 passport.use(
   new FacebookStrategy(
     {
       clientID: config.FACEBOOK_APP_ID!,
       clientSecret: config.FACEBOOK_APP_SECRET!,
-      callbackURL: '/api/v1/auth/facebook/callback',
+      callbackURL: getFacebookCallbackURL(),
       profileFields: ['id', 'displayName', 'email', 'picture.type(large)']
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
