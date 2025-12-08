@@ -83,7 +83,7 @@ export class RottenCornServer {
 
     app.use(
       cors({
-        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
           // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
           if (!origin) {
             log.info('CORS: Allowing request with no origin header');
