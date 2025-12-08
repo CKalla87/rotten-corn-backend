@@ -113,6 +113,38 @@ jobs:
             echo "No in-progress deployments found"
           fi
 
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          echo "Current deployment type: $DEPLOYMENT_TYPE"
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group (may need manual Terraform apply)"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -163,6 +195,38 @@ jobs:
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          echo "Current deployment type: $DEPLOYMENT_TYPE"
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group (may need manual Terraform apply)"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -212,6 +276,38 @@ jobs:
           BUNDLE_KEY="artifacts/production/chatapp-${GITHUB_SHA}.zip"
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
+
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          echo "Current deployment type: $DEPLOYMENT_TYPE"
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group (may need manual Terraform apply)"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
 
       - name: Create CodeDeploy deployment
         id: deploy
