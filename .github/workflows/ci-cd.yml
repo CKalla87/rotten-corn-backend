@@ -85,6 +85,34 @@ jobs:
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
+      - name: Stop in-progress deployments
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking for in-progress deployments..."
+          IN_PROGRESS=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress Ready \
+            --max-items 10 \
+            --query 'deployments' \
+            --output text || echo "None")
+
+          if [ -n "$IN_PROGRESS" ] && [ "$IN_PROGRESS" != "None" ]; then
+            echo "Found in-progress deployments, stopping them..."
+            for deployment_id in $IN_PROGRESS; do
+              echo "Stopping deployment: $deployment_id"
+              aws deploy stop-deployment \
+                --deployment-id "$deployment_id" \
+                --auto-rollback-enabled || echo "Warning: Could not stop $deployment_id"
+            done
+            echo "Waiting 5 seconds for deployments to stop..."
+            sleep 5
+          else
+            echo "No in-progress deployments found"
+          fi
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -95,6 +123,7 @@ jobs:
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
             --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
             --file-exists-behavior OVERWRITE \
             --query "deploymentId" \
@@ -144,6 +173,7 @@ jobs:
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
             --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
             --file-exists-behavior OVERWRITE \
             --query "deploymentId" \
@@ -193,6 +223,7 @@ jobs:
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
             --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
             --file-exists-behavior OVERWRITE \
             --query "deploymentId" \
