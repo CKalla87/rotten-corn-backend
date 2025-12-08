@@ -23,10 +23,14 @@ sudo rm -rf env-file.zip .env .env.production
 
 # Download and extract environment files
 ENV_BUCKET="chattapplication1-env-files"
-ENV_PREFIX="staging"
+# Determine environment prefix based on deployment group or default to staging
+ENV_PREFIX="${ENV_PREFIX:-staging}"
 
 echo "[$(date)] Downloading environment files from S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"
-aws s3 sync "s3://${ENV_BUCKET}/${ENV_PREFIX}" . 2>&1 || echo "[$(date)] Warning: Failed to sync from S3"
+if ! aws s3 sync "s3://${ENV_BUCKET}/${ENV_PREFIX}" . 2>&1; then
+  echo "[$(date)] ERROR: Failed to sync from S3 - this will cause app startup to fail!"
+  echo "[$(date)] Attempting to continue, but app may crash if .env is missing"
+fi
 
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
@@ -34,9 +38,26 @@ if [ -f env-file.zip ]; then
   if [ -f .env.production ]; then
     sudo cp .env.production .env
     echo "[$(date)] Copied .env.production to .env"
+  elif [ -f .env ]; then
+    echo "[$(date)] .env file already exists"
+  else
+    echo "[$(date)] ERROR: No .env or .env.production file found after extraction!"
   fi
 else
-  echo "[$(date)] Warning: env-file.zip not found"
+  echo "[$(date)] ERROR: env-file.zip not found in S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"
+  echo "[$(date)] App will likely fail to start without environment variables"
+fi
+
+# Verify critical environment variables exist
+if [ -f .env ]; then
+  echo "[$(date)] Verifying critical environment variables..."
+  if ! grep -q "DATABASE_URL" .env; then
+    echo "[$(date)] ERROR: DATABASE_URL not found in .env file!"
+  else
+    echo "[$(date)] ✓ DATABASE_URL found in .env"
+  fi
+else
+  echo "[$(date)] ERROR: .env file does not exist - app will crash on startup!"
 fi
 
 # Stop any existing PM2 processes
