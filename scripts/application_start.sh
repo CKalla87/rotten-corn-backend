@@ -7,28 +7,41 @@ set -e  # Exit on any error
 cd /home/ec2-user/chatty-backend
 echo "[$(date)] Changed to /home/ec2-user/chatty-backend"
 
-GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || true)"
+# Ensure Node.js and npm are in PATH
+export PATH="/usr/local/bin:/usr/bin:/opt/nodejs/node-v16.20.2-linux-x64/bin:$PATH"
+
+GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || echo '/usr/local/lib/node_modules/.bin' || true)"
 if [ -n "$GLOBAL_NPM_BIN" ] && ! echo "$PATH" | grep -q "$GLOBAL_NPM_BIN"; then
   export PATH="$GLOBAL_NPM_BIN:$PATH"
 fi
 
-PM2_BIN="$(command -v pm2 || true)"
-if [ -z "$PM2_BIN" ] && [ -x /usr/local/bin/pm2 ]; then
-  PM2_BIN="/usr/local/bin/pm2"
-fi
+# Find PM2 - try multiple locations
+PM2_BIN=""
+for pm2_path in "$(command -v pm2 2>/dev/null)" "/usr/local/bin/pm2" "/usr/bin/pm2" "$HOME/.npm-global/bin/pm2" "/opt/nodejs/node-v16.20.2-linux-x64/bin/pm2"; do
+  if [ -n "$pm2_path" ] && [ -x "$pm2_path" ]; then
+    PM2_BIN="$pm2_path"
+    break
+  fi
+done
 
 if [ -z "$PM2_BIN" ]; then
   echo "[$(date)] pm2 not found, installing..."
-  sudo npm install -g pm2 --unsafe-perm
-  if [ -n "$GLOBAL_NPM_BIN" ] && ! echo "$PATH" | grep -q "$GLOBAL_NPM_BIN"; then
-    export PATH="$GLOBAL_NPM_BIN:$PATH"
-  fi
-  PM2_BIN="$(command -v pm2 || true)"
+  npm install -g pm2 --unsafe-perm
+  export PATH="/usr/local/bin:$PATH"
+  # Try again after install
+  PM2_BIN="$(command -v pm2 2>/dev/null || echo '/usr/local/bin/pm2')"
 fi
-if [ -z "$PM2_BIN" ]; then
+
+if [ -z "$PM2_BIN" ] || [ ! -x "$PM2_BIN" ]; then
   echo "[$(date)] ERROR: pm2 still not found after install"
+  echo "[$(date)] PATH: $PATH"
+  echo "[$(date)] which pm2: $(which pm2 2>&1 || echo 'not found')"
+  echo "[$(date)] ls /usr/local/bin/pm2: $(ls -la /usr/local/bin/pm2 2>&1 || echo 'not found')"
   exit 1
 fi
+
+echo "[$(date)] Using PM2 binary: $PM2_BIN"
+echo "[$(date)] PM2 version: $($PM2_BIN --version 2>&1 || echo 'version check failed')"
 
 # Build should already be done in CI/CD and included in deployment package
 # Verify build directory exists
@@ -91,19 +104,32 @@ if [ -f ./build/src/app.js ]; then
     echo "[$(date)] This usually indicates a database/Redis connection issue or missing env vars"
   fi
 
-  # Now start with PM2
-  echo "[$(date)] Starting with PM2..."
+  # Now start with PM2 - ensure we're using the correct binary path
+  echo "[$(date)] Starting with PM2 at: $PM2_BIN"
+  
+  # Ensure we're in the right directory
+  cd /home/ec2-user/chatty-backend
+  echo "[$(date)] Current directory: $(pwd)"
+  
+  # Delete any existing process first
+  "$PM2_BIN" delete chatty-backend 2>/dev/null || true
+  sleep 1
+  
+  # Start the application
   if ! "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend"; then
     echo "[$(date)] ERROR: PM2 start command failed"
+    echo "[$(date)] PM2 binary used: $PM2_BIN"
+    echo "[$(date)] Checking if PM2 binary exists:"
+    ls -la "$PM2_BIN" 2>&1 || echo "PM2 binary not found at expected path"
     echo "[$(date)] PM2 error output:"
     "$PM2_BIN" logs chatty-backend --err --lines 20 --nostream 2>&1 || true
     exit 1
   fi
 
   # Wait a moment for PM2 to register the process
-  sleep 2
+  sleep 3
 
-  # Verify PM2 actually has the process
+  # Verify PM2 actually has the process (use full path again)
   if ! "$PM2_BIN" list | grep -q "chatty-backend"; then
     echo "[$(date)] ERROR: chatty-backend not found in PM2 list after start"
     echo "[$(date)] PM2 list:"
@@ -116,7 +142,7 @@ if [ -f ./build/src/app.js ]; then
   # Save PM2 process list
   "$PM2_BIN" save || echo "[$(date)] Warning: PM2 save failed (non-critical)"
 
-  echo "[$(date)] PM2 start command completed, waiting for application to initialize..."
+  echo "[$(date)] PM2 start command completed successfully, waiting for application to initialize..."
 else
   echo "[$(date)] ERROR: build/src/app.js not found"
   exit 1
