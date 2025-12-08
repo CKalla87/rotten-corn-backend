@@ -15,33 +15,70 @@ if [ -n "$GLOBAL_NPM_BIN" ] && ! echo "$PATH" | grep -q "$GLOBAL_NPM_BIN"; then
   export PATH="$GLOBAL_NPM_BIN:$PATH"
 fi
 
-# Find PM2 - try multiple locations
+# Find PM2 - try multiple locations and verify each one exists
 PM2_BIN=""
-for pm2_path in "$(command -v pm2 2>/dev/null)" "/usr/local/bin/pm2" "/usr/bin/pm2" "$HOME/.npm-global/bin/pm2" "/opt/nodejs/node-v16.20.2-linux-x64/bin/pm2"; do
-  if [ -n "$pm2_path" ] && [ -x "$pm2_path" ]; then
+PM2_CANDIDATES=(
+  "$(command -v pm2 2>/dev/null)"
+  "/usr/local/bin/pm2"
+  "/usr/bin/pm2"
+  "$HOME/.npm-global/bin/pm2"
+  "/opt/nodejs/node-v16.20.2-linux-x64/bin/pm2"
+  "/root/.npm-global/bin/pm2"
+)
+
+echo "[$(date)] Searching for PM2..."
+for pm2_path in "${PM2_CANDIDATES[@]}"; do
+  # Skip empty strings
+  [ -z "$pm2_path" ] && continue
+  
+  echo "[$(date)] Checking: $pm2_path"
+  if [ -f "$pm2_path" ] && [ -x "$pm2_path" ]; then
     PM2_BIN="$pm2_path"
+    echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
     break
   fi
 done
 
+# If not found, install PM2
 if [ -z "$PM2_BIN" ]; then
-  echo "[$(date)] pm2 not found, installing..."
+  echo "[$(date)] pm2 not found in any location, installing globally..."
   npm install -g pm2 --unsafe-perm
-  export PATH="/usr/local/bin:$PATH"
-  # Try again after install
-  PM2_BIN="$(command -v pm2 2>/dev/null || echo '/usr/local/bin/pm2')"
+  
+  # Update PATH
+  export PATH="/usr/local/bin:/usr/bin:$PATH"
+  
+  # Search again after installation
+  for pm2_path in "${PM2_CANDIDATES[@]}"; do
+    [ -z "$pm2_path" ] && continue
+    if [ -f "$pm2_path" ] && [ -x "$pm2_path" ]; then
+      PM2_BIN="$pm2_path"
+      echo "[$(date)] ✓ Found PM2 after install at: $PM2_BIN"
+      break
+    fi
+  done
 fi
 
-if [ -z "$PM2_BIN" ] || [ ! -x "$PM2_BIN" ]; then
+# Final verification
+if [ -z "$PM2_BIN" ] || [ ! -f "$PM2_BIN" ] || [ ! -x "$PM2_BIN" ]; then
   echo "[$(date)] ERROR: pm2 still not found after install"
   echo "[$(date)] PATH: $PATH"
   echo "[$(date)] which pm2: $(which pm2 2>&1 || echo 'not found')"
-  echo "[$(date)] ls /usr/local/bin/pm2: $(ls -la /usr/local/bin/pm2 2>&1 || echo 'not found')"
+  echo "[$(date)] Checking common locations:"
+  ls -la /usr/local/bin/pm2 2>&1 || echo "  /usr/local/bin/pm2: not found"
+  ls -la /usr/bin/pm2 2>&1 || echo "  /usr/bin/pm2: not found"
+  echo "[$(date)] Trying to find npm global bin:"
+  npm bin -g 2>&1 || echo "  npm bin -g failed"
   exit 1
 fi
 
 echo "[$(date)] Using PM2 binary: $PM2_BIN"
-echo "[$(date)] PM2 version: $($PM2_BIN --version 2>&1 || echo 'version check failed')"
+# Verify PM2 works before continuing
+if ! "$PM2_BIN" --version > /dev/null 2>&1; then
+  echo "[$(date)] WARNING: PM2 binary found but --version check failed, continuing anyway..."
+else
+  PM2_VERSION=$("$PM2_BIN" --version 2>&1)
+  echo "[$(date)] PM2 version: $PM2_VERSION"
+fi
 
 # Build should already be done in CI/CD and included in deployment package
 # Verify build directory exists
@@ -106,15 +143,15 @@ if [ -f ./build/src/app.js ]; then
 
   # Now start with PM2 - ensure we're using the correct binary path
   echo "[$(date)] Starting with PM2 at: $PM2_BIN"
-  
+
   # Ensure we're in the right directory
   cd /home/ec2-user/chatty-backend
   echo "[$(date)] Current directory: $(pwd)"
-  
+
   # Delete any existing process first
   "$PM2_BIN" delete chatty-backend 2>/dev/null || true
   sleep 1
-  
+
   # Start the application
   if ! "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend"; then
     echo "[$(date)] ERROR: PM2 start command failed"
