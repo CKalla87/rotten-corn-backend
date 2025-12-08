@@ -8,6 +8,8 @@ resource "aws_codedeploy_deployment_group" "code_deploy_app_group" {
   deployment_group_name = "${local.prefix}-group"
   service_role_arn      = aws_iam_role.code_deploy_iam_role.arn
 
+  autoscaling_groups = [aws_autoscaling_group.ec2_autoscaling_group.name]
+
   ec2_tag_filter {
     key   = "Type"
     type  = "KEY_AND_VALUE"
