@@ -47,14 +47,92 @@ export class RottenCornServer {
         name: 'session',
         keys: [config.SECRET_KEY_ONE!, config.SECRET_KEY_TWO!],
         maxAge: 24 * 7 * 360000,
-        secure: config.NODE_ENV !== 'development'
+        secure: config.NODE_ENV !== 'development',
+        sameSite: config.NODE_ENV !== 'development' ? 'none' : 'lax',
+        domain: config.NODE_ENV !== 'development' ? '.chatappserver.space' : undefined
       })
     );
     app.use(hpp());
-    app.use(helmet());
+    app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+            imgSrc: ["'self'", 'data:', 'https:'],
+            connectSrc: ["'self'", config.CLIENT_URL || '*', 'https://dev.chatappserver.space', 'https://api.dev.chatappserver.space', 'https://chatappserver.space', 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com'],
+            frameSrc: ["'self'", 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com'],
+            formAction: ["'self'", 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com']
+          }
+        },
+        crossOriginEmbedderPolicy: false,
+        crossOriginResourcePolicy: { policy: 'cross-origin' }
+      })
+    );
+
+    // Configure CORS to allow multiple origins (dev and production)
+    const allowedOrigins = [
+      config.CLIENT_URL,
+      'https://dev.chatappserver.space',
+      'https://api.dev.chatappserver.space',
+      'https://chatappserver.space',
+      'http://localhost:3000',
+      'http://localhost:3001'
+    ].filter(Boolean); // Remove undefined values
+
     app.use(
       cors({
-        origin: config.CLIENT_URL,
+        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+          // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
+          if (!origin) {
+            log.info('CORS: Allowing request with no origin header');
+            return callback(null, true);
+          }
+
+          // Normalize origin for comparison (remove trailing slash)
+          const normalizedOrigin = origin.replace(/\/$/, '');
+
+          // Check if origin is in allowed list (exact match or domain match)
+          const isAllowed = allowedOrigins.some(allowed => {
+            if (!allowed) return false;
+            const normalizedAllowed = allowed.replace(/\/$/, '');
+            const allowedDomain = normalizedAllowed.replace(/^https?:\/\//, '');
+            const originDomain = normalizedOrigin.replace(/^https?:\/\//, '');
+
+            // Exact match
+            if (normalizedOrigin === normalizedAllowed) {
+              log.info(`CORS: Allowing exact match: ${origin}`);
+              return true;
+            }
+
+            // Subdomain match (e.g., api.dev.chatappserver.space matches dev.chatappserver.space or chatappserver.space)
+            // Check if both are subdomains of the same base domain
+            const baseDomain = allowedDomain.split('.').slice(-2).join('.'); // Get last 2 parts (e.g., chatappserver.space)
+            const originBaseDomain = originDomain.split('.').slice(-2).join('.');
+
+            if (originBaseDomain === baseDomain) {
+              log.info(`CORS: Allowing subdomain match: ${origin} matches base domain ${baseDomain}`);
+              return true;
+            }
+
+            // Domain match (e.g., https://dev.chatappserver.space matches dev.chatappserver.space)
+            if (normalizedOrigin.includes(allowedDomain)) {
+              log.info(`CORS: Allowing domain match: ${origin} matches ${allowed}`);
+              return true;
+            }
+
+            return false;
+          });
+
+          if (isAllowed) {
+            callback(null, true);
+          } else {
+            // Log for debugging
+            log.warn(`CORS blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`);
+            callback(new Error('Not allowed by CORS'));
+          }
+        },
         credentials: true,
         optionsSuccessStatus: 200,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
