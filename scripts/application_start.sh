@@ -110,7 +110,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   # Check if PM2 shows the app as online
   PM2_STATUS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $10}' || echo "unknown")
   echo "[$(date)] PM2 status: $PM2_STATUS (waited ${ELAPSED}s)"
-  
+
   if [ "$PM2_STATUS" = "online" ]; then
     echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
 
@@ -215,11 +215,41 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 done
 
 # If we get here, the app didn't start within the timeout
-echo "[$(date)] ERROR: Application did not come online and respond to HTTP within ${MAX_WAIT} seconds"
+echo "[$(date)] WARNING: Application did not come online in PM2 within ${MAX_WAIT} seconds"
+echo "[$(date)] Checking if app is running anyway (may have started outside PM2 or PM2 status incorrect)..."
 echo "[$(date)] Current PM2 status:"
 "$PM2_BIN" list || true
 echo "[$(date)] Port 5000 status:"
-netstat -tln 2>/dev/null | grep ":5000 " || echo "Port 5000 not listening"
+PORT_LISTENING=false
+if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+  PORT_LISTENING=true
+  echo "[$(date)] ✓ Port 5000 IS listening"
+else
+  echo "[$(date)] ✗ Port 5000 is NOT listening"
+fi
+
+# Check if node process is running the app
+APP_PROCESS_RUNNING=false
+if pgrep -f "node.*build/src/app.js" > /dev/null 2>&1 || ps aux | grep -v grep | grep -q "node.*build/src/app.js"; then
+  APP_PROCESS_RUNNING=true
+  echo "[$(date)] ✓ Node process running build/src/app.js found"
+fi
+
+# Final fallback: If port is listening OR process is running, try HTTP check
+if [ "$PORT_LISTENING" = true ] || [ "$APP_PROCESS_RUNNING" = true ]; then
+  echo "[$(date)] App process or port detected - attempting final HTTP health check..."
+  for final_check in 1 2 3 4 5; do
+    sleep 2
+    if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+      echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests!"
+      echo "[$(date)] App appears to be running (even if PM2 status unclear)"
+      exit 0
+    fi
+  done
+fi
+
+# If we still haven't succeeded, show diagnostics and exit with error
+echo "[$(date)] ERROR: Application did not respond to HTTP health checks"
 echo "[$(date)] PM2 error logs (last 100 lines):"
 "$PM2_BIN" logs chatty-backend --err --lines 100 --nostream 2>&1 || true
 echo "[$(date)] PM2 output logs (last 100 lines):"
@@ -232,5 +262,7 @@ if [ -f .env ]; then
 else
   echo "[$(date)] ERROR: .env file not found!"
 fi
+echo "[$(date)] Process check:"
+ps aux | grep -E "node|pm2" | grep -v grep || true
 exit 1
 
