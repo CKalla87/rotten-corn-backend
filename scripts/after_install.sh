@@ -38,10 +38,13 @@ if [ -f env-file.zip ]; then
   if [ -f .env.production ]; then
     cp .env.production .env
     echo "[$(date)] Copied .env.production to .env"
+  elif [ -f .env.develop ]; then
+    cp .env.develop .env
+    echo "[$(date)] Copied .env.develop to .env"
   elif [ -f .env ]; then
     echo "[$(date)] .env file already exists"
   else
-    echo "[$(date)] ERROR: No .env or .env.production file found after extraction!"
+    echo "[$(date)] ERROR: No .env, .env.production, or .env.develop file found after extraction!"
   fi
 else
   echo "[$(date)] ERROR: env-file.zip not found in S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"
@@ -103,15 +106,58 @@ pm2 delete all || true
 
 # Install dependencies
 echo "[$(date)] Installing npm dependencies"
-if ! npm install; then
-  echo "[$(date)] npm install failed, trying with --legacy-peer-deps"
-  npm install --legacy-peer-deps || {
-    echo "[$(date)] ERROR: npm install failed completely"
-    echo "[$(date)] npm error output:"
-    npm install --legacy-peer-deps 2>&1 | tail -50
-    exit 1
-  }
+echo "[$(date)] Current directory: $(pwd)"
+echo "[$(date)] Checking if package.json exists:"
+if [ ! -f package.json ]; then
+  echo "[$(date)] ERROR: package.json not found in $(pwd)"
+  exit 1
 fi
+
+echo "[$(date)] Running npm install..."
+echo "[$(date)] Working directory: $(pwd)"
+echo "[$(date)] Node version: $(node --version)"
+echo "[$(date)] NPM version: $(npm --version)"
+echo "[$(date)] Checking package.json..."
+cat package.json | head -10
+
+# Clean install to ensure fresh dependencies
+rm -rf node_modules package-lock.json 2>/dev/null || true
+
+# Run npm install with verbose output
+echo "[$(date)] Starting npm install (this may take several minutes)..."
+if ! npm install --production 2>&1 | tee /tmp/npm-install.log; then
+  echo "[$(date)] npm install failed, trying with --legacy-peer-deps"
+  if ! npm install --production --legacy-peer-deps 2>&1 | tee -a /tmp/npm-install.log; then
+    echo "[$(date)] ERROR: npm install failed completely"
+    echo "[$(date)] Last 100 lines of npm install output:"
+    tail -100 /tmp/npm-install.log
+    echo "[$(date)] Checking if node_modules exists:"
+    ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+    exit 1
+  fi
+fi
+
+# Verify critical dependencies are installed
+echo "[$(date)] Verifying dependencies installed..."
+MISSING_DEPS=""
+for dep in express passport dotenv; do
+  if [ ! -d "node_modules/$dep" ]; then
+    MISSING_DEPS="$MISSING_DEPS $dep"
+  fi
+done
+
+if [ -n "$MISSING_DEPS" ]; then
+  echo "[$(date)] ERROR: Missing critical dependencies:$MISSING_DEPS"
+  echo "[$(date)] node_modules directory exists: $([ -d node_modules ] && echo 'yes' || echo 'no')"
+  echo "[$(date)] node_modules contents (first 20):"
+  ls -la node_modules 2>&1 | head -20 || echo "Cannot list node_modules"
+  echo "[$(date)] Checking npm install log for errors:"
+  grep -i "error\|failed\|missing" /tmp/npm-install.log | tail -20 || echo "No errors found in log"
+  exit 1
+fi
+
+echo "[$(date)] ✓ Critical dependencies verified: express, passport, dotenv"
+echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
 
 echo "[$(date)] AfterInstall hook completed successfully"
 
