@@ -1,3 +1,7 @@
+# IN-PLACE DEPLOYMENT (FASTEST & COST-EFFECTIVE)
+# Deploys directly to existing instances - no new instances created
+# WARNING: Brief downtime possible during deployment
+
 resource "aws_codedeploy_app" "code_deploy_app" {
   name             = "${local.prefix}-app"
   compute_platform = "Server"
@@ -16,37 +20,22 @@ resource "aws_codedeploy_deployment_group" "code_deploy_app_group" {
     value = "Backend-${terraform.workspace}"
   }
 
-  deployment_config_name = "CodeDeployDefault.AllAtOnce"
+  # Use OneAtATime for safer in-place (deploys to one instance at a time)
+  # This ensures at least one instance is always serving traffic
+  deployment_config_name = "CodeDeployDefault.OneAtATime"
 
+  # IN-PLACE deployment (no blue/green - no new instances created)
   deployment_style {
-    deployment_option = "WITH_TRAFFIC_CONTROL"
-    deployment_type   = "BLUE_GREEN"
+    deployment_option = "WITHOUT_TRAFFIC_CONTROL"
+    deployment_type   = "IN_PLACE"
   }
 
-  load_balancer_info {
-    target_group_info {
-      name = aws_alb_target_group.server_backend_tg.name
-    }
-  }
+  # No load_balancer_info needed for in-place
+  # No blue_green_deployment_config needed
 
   auto_rollback_configuration {
     enabled = true
     events  = ["DEPLOYMENT_FAILURE"]
-  }
-
-  blue_green_deployment_config {
-    deployment_ready_option {
-      action_on_timeout = "CONTINUE_DEPLOYMENT"
-    }
-
-    green_fleet_provisioning_option {
-      action = "COPY_AUTO_SCALING_GROUP"
-    }
-
-    terminate_blue_instances_on_deployment_success {
-      action                           = "TERMINATE"
-      termination_wait_time_in_minutes = 0
-    }
   }
 
   provisioner "local-exec" {
@@ -58,6 +47,5 @@ resource "aws_codedeploy_deployment_group" "code_deploy_app_group" {
       ENV_TYPE = "Backend-${terraform.workspace}"
     }
   }
-
 }
 
