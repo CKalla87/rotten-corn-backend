@@ -57,13 +57,13 @@ export class RottenCornServer {
       helmet({
         contentSecurityPolicy: {
           directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-            imgSrc: ["'self'", 'data:', 'https:'],
-            connectSrc: ["'self'", config.CLIENT_URL || '*', 'https://dev.chatappserver.space', 'https://api.dev.chatappserver.space', 'https://chatappserver.space', 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com'],
-            frameSrc: ["'self'", 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com'],
-            formAction: ["'self'", 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com']
+            defaultSrc: ['\'self\''],
+            styleSrc: ['\'self\'', '\'unsafe-inline\''],
+            scriptSrc: ['\'self\''],
+            imgSrc: ['\'self\'', 'data:', 'https:'],
+            connectSrc: ['\'self\'', config.CLIENT_URL || '*', 'https://dev.chatappserver.space', 'https://api.dev.chatappserver.space', 'https://chatappserver.space', 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com'],
+            frameSrc: ['\'self\'', 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com'],
+            formAction: ['\'self\'', 'https://accounts.google.com', 'https://github.com', 'https://www.facebook.com']
           }
         },
         crossOriginEmbedderPolicy: false,
