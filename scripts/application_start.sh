@@ -61,10 +61,26 @@ if [ -f ./build/src/app.js ]; then
   fi
 
   # Now start with PM2
-  "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend" || {
+  echo "[$(date)] Starting with PM2..."
+  if ! "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend"; then
     echo "[$(date)] ERROR: PM2 start command failed"
+    echo "[$(date)] PM2 error output:"
+    "$PM2_BIN" logs chatty-backend --err --lines 20 --nostream 2>&1 || true
     exit 1
-  }
+  fi
+
+  # Wait a moment for PM2 to register the process
+  sleep 2
+
+  # Verify PM2 actually has the process
+  if ! "$PM2_BIN" list | grep -q "chatty-backend"; then
+    echo "[$(date)] ERROR: chatty-backend not found in PM2 list after start"
+    echo "[$(date)] PM2 list:"
+    "$PM2_BIN" list || true
+    echo "[$(date)] PM2 logs:"
+    "$PM2_BIN" logs --lines 50 --nostream 2>&1 || true
+    exit 1
+  fi
 
   # Save PM2 process list
   "$PM2_BIN" save || echo "[$(date)] Warning: PM2 save failed (non-critical)"
@@ -81,8 +97,21 @@ WAIT_INTERVAL=3  # Check every 3 seconds
 ELAPSED=0
 
 while [ $ELAPSED -lt $MAX_WAIT ]; do
+  # First verify the process exists in PM2
+  if ! "$PM2_BIN" list | grep -q "chatty-backend"; then
+    echo "[$(date)] WARNING: chatty-backend not found in PM2 list (waited ${ELAPSED}s)"
+    echo "[$(date)] PM2 list output:"
+    "$PM2_BIN" list || true
+    sleep $WAIT_INTERVAL
+    ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+    continue
+  fi
+
   # Check if PM2 shows the app as online
-  if "$PM2_BIN" list | grep -q "chatty-backend.*online"; then
+  PM2_STATUS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $10}' || echo "unknown")
+  echo "[$(date)] PM2 status: $PM2_STATUS (waited ${ELAPSED}s)"
+  
+  if [ "$PM2_STATUS" = "online" ]; then
     echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
 
     # CRITICAL: Actually test if the app responds to HTTP requests
@@ -154,31 +183,31 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     fi
   fi
 
-  # Check if process exists but is not online (might be starting, errored, or stopped)
-  if "$PM2_BIN" list | grep -q "chatty-backend"; then
-    STATUS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $10}')
-    RESTARTS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $12}')
-    echo "[$(date)] Application status: $STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
+  # Process exists but not online - check status
+  RESTARTS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $12}' || echo "0")
+  echo "[$(date)] Application status: $PM2_STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
 
-    # Check for crash loop (too many restarts)
-    if [ -n "$RESTARTS" ] && [ "$RESTARTS" -gt 5 ]; then
-      echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts)"
-      echo "[$(date)] Showing last 50 lines of logs:"
-      "$PM2_BIN" logs chatty-backend --lines 50 --nostream || true
-      exit 1
-    fi
+  # Check for crash loop (too many restarts)
+  if [ -n "$RESTARTS" ] && [ "$RESTARTS" != "N/A" ] && [ "$RESTARTS" -gt 5 ]; then
+    echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts)"
+    echo "[$(date)] Showing last 50 lines of logs:"
+    "$PM2_BIN" logs chatty-backend --lines 50 --nostream 2>&1 || true
+    exit 1
+  fi
 
-    # If it's errored or stopped, show logs and exit
-    if [ "$STATUS" = "errored" ] || [ "$STATUS" = "stopped" ]; then
-      echo "[$(date)] ERROR: Application status is $STATUS"
-      echo "[$(date)] PM2 error logs (last 50 lines):"
-      "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
-      echo "[$(date)] PM2 output logs (last 50 lines):"
-      "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
-      exit 1
-    fi
-  else
-    echo "[$(date)] Application process not found in PM2 list (waited ${ELAPSED}s)"
+  # If it's errored or stopped, show logs and exit
+  if [ "$PM2_STATUS" = "errored" ] || [ "$PM2_STATUS" = "stopped" ]; then
+    echo "[$(date)] ERROR: Application status is $PM2_STATUS"
+    echo "[$(date)] PM2 error logs (last 50 lines):"
+    "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
+    echo "[$(date)] PM2 output logs (last 50 lines):"
+    "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
+    exit 1
+  fi
+
+  # If it's launching or waiting for restart, give it more time
+  if [ "$PM2_STATUS" = "launching" ] || [ "$PM2_STATUS" = "waiting restart" ]; then
+    echo "[$(date)] App is in $PM2_STATUS state, continuing to wait..."
   fi
 
   sleep $WAIT_INTERVAL
