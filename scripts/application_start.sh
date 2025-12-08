@@ -30,11 +30,16 @@ if [ -z "$PM2_BIN" ]; then
   exit 1
 fi
 
-# Build the application
-echo "[$(date)] Building application..."
-if ! sudo npm run build; then
-  echo "[$(date)] ERROR: Build failed"
-  exit 1
+# Build should already be done in CI/CD and included in deployment package
+# Verify build directory exists
+if [ ! -d "./build" ]; then
+  echo "[$(date)] WARNING: build directory not found, attempting to build..."
+  if ! sudo npm run build; then
+    echo "[$(date)] ERROR: Build failed"
+    exit 1
+  fi
+else
+  echo "[$(date)] Using pre-built application from deployment package"
 fi
 
 # Start the application with PM2

@@ -9,12 +9,12 @@ echo "Creating deployment package..."
 rm -f chatapp.zip
 
 # Create zip excluding large directories and files
+# Note: build/* is included since we build in CI/CD and deploy pre-built artifacts
 zip -r chatapp.zip . \
   -x "node_modules/*" \
   -x ".git/*" \
   -x "*.log" \
   -x "coverage/*" \
-  -x "build/*" \
   -x ".env*" \
   -x "dump.rdb" \
   -x "*.zip" \
