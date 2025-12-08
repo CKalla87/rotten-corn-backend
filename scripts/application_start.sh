@@ -42,6 +42,37 @@ else
   echo "[$(date)] Using pre-built application from deployment package"
 fi
 
+# CRITICAL: Verify node_modules exist before trying to start
+echo "[$(date)] Verifying dependencies are installed..."
+if [ ! -d "node_modules" ]; then
+  echo "[$(date)] ERROR: node_modules directory does not exist!"
+  echo "[$(date)] Current directory: $(pwd)"
+  echo "[$(date)] Directory contents:"
+  ls -la | head -20
+  echo "[$(date)] This means npm install failed or didn't run. Check AfterInstall hook logs."
+  exit 1
+fi
+
+# Verify critical dependencies
+MISSING_DEPS=""
+for dep in express passport dotenv; do
+  if [ ! -d "node_modules/$dep" ]; then
+    MISSING_DEPS="$MISSING_DEPS $dep"
+  fi
+done
+
+if [ -n "$MISSING_DEPS" ]; then
+  echo "[$(date)] ERROR: Critical dependencies missing:$MISSING_DEPS"
+  echo "[$(date)] node_modules exists: yes"
+  echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
+  echo "[$(date)] First 20 items in node_modules:"
+  ls -la node_modules | head -20 || true
+  echo "[$(date)] npm install may have failed. Check AfterInstall hook logs."
+  exit 1
+fi
+
+echo "[$(date)] ✓ Dependencies verified - express, passport, dotenv all present"
+
 # Start the application with PM2
 echo "[$(date)] Starting application with PM2..."
 if [ -f ./build/src/app.js ]; then
