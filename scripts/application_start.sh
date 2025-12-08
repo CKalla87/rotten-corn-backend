@@ -50,16 +50,16 @@ if [ -f ./build/src/app.js ]; then
 
   # Start the application (PM2 runs in daemon mode by default)
   echo "[$(date)] Launching application..."
-  
+
   # First, try to run the app directly to capture any immediate errors
   echo "[$(date)] Testing app startup (will timeout after 5 seconds)..."
   timeout 5 node ./build/src/app.js 2>&1 | head -50 || APP_ERROR=$?
-  
+
   if [ -n "$APP_ERROR" ] && [ "$APP_ERROR" != "124" ]; then
     echo "[$(date)] App failed to start directly. Error code: $APP_ERROR"
     echo "[$(date)] This usually indicates a database/Redis connection issue or missing env vars"
   fi
-  
+
   # Now start with PM2
   "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend" || {
     echo "[$(date)] ERROR: PM2 start command failed"
@@ -87,30 +87,50 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 
     # CRITICAL: Actually test if the app responds to HTTP requests
     # PM2 might say "online" but app could be crashing or not listening
-    if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+    # Try multiple times as the app might be starting up
+    HTTP_CHECK_SUCCESS=false
+    for check_attempt in 1 2 3; do
+      if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+        HTTP_CHECK_SUCCESS=true
+        break
+      else
+        echo "[$(date)] ⚠ HTTP check attempt $check_attempt failed, waiting 2 seconds..."
+        sleep 2
+      fi
+    done
+    
+    if [ "$HTTP_CHECK_SUCCESS" = true ]; then
       echo "[$(date)] ✓ Application is running and responding to HTTP requests (verified after ${ELAPSED}s)"
       exit 0
     else
       echo "[$(date)] ⚠ PM2 says online but app not responding to HTTP (waited ${ELAPSED}s)"
       echo "[$(date)] Checking if port 5000 is listening..."
-      if ! netstat -tln 2>/dev/null | grep -q ":5000 "; then
-      echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
-      echo "[$(date)] PM2 status:"
-      "$PM2_BIN" list | grep chatty-backend || true
-      echo "[$(date)] PM2 error logs (last 50 lines):"
-      "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
-      echo "[$(date)] PM2 output logs (last 50 lines):"
-      "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
-      echo "[$(date)] Checking if .env file exists and has required vars:"
-      if [ -f .env ]; then
-        echo "[$(date)] .env file exists"
-        grep -E "DATABASE_URL|REDIS_HOST|NODE_ENV" .env | sed 's/=.*/=***/' || echo "Required vars not found in .env"
+      if ! netstat -tln 2>/dev/null | grep -q ":5000 " && ! ss -tln 2>/dev/null | grep -q ":5000 "; then
+        echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
+        echo "[$(date)] PM2 status:"
+        "$PM2_BIN" list | grep chatty-backend || true
+        echo "[$(date)] PM2 error logs (last 50 lines):"
+        "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
+        echo "[$(date)] PM2 output logs (last 50 lines):"
+        "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
+        echo "[$(date)] Checking if .env file exists and has required vars:"
+        if [ -f .env ]; then
+          echo "[$(date)] .env file exists"
+          grep -E "DATABASE_URL|REDIS_HOST|NODE_ENV" .env | sed 's/=.*/=***/' || echo "Required vars not found in .env"
+        else
+          echo "[$(date)] ERROR: .env file not found!"
+        fi
+        echo "[$(date)] Checking process status:"
+        ps aux | grep -E "node|pm2" | grep -v grep || true
+        exit 1
       else
-        echo "[$(date)] ERROR: .env file not found!"
-      fi
-      echo "[$(date)] Checking process status:"
-      ps aux | grep -E "node|pm2" | grep -v grep || true
-      exit 1
+        # Port is listening, give it a bit more time to fully initialize
+        echo "[$(date)] Port 5000 is listening, waiting additional time for app to fully initialize..."
+        sleep 5
+        if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+          echo "[$(date)] ✓ Application is now responding to HTTP requests"
+          exit 0
+        fi
       fi
     fi
   fi
