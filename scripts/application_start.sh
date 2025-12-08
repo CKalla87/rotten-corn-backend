@@ -45,22 +45,90 @@ fi
 # Start the application with PM2
 echo "[$(date)] Starting application with PM2..."
 if [ -f ./build/src/app.js ]; then
+  # Delete any existing process
   "$PM2_BIN" delete chatty-backend || true
-  "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend"
-  "$PM2_BIN" save
-  echo "[$(date)] Application started with PM2"
+
+  # Start the application (PM2 runs in daemon mode by default)
+  echo "[$(date)] Launching application..."
+  "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend" || {
+    echo "[$(date)] ERROR: PM2 start command failed"
+    exit 1
+  }
+
+  # Save PM2 process list
+  "$PM2_BIN" save || echo "[$(date)] Warning: PM2 save failed (non-critical)"
+
+  echo "[$(date)] PM2 start command completed, waiting for application to initialize..."
 else
   echo "[$(date)] ERROR: build/src/app.js not found"
   exit 1
 fi
 
-# Wait a moment and check if PM2 process is running
-sleep 2
-if "$PM2_BIN" list | grep -q "chatty-backend.*online"; then
-  echo "[$(date)] Application is running successfully"
-else
-  echo "[$(date)] ERROR: Application failed to start"
-  sudo pm2 logs chatty-backend --lines 20
-  exit 1
-fi
+# Wait for application to start with retries (app needs time to connect to DB/Redis)
+MAX_WAIT=60  # Maximum wait time in seconds
+WAIT_INTERVAL=2  # Check every 2 seconds
+ELAPSED=0
+
+while [ $ELAPSED -lt $MAX_WAIT ]; do
+  # Check if PM2 shows the app as online
+  if "$PM2_BIN" list | grep -q "chatty-backend.*online"; then
+    echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
+
+    # CRITICAL: Actually test if the app responds to HTTP requests
+    # PM2 might say "online" but app could be crashing or not listening
+    if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+      echo "[$(date)] ✓ Application is running and responding to HTTP requests (verified after ${ELAPSED}s)"
+      exit 0
+    else
+      echo "[$(date)] ⚠ PM2 says online but app not responding to HTTP (waited ${ELAPSED}s)"
+      echo "[$(date)] Checking if port 5000 is listening..."
+      if ! netstat -tln 2>/dev/null | grep -q ":5000 "; then
+        echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
+        echo "[$(date)] PM2 status:"
+        "$PM2_BIN" list | grep chatty-backend || true
+        echo "[$(date)] Recent logs:"
+        "$PM2_BIN" logs chatty-backend --lines 30 --nostream || true
+        exit 1
+      fi
+    fi
+  fi
+
+  # Check if process exists but is not online (might be starting, errored, or stopped)
+  if "$PM2_BIN" list | grep -q "chatty-backend"; then
+    STATUS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $10}')
+    RESTARTS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $12}')
+    echo "[$(date)] Application status: $STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
+
+    # Check for crash loop (too many restarts)
+    if [ -n "$RESTARTS" ] && [ "$RESTARTS" -gt 5 ]; then
+      echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts)"
+      echo "[$(date)] Showing last 50 lines of logs:"
+      "$PM2_BIN" logs chatty-backend --lines 50 --nostream || true
+      exit 1
+    fi
+
+    # If it's errored or stopped, show logs and exit
+    if [ "$STATUS" = "errored" ] || [ "$STATUS" = "stopped" ]; then
+      echo "[$(date)] ERROR: Application status is $STATUS"
+      echo "[$(date)] Showing last 50 lines of logs:"
+      "$PM2_BIN" logs chatty-backend --lines 50 --nostream || true
+      exit 1
+    fi
+  else
+    echo "[$(date)] Application process not found in PM2 list (waited ${ELAPSED}s)"
+  fi
+
+  sleep $WAIT_INTERVAL
+  ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+done
+
+# If we get here, the app didn't start within the timeout
+echo "[$(date)] ERROR: Application did not come online and respond to HTTP within ${MAX_WAIT} seconds"
+echo "[$(date)] Current PM2 status:"
+"$PM2_BIN" list || true
+echo "[$(date)] Port 5000 status:"
+netstat -tln 2>/dev/null | grep ":5000 " || echo "Port 5000 not listening"
+echo "[$(date)] Showing last 50 lines of logs:"
+"$PM2_BIN" logs chatty-backend --lines 50 --nostream || true
+exit 1
 
