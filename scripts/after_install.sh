@@ -16,6 +16,14 @@ fi
 
 cd "$DEPLOYMENT_DIR"
 echo "[$(date)] Changed to $DEPLOYMENT_DIR"
+echo "[$(date)] Verifying we're in the right directory..."
+echo "[$(date)] Current directory: $(pwd)"
+echo "[$(date)] Directory should be: $DEPLOYMENT_DIR"
+
+if [ "$(pwd)" != "$DEPLOYMENT_DIR" ]; then
+  echo "[$(date)] ERROR: Not in expected directory!"
+  exit 1
+fi
 
 # Clean up old environment files
 echo "[$(date)] Cleaning up old environment files"
@@ -115,27 +123,51 @@ fi
 
 echo "[$(date)] Running npm install..."
 echo "[$(date)] Working directory: $(pwd)"
-echo "[$(date)] Node version: $(node --version)"
-echo "[$(date)] NPM version: $(npm --version)"
-echo "[$(date)] Checking package.json..."
-cat package.json | head -10
+echo "[$(date)] Node version: $(node --version 2>&1)"
+echo "[$(date)] NPM version: $(npm --version 2>&1)"
+echo "[$(date)] Checking package.json exists..."
+if [ ! -f package.json ]; then
+  echo "[$(date)] ERROR: package.json not found in $(pwd)"
+  echo "[$(date)] Directory contents:"
+  ls -la
+  exit 1
+fi
+echo "[$(date)] package.json found. Checking dependencies..."
+grep -A 5 '"dependencies"' package.json | head -10 || echo "Could not read dependencies from package.json"
 
 # Clean install to ensure fresh dependencies
+echo "[$(date)] Removing old node_modules and package-lock.json..."
 rm -rf node_modules package-lock.json 2>/dev/null || true
+echo "[$(date)] Cleanup complete"
 
-# Run npm install with verbose output
+# Run npm install with verbose output and ensure we capture exit code properly
 echo "[$(date)] Starting npm install (this may take several minutes)..."
-if ! npm install --production 2>&1 | tee /tmp/npm-install.log; then
-  echo "[$(date)] npm install failed, trying with --legacy-peer-deps"
-  if ! npm install --production --legacy-peer-deps 2>&1 | tee -a /tmp/npm-install.log; then
-    echo "[$(date)] ERROR: npm install failed completely"
+echo "[$(date)] Running: npm install --production"
+NPM_OUTPUT=$(npm install --production 2>&1)
+NPM_EXIT_CODE=$?
+
+if [ $NPM_EXIT_CODE -ne 0 ]; then
+  echo "$NPM_OUTPUT" | tee /tmp/npm-install.log
+  echo "[$(date)] npm install failed with exit code $NPM_EXIT_CODE, trying with --legacy-peer-deps"
+  NPM_OUTPUT=$(npm install --production --legacy-peer-deps 2>&1)
+  NPM_EXIT_CODE=$?
+  echo "$NPM_OUTPUT" | tee -a /tmp/npm-install.log
+  
+  if [ $NPM_EXIT_CODE -ne 0 ]; then
+    echo "[$(date)] ERROR: npm install failed completely with exit code $NPM_EXIT_CODE"
     echo "[$(date)] Last 100 lines of npm install output:"
     tail -100 /tmp/npm-install.log
     echo "[$(date)] Checking if node_modules exists:"
     ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+    echo "[$(date)] Current directory contents:"
+    ls -la | head -20
     exit 1
   fi
+else
+  echo "$NPM_OUTPUT" | tee /tmp/npm-install.log
 fi
+
+echo "[$(date)] npm install completed successfully"
 
 # Verify critical dependencies are installed
 echo "[$(date)] Verifying dependencies installed..."
