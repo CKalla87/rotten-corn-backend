@@ -30,7 +30,7 @@ echo "[$(date)] Searching for PM2..."
 for pm2_path in "${PM2_CANDIDATES[@]}"; do
   # Skip empty strings
   [ -z "$pm2_path" ] && continue
-  
+
   echo "[$(date)] Checking: $pm2_path"
   if [ -f "$pm2_path" ] && [ -x "$pm2_path" ]; then
     PM2_BIN="$pm2_path"
@@ -43,10 +43,10 @@ done
 if [ -z "$PM2_BIN" ]; then
   echo "[$(date)] pm2 not found in any location, installing globally..."
   npm install -g pm2 --unsafe-perm
-  
+
   # Update PATH
   export PATH="/usr/local/bin:/usr/bin:$PATH"
-  
+
   # Search again after installation
   for pm2_path in "${PM2_CANDIDATES[@]}"; do
     [ -z "$pm2_path" ] && continue
@@ -80,17 +80,28 @@ else
   echo "[$(date)] PM2 version: $PM2_VERSION"
 fi
 
-# Build should already be done in CI/CD and included in deployment package
-# Verify build directory exists
+# Build should already be done in AfterInstall hook
+# Verify build directory exists and fail fast if missing
 if [ ! -d "./build" ]; then
-  echo "[$(date)] WARNING: build directory not found, attempting to build..."
-  if ! sudo npm run build; then
-    echo "[$(date)] ERROR: Build failed"
-    exit 1
-  fi
-else
-  echo "[$(date)] Using pre-built application from deployment package"
+  echo "[$(date)] ERROR: build directory not found!"
+  echo "[$(date)] Build should have been completed in AfterInstall hook."
+  echo "[$(date)] Current directory: $(pwd)"
+  echo "[$(date)] Directory contents:"
+  ls -la | head -20
+  echo "[$(date)] Check AfterInstall hook logs for build errors."
+  exit 1
 fi
+
+if [ ! -f "./build/src/app.js" ]; then
+  echo "[$(date)] ERROR: build/src/app.js not found!"
+  echo "[$(date)] Build directory exists but app.js is missing."
+  echo "[$(date)] Build directory contents:"
+  ls -la build/ 2>&1 | head -20 || echo "Cannot list build directory"
+  echo "[$(date)] Check AfterInstall hook logs for build errors."
+  exit 1
+fi
+
+echo "[$(date)] ✓ Build directory and app.js verified"
 
 # CRITICAL: Verify node_modules exist before trying to start
 echo "[$(date)] Verifying dependencies are installed..."
