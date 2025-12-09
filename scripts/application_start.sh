@@ -546,14 +546,24 @@ if "$PM2_BIN" list 2>/dev/null | grep -qE "chatty-backend|chatty-b"; then
 fi
 
 NODE_PROCESS_EXISTS=false
-if pgrep -f "node.*build/src/app.js" > /dev/null 2>&1 || ps aux | grep -v grep | grep -q "node.*build/src/app.js"; then
+# Use set +e temporarily to avoid script exit on command failure
+set +e
+if pgrep -f "node.*build/src/app.js" > /dev/null 2>&1; then
+  NODE_PROCESS_EXISTS=true
+elif ps aux | grep -v grep | grep -q "node.*build/src/app.js" 2>/dev/null; then
   NODE_PROCESS_EXISTS=true
 fi
+set -e
 
 PORT_LISTENING=false
-if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+# Use set +e temporarily to avoid script exit on command failure
+set +e
+if netstat -tln 2>/dev/null | grep -q ":5000 "; then
+  PORT_LISTENING=true
+elif ss -tln 2>/dev/null | grep -q ":5000 "; then
   PORT_LISTENING=true
 fi
+set -e
 
 # Allow deployment if ANY indicator shows the app is running
 # (PM2 process, node process, or port listening)
