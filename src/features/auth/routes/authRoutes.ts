@@ -20,18 +20,22 @@ class AuthRoutes {
     this.router.post('/forgot-password', Password.prototype.create);
     this.router.post('/reset-password/:token', Password.prototype.update);
 
-    // OAuth routes
+    // OAuth routes - register AFTER specific routes to avoid route conflicts
     this.router.get('/auth/:provider', this.oauthController.initiate.bind(this.oauthController));
     this.router.get('/auth/:provider/callback', this.oauthController.callback.bind(this.oauthController));
     this.router.post('/auth/:provider/callback', this.oauthController.exchangeCode.bind(this.oauthController));
+
+    // Signout route
+    this.router.get('/signout', SignOut.prototype.update);
 
     return this.router;
   }
 
   public signoutRoute(): Router {
-    this.router.get('/signout', SignOut.prototype.update);
-
-    return this.router;
+    // Return a new router to avoid conflicts
+    const signoutRouter = express.Router();
+    signoutRouter.get('/signout', SignOut.prototype.update);
+    return signoutRouter;
   }
 }
 
