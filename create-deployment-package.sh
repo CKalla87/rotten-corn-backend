@@ -10,6 +10,7 @@ rm -f chatapp.zip
 
 # Create zip excluding large directories and files
 # Note: build/* is included since we build in CI/CD and deploy pre-built artifacts
+# IMPORTANT: Include package-lock.json for faster npm ci installs during deployment
 zip -r chatapp.zip . \
   -x "node_modules/*" \
   -x ".git/*" \
@@ -41,7 +42,7 @@ if [ -f chatapp.zip ]; then
   echo "✓ Created chatapp.zip ($SIZE)"
   echo ""
   echo "To upload to S3:"
-  echo "  aws --region us-east-1 s3 cp chatapp.zip s3://chatapp-server-default-app-602951639614/"
+  echo "  aws --region us-east-1 s3 cp chatapp.zip s3://chatapp-server-app-602951639614/chatapp.zip"
 else
   echo "✗ Failed to create chatapp.zip"
   exit 1
