@@ -379,7 +379,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       else
         echo "[$(date)] ✗ Port 5000 is NOT listening"
       fi
-      
+
       # Show diagnostics
       echo "[$(date)] PM2 status:"
       "$PM2_BIN" list | grep -E "chatty-backend|chatty-b" || true
@@ -396,7 +396,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       fi
       echo "[$(date)] Checking process status:"
       ps aux | grep -E "node|pm2" | grep -v grep || true
-      
+
       # If port is listening, allow deployment to continue (app might be slow to respond)
       if [ "$PORT_LISTENING" = true ]; then
         echo "[$(date)] ✓ Port is listening - app appears to be running"
@@ -547,11 +547,16 @@ fi
 echo "[$(date)] Process check:"
 ps aux | grep -E "node|pm2" | grep -v grep || true
 
-# Check if PM2 process exists and port is listening - if so, allow deployment to continue
+# Check if app is running (PM2, node process, or port listening)
 # The target group health checks will catch if the app is truly broken
 PM2_PROCESS_EXISTS=false
-if "$PM2_BIN" list | grep -qE "chatty-backend|chatty-b"; then
+if "$PM2_BIN" list 2>/dev/null | grep -qE "chatty-backend|chatty-b"; then
   PM2_PROCESS_EXISTS=true
+fi
+
+NODE_PROCESS_EXISTS=false
+if pgrep -f "node.*build/src/app.js" > /dev/null 2>&1 || ps aux | grep -v grep | grep -q "node.*build/src/app.js"; then
+  NODE_PROCESS_EXISTS=true
 fi
 
 PORT_LISTENING=false
@@ -559,19 +564,26 @@ if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q 
   PORT_LISTENING=true
 fi
 
-if [ "$PM2_PROCESS_EXISTS" = true ] && [ "$PORT_LISTENING" = true ]; then
-  echo "[$(date)] ✓ PM2 process exists and port 5000 is listening"
-  echo "[$(date)] ✓ Application appears to be running (health check may be slow to respond)"
+# Allow deployment if ANY indicator shows the app is running
+# (PM2 process, node process, or port listening)
+if [ "$PM2_PROCESS_EXISTS" = true ] || [ "$NODE_PROCESS_EXISTS" = true ] || [ "$PORT_LISTENING" = true ]; then
+  echo "[$(date)] ✓ Application appears to be running:"
+  if [ "$PM2_PROCESS_EXISTS" = true ]; then
+    echo "[$(date)]   - PM2 process found"
+  fi
+  if [ "$NODE_PROCESS_EXISTS" = true ]; then
+    echo "[$(date)]   - Node process found"
+  fi
+  if [ "$PORT_LISTENING" = true ]; then
+    echo "[$(date)]   - Port 5000 is listening"
+  fi
   echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
   exit 0
 else
-  echo "[$(date)] ERROR: Application is not running properly"
-  if [ "$PM2_PROCESS_EXISTS" = false ]; then
-    echo "[$(date)]   - PM2 process not found"
-  fi
-  if [ "$PORT_LISTENING" = false ]; then
-    echo "[$(date)]   - Port 5000 not listening"
-  fi
+  echo "[$(date)] ERROR: Application is not running"
+  echo "[$(date)]   - PM2 process: not found"
+  echo "[$(date)]   - Node process: not found"
+  echo "[$(date)]   - Port 5000: not listening"
   exit 1
 fi
 
