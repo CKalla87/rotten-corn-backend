@@ -311,10 +311,34 @@ export class RottenCornServer {
         credentials: true
       }
     });
-    const pubClient = createClient({ url: config.REDIS_HOST });
-    const subClient = pubClient.duplicate();
-    await Promise.all([pubClient.connect(), subClient.connect()]);
-    io.adapter(createAdapter(pubClient, subClient));
+    // Connect to Redis for Socket.IO adapter (with error handling)
+    // If REDIS_HOST is not set or connection fails, continue without Redis adapter
+    if (!config.REDIS_HOST) {
+      log.warn('REDIS_HOST not configured - Socket.IO will run in single-instance mode (no Redis adapter)');
+      return io;
+    }
+    
+    try {
+      const pubClient = createClient({ url: config.REDIS_HOST });
+      const subClient = pubClient.duplicate();
+      
+      // Add error handlers to prevent unhandled rejections
+      pubClient.on('error', (err) => {
+        log.error('Redis pubClient error:', err);
+      });
+      subClient.on('error', (err) => {
+        log.error('Redis subClient error:', err);
+      });
+      
+      await Promise.all([pubClient.connect(), subClient.connect()]);
+      io.adapter(createAdapter(pubClient, subClient));
+      log.info('Socket.IO Redis adapter connected successfully');
+    } catch (error) {
+      log.error('Failed to connect Socket.IO Redis adapter:', error);
+      log.warn('Socket.IO will continue without Redis adapter (single-instance mode)');
+      log.warn('Note: Socket.IO will work but real-time features may be limited to single instance');
+      // Continue without Redis adapter - app will work in single-instance mode
+    }
     return io;
   }
 
