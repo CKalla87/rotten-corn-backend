@@ -8,54 +8,56 @@ cd /home/ec2-user/chatty-backend
 echo "[$(date)] Changed to /home/ec2-user/chatty-backend"
 
 # Ensure Node.js and npm are in PATH
-export PATH="/usr/local/bin:/usr/bin:/opt/nodejs/node-v16.20.2-linux-x64/bin:$PATH"
+export PATH="/usr/local/bin:/usr/bin:$PATH"
 
-GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || echo '/usr/local/lib/node_modules/.bin' || true)"
-if [ -n "$GLOBAL_NPM_BIN" ] && ! echo "$PATH" | grep -q "$GLOBAL_NPM_BIN"; then
+# Add npm global bin to PATH if it exists
+GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || echo '' || true)"
+if [ -n "$GLOBAL_NPM_BIN" ] && [ -d "$GLOBAL_NPM_BIN" ] && ! echo "$PATH" | grep -q "$GLOBAL_NPM_BIN"; then
   export PATH="$GLOBAL_NPM_BIN:$PATH"
 fi
 
-# Find PM2 - try multiple locations and verify each one exists
+# Find PM2 - use command -v first (most reliable)
 PM2_BIN=""
-PM2_CANDIDATES=(
-  "$(command -v pm2 2>/dev/null)"
-  "/usr/local/bin/pm2"
-  "/usr/bin/pm2"
-  "$HOME/.npm-global/bin/pm2"
-  "/opt/nodejs/node-v16.20.2-linux-x64/bin/pm2"
-  "/root/.npm-global/bin/pm2"
-)
-
 echo "[$(date)] Searching for PM2..."
-for pm2_path in "${PM2_CANDIDATES[@]}"; do
-  # Skip empty strings
-  [ -z "$pm2_path" ] && continue
 
-  echo "[$(date)] Checking: $pm2_path"
-  if [ -f "$pm2_path" ] && [ -x "$pm2_path" ]; then
-    PM2_BIN="$pm2_path"
-    echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
-    break
-  fi
-done
+# First try: use command -v (finds it in PATH)
+if command -v pm2 >/dev/null 2>&1; then
+  PM2_BIN=$(command -v pm2)
+  echo "[$(date)] ✓ Found PM2 via command -v: $PM2_BIN"
+elif [ -f "/usr/local/bin/pm2" ] && [ -x "/usr/local/bin/pm2" ]; then
+  PM2_BIN="/usr/local/bin/pm2"
+  echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
+elif [ -f "/usr/bin/pm2" ] && [ -x "/usr/bin/pm2" ]; then
+  PM2_BIN="/usr/bin/pm2"
+  echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
+fi
 
 # If not found, install PM2
 if [ -z "$PM2_BIN" ]; then
-  echo "[$(date)] pm2 not found in any location, installing globally..."
-  npm install -g pm2 --unsafe-perm
+  echo "[$(date)] pm2 not found, installing globally..."
+  npm install -g pm2 --unsafe-perm || {
+    echo "[$(date)] ERROR: npm install -g pm2 failed"
+    exit 1
+  }
 
-  # Update PATH
+  # Update PATH after installation
   export PATH="/usr/local/bin:/usr/bin:$PATH"
+  GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || echo '' || true)"
+  if [ -n "$GLOBAL_NPM_BIN" ] && [ -d "$GLOBAL_NPM_BIN" ]; then
+    export PATH="$GLOBAL_NPM_BIN:$PATH"
+  fi
 
-  # Search again after installation
-  for pm2_path in "${PM2_CANDIDATES[@]}"; do
-    [ -z "$pm2_path" ] && continue
-    if [ -f "$pm2_path" ] && [ -x "$pm2_path" ]; then
-      PM2_BIN="$pm2_path"
-      echo "[$(date)] ✓ Found PM2 after install at: $PM2_BIN"
-      break
-    fi
-  done
+  # Search again after installation using command -v
+  if command -v pm2 >/dev/null 2>&1; then
+    PM2_BIN=$(command -v pm2)
+    echo "[$(date)] ✓ Found PM2 after install via command -v: $PM2_BIN"
+  elif [ -f "/usr/local/bin/pm2" ] && [ -x "/usr/local/bin/pm2" ]; then
+    PM2_BIN="/usr/local/bin/pm2"
+    echo "[$(date)] ✓ Found PM2 after install at: $PM2_BIN"
+  elif [ -f "/usr/bin/pm2" ] && [ -x "/usr/bin/pm2" ]; then
+    PM2_BIN="/usr/bin/pm2"
+    echo "[$(date)] ✓ Found PM2 after install at: $PM2_BIN"
+  fi
 fi
 
 # Final verification
