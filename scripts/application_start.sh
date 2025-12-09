@@ -137,19 +137,33 @@ echo "[$(date)] ✓ Dependencies verified - express, passport, dotenv all presen
 # Start the application with PM2
 echo "[$(date)] Starting application with PM2..."
 if [ -f ./build/src/app.js ]; then
-  # Delete any existing process
-  "$PM2_BIN" delete chatty-backend || true
+  # Clean up ALL existing PM2 processes to avoid conflicts
+  echo "[$(date)] Cleaning up existing PM2 processes..."
+  "$PM2_BIN" delete all 2>/dev/null || true
+  # Also try to delete specific known process names
+  "$PM2_BIN" delete chatty-backend 2>/dev/null || true
+  "$PM2_BIN" delete chatty-b 2>/dev/null || true
+  # Kill any PM2 daemon and restart it fresh
+  "$PM2_BIN" kill 2>/dev/null || true
+  sleep 2
+  # Resurrect PM2 daemon
+  "$PM2_BIN" resurrect 2>/dev/null || true
+  sleep 1
 
   # Start the application (PM2 runs in daemon mode by default)
   echo "[$(date)] Launching application..."
 
-  # First, try to run the app directly to capture any immediate errors
-  echo "[$(date)] Testing app startup (will timeout after 5 seconds)..."
-  timeout 5 node ./build/src/app.js 2>&1 | head -50 || APP_ERROR=$?
-
-  if [ -n "$APP_ERROR" ] && [ "$APP_ERROR" != "124" ]; then
-    echo "[$(date)] App failed to start directly. Error code: $APP_ERROR"
-    echo "[$(date)] This usually indicates a database/Redis connection issue or missing env vars"
+  # First, try to run the app directly to capture any immediate errors (optional test)
+  if command -v timeout >/dev/null 2>&1; then
+    echo "[$(date)] Testing app startup (will timeout after 5 seconds)..."
+    timeout 5 node ./build/src/app.js 2>&1 | head -50 || APP_ERROR=$?
+    if [ -n "$APP_ERROR" ] && [ "$APP_ERROR" != "124" ]; then
+      echo "[$(date)] App failed to start directly. Error code: $APP_ERROR"
+      echo "[$(date)] This usually indicates a database/Redis connection issue or missing env vars"
+      echo "[$(date)] Continuing with PM2 start anyway..."
+    fi
+  else
+    echo "[$(date)] timeout command not available, skipping direct app test"
   fi
 
   # Now start with PM2 - ensure we're using the correct binary path
@@ -159,26 +173,69 @@ if [ -f ./build/src/app.js ]; then
   cd /home/ec2-user/chatty-backend
   echo "[$(date)] Current directory: $(pwd)"
 
-  # Delete any existing process first
+  # Final cleanup before starting
   "$PM2_BIN" delete chatty-backend 2>/dev/null || true
+  "$PM2_BIN" delete chatty-b 2>/dev/null || true
   sleep 1
 
+  # Check existing PM2 processes before starting
+  echo "[$(date)] Current PM2 processes before start:"
+  "$PM2_BIN" list || echo "PM2 list command failed or no processes"
+
   # Start the application
-  if ! "$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend"; then
-    echo "[$(date)] ERROR: PM2 start command failed"
+  echo "[$(date)] Executing: $PM2_BIN start ./build/src/app.js -i 1 --name chatty-backend"
+  # Capture both stdout and stderr, but filter out harmless PM2 warnings
+  PM2_START_OUTPUT=$("$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend" 2>&1 | grep -v "event-loop-stats not found" || true)
+  PM2_START_EXIT=${PIPESTATUS[0]}
+
+  # Check if process actually started (PM2 sometimes returns non-zero but still starts the process)
+  sleep 2
+  PM2_PROCESS_EXISTS=false
+  if "$PM2_BIN" list 2>/dev/null | grep -qE "chatty-backend|chatty-b"; then
+    PM2_PROCESS_EXISTS=true
+  fi
+
+  if [ $PM2_START_EXIT -ne 0 ] && [ "$PM2_PROCESS_EXISTS" = false ]; then
+    echo "[$(date)] ERROR: PM2 start command failed with exit code $PM2_START_EXIT and process not found"
+    echo "[$(date)] PM2 start output:"
+    echo "$PM2_START_OUTPUT"
     echo "[$(date)] PM2 binary used: $PM2_BIN"
     echo "[$(date)] Checking if PM2 binary exists:"
     ls -la "$PM2_BIN" 2>&1 || echo "PM2 binary not found at expected path"
-    echo "[$(date)] PM2 error output:"
-    "$PM2_BIN" logs chatty-backend --err --lines 20 --nostream 2>&1 || true
+    echo "[$(date)] Current PM2 processes:"
+    "$PM2_BIN" list || true
+    echo "[$(date)] Attempting to get logs from any existing process:"
+    "$PM2_BIN" logs --lines 20 --nostream 2>&1 || true
     exit 1
+  elif [ "$PM2_PROCESS_EXISTS" = true ]; then
+    echo "[$(date)] ✓ PM2 process started successfully (exit code was $PM2_START_EXIT but process exists)"
+    if [ -n "$PM2_START_OUTPUT" ]; then
+      echo "[$(date)] PM2 start output:"
+      echo "$PM2_START_OUTPUT"
+    fi
+  else
+    echo "[$(date)] ✓ PM2 start command succeeded"
+    if [ -n "$PM2_START_OUTPUT" ]; then
+      echo "$PM2_START_OUTPUT"
+    fi
   fi
 
   # Wait a moment for PM2 to register the process
   sleep 3
 
-  # Verify PM2 actually has the process (use full path again)
-  if ! "$PM2_BIN" list | grep -q "chatty-backend"; then
+  # Verify PM2 actually has the process (check for both possible names)
+  PM2_PROCESS_FOUND=false
+  if "$PM2_BIN" list | grep -q "chatty-backend"; then
+    PM2_PROCESS_FOUND=true
+    echo "[$(date)] ✓ Found chatty-backend in PM2 list"
+  elif "$PM2_BIN" list | grep -q "chatty-b"; then
+    PM2_PROCESS_FOUND=true
+    echo "[$(date)] ⚠ Found chatty-b in PM2 list (name may have been truncated)"
+    # Try to rename it
+    "$PM2_BIN" restart chatty-b --update-env --name chatty-backend 2>/dev/null || true
+  fi
+
+  if [ "$PM2_PROCESS_FOUND" = false ]; then
     echo "[$(date)] ERROR: chatty-backend not found in PM2 list after start"
     echo "[$(date)] PM2 list:"
     "$PM2_BIN" list || true
@@ -202,9 +259,16 @@ WAIT_INTERVAL=3  # Check every 3 seconds
 ELAPSED=0
 
 while [ $ELAPSED -lt $MAX_WAIT ]; do
-  # First verify the process exists in PM2
-  if ! "$PM2_BIN" list | grep -q "chatty-backend"; then
-    echo "[$(date)] WARNING: chatty-backend not found in PM2 list (waited ${ELAPSED}s)"
+  # First verify the process exists in PM2 (check for both possible names)
+  PM2_PROCESS_NAME=""
+  if "$PM2_BIN" list | grep -q "chatty-backend"; then
+    PM2_PROCESS_NAME="chatty-backend"
+  elif "$PM2_BIN" list | grep -q "chatty-b"; then
+    PM2_PROCESS_NAME="chatty-b"
+  fi
+
+  if [ -z "$PM2_PROCESS_NAME" ]; then
+    echo "[$(date)] WARNING: chatty-backend or chatty-b not found in PM2 list (waited ${ELAPSED}s)"
     echo "[$(date)] PM2 list output:"
     "$PM2_BIN" list || true
     sleep $WAIT_INTERVAL
@@ -213,8 +277,8 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   fi
 
   # Check if PM2 shows the app as online
-  PM2_STATUS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $10}' || echo "unknown")
-  echo "[$(date)] PM2 status: $PM2_STATUS (waited ${ELAPSED}s)"
+  PM2_STATUS=$("$PM2_BIN" list | grep "$PM2_PROCESS_NAME" | awk '{print $10}' || echo "unknown")
+  echo "[$(date)] PM2 status for $PM2_PROCESS_NAME: $PM2_STATUS (waited ${ELAPSED}s)"
 
   if [ "$PM2_STATUS" = "online" ]; then
     echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
@@ -242,11 +306,11 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       if ! netstat -tln 2>/dev/null | grep -q ":5000 " && ! ss -tln 2>/dev/null | grep -q ":5000 "; then
         echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
         echo "[$(date)] PM2 status:"
-        "$PM2_BIN" list | grep chatty-backend || true
+        "$PM2_BIN" list | grep -E "chatty-backend|chatty-b" || true
         echo "[$(date)] PM2 error logs (last 50 lines):"
-        "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
+        "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 50 --nostream 2>&1 || true
         echo "[$(date)] PM2 output logs (last 50 lines):"
-        "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
+        "$PM2_BIN" logs $PM2_PROCESS_NAME --out --lines 50 --nostream 2>&1 || true
         echo "[$(date)] Checking if .env file exists and has required vars:"
         if [ -f .env ]; then
           echo "[$(date)] .env file exists"
@@ -289,14 +353,14 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   fi
 
   # Process exists but not online - check status
-  RESTARTS=$("$PM2_BIN" list | grep "chatty-backend" | awk '{print $12}' || echo "0")
+  RESTARTS=$("$PM2_BIN" list | grep "$PM2_PROCESS_NAME" | awk '{print $12}' || echo "0")
   echo "[$(date)] Application status: $PM2_STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
 
   # Check for crash loop (too many restarts)
   if [ -n "$RESTARTS" ] && [ "$RESTARTS" != "N/A" ] && [ "$RESTARTS" -gt 5 ]; then
     echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts)"
     echo "[$(date)] Showing last 50 lines of logs:"
-    "$PM2_BIN" logs chatty-backend --lines 50 --nostream 2>&1 || true
+    "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
     exit 1
   fi
 
@@ -304,9 +368,9 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   if [ "$PM2_STATUS" = "errored" ] || [ "$PM2_STATUS" = "stopped" ]; then
     echo "[$(date)] ERROR: Application status is $PM2_STATUS"
     echo "[$(date)] PM2 error logs (last 50 lines):"
-    "$PM2_BIN" logs chatty-backend --err --lines 50 --nostream 2>&1 || true
+    "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 50 --nostream 2>&1 || true
     echo "[$(date)] PM2 output logs (last 50 lines):"
-    "$PM2_BIN" logs chatty-backend --out --lines 50 --nostream 2>&1 || true
+    "$PM2_BIN" logs $PM2_PROCESS_NAME --out --lines 50 --nostream 2>&1 || true
     exit 1
   fi
 
@@ -355,10 +419,15 @@ fi
 
 # If we still haven't succeeded, show diagnostics and exit with error
 echo "[$(date)] ERROR: Application did not respond to HTTP health checks"
-echo "[$(date)] PM2 error logs (last 100 lines):"
-"$PM2_BIN" logs chatty-backend --err --lines 100 --nostream 2>&1 || true
-echo "[$(date)] PM2 output logs (last 100 lines):"
-"$PM2_BIN" logs chatty-backend --out --lines 100 --nostream 2>&1 || true
+# Determine which process name to use for logs
+FINAL_PROCESS_NAME="chatty-backend"
+if "$PM2_BIN" list | grep -q "chatty-b"; then
+  FINAL_PROCESS_NAME="chatty-b"
+fi
+echo "[$(date)] PM2 error logs (last 100 lines) for $FINAL_PROCESS_NAME:"
+"$PM2_BIN" logs $FINAL_PROCESS_NAME --err --lines 100 --nostream 2>&1 || true
+echo "[$(date)] PM2 output logs (last 100 lines) for $FINAL_PROCESS_NAME:"
+"$PM2_BIN" logs $FINAL_PROCESS_NAME --out --lines 100 --nostream 2>&1 || true
 echo "[$(date)] Environment check:"
 if [ -f .env ]; then
   echo "[$(date)] .env file exists"
