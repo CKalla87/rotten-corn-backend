@@ -5,6 +5,9 @@ set -e  # Exit on any error
 # This script runs after the application files are extracted
 # The current working directory is the deployment archive location
 
+# Trap to catch termination signals and log them
+trap 'EXIT_CODE=$?; echo "[$(date)] Script received signal or exited with code: $EXIT_CODE"; exit $EXIT_CODE' EXIT INT TERM
+
 DEPLOYMENT_DIR="/home/ec2-user/chatty-backend"
 mkdir -p "$DEPLOYMENT_DIR"
 
@@ -143,17 +146,15 @@ echo "[$(date)] Cleanup complete"
 # Run npm install with verbose output and ensure we capture exit code properly
 echo "[$(date)] Starting npm install (this may take several minutes)..."
 echo "[$(date)] Running: npm install --production"
-NPM_OUTPUT=$(npm install --production 2>&1)
-NPM_EXIT_CODE=$?
+echo "[$(date)] This step may take 5-10 minutes depending on network speed..."
 
-if [ $NPM_EXIT_CODE -ne 0 ]; then
-  echo "$NPM_OUTPUT" | tee /tmp/npm-install.log
+# Run npm install directly (don't capture in variable to avoid issues)
+if ! npm install --production 2>&1 | tee /tmp/npm-install.log; then
+  NPM_EXIT_CODE=${PIPESTATUS[0]}
   echo "[$(date)] npm install failed with exit code $NPM_EXIT_CODE, trying with --legacy-peer-deps"
-  NPM_OUTPUT=$(npm install --production --legacy-peer-deps 2>&1)
-  NPM_EXIT_CODE=$?
-  echo "$NPM_OUTPUT" | tee -a /tmp/npm-install.log
-
-  if [ $NPM_EXIT_CODE -ne 0 ]; then
+  
+  if ! npm install --production --legacy-peer-deps 2>&1 | tee -a /tmp/npm-install.log; then
+    NPM_EXIT_CODE=${PIPESTATUS[0]}
     echo "[$(date)] ERROR: npm install failed completely with exit code $NPM_EXIT_CODE"
     echo "[$(date)] Last 100 lines of npm install output:"
     tail -100 /tmp/npm-install.log
@@ -163,8 +164,6 @@ if [ $NPM_EXIT_CODE -ne 0 ]; then
     ls -la | head -20
     exit 1
   fi
-else
-  echo "$NPM_OUTPUT" | tee /tmp/npm-install.log
 fi
 
 echo "[$(date)] npm install completed successfully"
@@ -191,50 +190,46 @@ fi
 echo "[$(date)] ✓ Critical dependencies verified: express, passport, dotenv"
 echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
 
-# Install build dependencies if build directory doesn't exist
-if [ ! -d "./build" ]; then
-  echo "[$(date)] Build directory not found, installing build dependencies..."
-  echo "[$(date)] Installing ttypescript and typescript for building..."
-  npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log || {
+# Check if build directory exists and has the required files
+echo "[$(date)] Checking if build is needed..."
+if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
+  if [ ! -d "./build" ]; then
+    echo "[$(date)] Build directory not found, will build application..."
+  else
+    echo "[$(date)] Build directory exists but ./build/src/app.js not found, will rebuild..."
+  fi
+  
+  echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
+  if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
     echo "[$(date)] ERROR: Failed to install build dependencies"
+    echo "[$(date)] Build deps install log:"
     cat /tmp/build-deps-install.log
     exit 1
-  }
-
-  echo "[$(date)] Building application..."
+  fi
+  
+  echo "[$(date)] Building application (this may take 2-5 minutes)..."
   if ! npm run build 2>&1 | tee /tmp/build.log; then
     echo "[$(date)] ERROR: Build failed"
     echo "[$(date)] Build log (last 100 lines):"
     tail -100 /tmp/build.log
     exit 1
   fi
-
+  
   echo "[$(date)] ✓ Build completed successfully"
-
+  
   # Verify build output exists
   if [ ! -f "./build/src/app.js" ]; then
     echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
     echo "[$(date)] Build directory contents:"
     ls -la build/ 2>&1 || echo "Build directory does not exist"
+    echo "[$(date)] Build log (last 50 lines):"
+    tail -50 /tmp/build.log
     exit 1
   fi
-
+  
   echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
 else
-  echo "[$(date)] Build directory exists, skipping build step"
-  if [ ! -f "./build/src/app.js" ]; then
-    echo "[$(date)] WARNING: Build directory exists but ./build/src/app.js not found"
-    echo "[$(date)] Rebuilding application..."
-    npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log || {
-      echo "[$(date)] ERROR: Failed to install build dependencies"
-      exit 1
-    }
-    if ! npm run build 2>&1 | tee /tmp/build.log; then
-      echo "[$(date)] ERROR: Build failed"
-      tail -100 /tmp/build.log
-      exit 1
-    fi
-  fi
+  echo "[$(date)] ✓ Build directory and app.js exist, skipping build step"
 fi
 
 echo "[$(date)] AfterInstall hook completed successfully"
