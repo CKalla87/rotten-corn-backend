@@ -26,6 +26,10 @@ export class SignIn {
     }
 
     const user: IUserDocument = await userService.getUserByAuthId(`${existingUser._id}`);
+    if (!user) {
+      throw new BadRequestError('User profile not found. Please contact support.');
+    }
+
     const userJwt: string = JWT.sign(
       {
         userId: user._id,

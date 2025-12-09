@@ -8,32 +8,65 @@ import { authCodeService } from '@service/oauth/auth-code.service';
 import { userService } from '@service/db/user.service';
 import JWT from 'jsonwebtoken';
 import { config } from '@root/config';
+import Logger from 'bunyan';
+
+const log: Logger = config.createLogger('oauthController');
 
 export class OAuthController {
   /**
    * Initiate OAuth flow - redirect to provider
    */
   public initiate(req: Request, res: Response, next: NextFunction): void {
-    const { provider } = req.params;
-    const redirectUri = req.query.redirect_uri as string;
+    try {
+      const { provider } = req.params;
+      const redirectUri = req.query.redirect_uri as string;
 
-    if (!redirectUri) {
-      throw new BadRequestError('redirect_uri is required');
+      log.info(`OAuth initiate request: provider=${provider}, redirect_uri=${redirectUri}`, {
+        origin: req.get('origin'),
+        referer: req.get('referer'),
+        method: req.method,
+        path: req.path
+      });
+
+      if (!redirectUri) {
+        throw new BadRequestError('redirect_uri is required');
+      }
+
+      const validProviders = ['google', 'github', 'facebook'];
+      if (!validProviders.includes(provider)) {
+        throw new BadRequestError(`Invalid provider. Must be one of: ${validProviders.join(', ')}`);
+      }
+
+      // Check if OAuth credentials are configured
+      if (provider === 'google' && (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET)) {
+        log.error('Google OAuth credentials not configured');
+        throw new BadRequestError('OAuth provider not configured');
+      }
+      if (provider === 'github' && (!config.GITHUB_CLIENT_ID || !config.GITHUB_CLIENT_SECRET)) {
+        log.error('GitHub OAuth credentials not configured');
+        throw new BadRequestError('OAuth provider not configured');
+      }
+      if (provider === 'facebook' && (!config.FACEBOOK_APP_ID || !config.FACEBOOK_APP_SECRET)) {
+        log.error('Facebook OAuth credentials not configured');
+        throw new BadRequestError('OAuth provider not configured');
+      }
+
+      // Store redirect_uri in state parameter (base64 encoded)
+      const state = Buffer.from(redirectUri).toString('base64');
+
+      log.info(`Initiating ${provider} OAuth with state: ${state.substring(0, 20)}...`);
+
+      // Authenticate with the provider
+      // Note: passport.authenticate will redirect to the OAuth provider
+      // This is a GET request that should redirect, not return JSON
+      passport.authenticate(provider, {
+        scope: provider === 'google' ? ['profile', 'email'] : provider === 'github' ? ['user:email'] : ['email'],
+        state
+      })(req, res, next);
+    } catch (error) {
+      log.error('Error in OAuth initiate:', error);
+      next(error);
     }
-
-    const validProviders = ['google', 'github', 'facebook'];
-    if (!validProviders.includes(provider)) {
-      throw new BadRequestError(`Invalid provider. Must be one of: ${validProviders.join(', ')}`);
-    }
-
-    // Store redirect_uri in state parameter (base64 encoded)
-    const state = Buffer.from(redirectUri).toString('base64');
-
-    // Authenticate with the provider
-    passport.authenticate(provider, {
-      scope: provider === 'google' ? ['profile', 'email'] : provider === 'github' ? ['user:email'] : ['email'],
-      state
-    })(req, res, next);
   }
 
   /**
@@ -64,6 +97,15 @@ export class OAuthController {
 
           // Get user document
           const userDocument: IUserDocument = await userService.getUserByAuthId(`${user._id}`);
+
+          if (!userDocument) {
+            log.error(`User document not found for authId: ${user._id}`);
+            const redirectUri = req.query.state
+              ? Buffer.from(req.query.state as string, 'base64').toString()
+              : `${req.protocol}://${req.get('host')}/auth/${provider}/callback`;
+            res.redirect(`${redirectUri}?error=${encodeURIComponent('User profile not found')}`);
+            return;
+          }
 
           // Generate JWT token
           const token = JWT.sign(
