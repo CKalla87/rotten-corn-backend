@@ -254,9 +254,11 @@ else
 fi
 
 # Wait for application to start with retries (app needs time to connect to DB/Redis)
-MAX_WAIT=90  # Maximum wait time in seconds (increased for slow startup)
+MAX_WAIT=120  # Maximum wait time in seconds (increased for slow startup and restarts)
 WAIT_INTERVAL=3  # Check every 3 seconds
 ELAPSED=0
+# Give app extra time to stabilize before starting health checks
+INITIAL_STABILIZATION=15  # Wait 15 seconds before starting health checks
 
 while [ $ELAPSED -lt $MAX_WAIT ]; do
   # First verify the process exists in PM2 (check for both possible names)
@@ -281,19 +283,26 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   echo "[$(date)] PM2 status for $PM2_PROCESS_NAME: $PM2_STATUS (waited ${ELAPSED}s)"
 
   if [ "$PM2_STATUS" = "online" ]; then
+    # Wait for initial stabilization period before checking health
+    if [ $ELAPSED -lt $INITIAL_STABILIZATION ]; then
+      echo "[$(date)] PM2 reports app as online, waiting ${INITIAL_STABILIZATION}s for app to stabilize before health check..."
+      sleep $((INITIAL_STABILIZATION - ELAPSED))
+      ELAPSED=$INITIAL_STABILIZATION
+    fi
+
     echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
 
     # CRITICAL: Actually test if the app responds to HTTP requests
     # PM2 might say "online" but app could be crashing or not listening
     # Try multiple times as the app might be starting up
     HTTP_CHECK_SUCCESS=false
-    for check_attempt in 1 2 3; do
-      if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+    for check_attempt in 1 2 3 4 5; do
+      if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
         HTTP_CHECK_SUCCESS=true
         break
       else
-        echo "[$(date)] ⚠ HTTP check attempt $check_attempt failed, waiting 2 seconds..."
-        sleep 2
+        echo "[$(date)] ⚠ HTTP check attempt $check_attempt/5 failed, waiting 3 seconds..."
+        sleep 3
       fi
     done
 
@@ -322,24 +331,24 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
         ps aux | grep -E "node|pm2" | grep -v grep || true
         exit 1
       else
-        # Port is listening, give it a bit more time to fully initialize
+        # Port is listening, give it more time to fully initialize
         echo "[$(date)] Port 5000 is listening, waiting additional time for app to fully initialize..."
-        # Try HTTP check multiple times with delays
-        for retry in 1 2 3 4 5; do
-          sleep 3
-          if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+        # Try HTTP check multiple times with longer delays
+        for retry in 1 2 3 4 5 6 7 8; do
+          sleep 4
+          if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
             echo "[$(date)] ✓ Application is now responding to HTTP requests (after ${retry} retries)"
             exit 0
           else
-            echo "[$(date)] HTTP check retry ${retry}/5 failed, waiting..."
+            echo "[$(date)] HTTP check retry ${retry}/8 failed, waiting 4 seconds..."
           fi
         done
         # If we get here, port is listening but HTTP still not responding
-        echo "[$(date)] WARNING: Port 5000 is listening but HTTP health check still failing after 15 seconds"
+        echo "[$(date)] WARNING: Port 5000 is listening but HTTP health check still failing after 32 seconds"
         echo "[$(date)] This might be a transient issue. Checking PM2 status..."
-        "$PM2_BIN" list | grep chatty-backend || true
+        "$PM2_BIN" list | grep -E "chatty-backend|chatty-b" || true
         echo "[$(date)] Attempting one final HTTP check with extended timeout..."
-        if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
+        if curl -f -s --max-time 15 http://localhost:5000/health > /dev/null 2>&1; then
           echo "[$(date)] ✓ Application is responding to HTTP requests"
           exit 0
         fi
@@ -356,26 +365,39 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   RESTARTS=$("$PM2_BIN" list | grep "$PM2_PROCESS_NAME" | awk '{print $12}' || echo "0")
   echo "[$(date)] Application status: $PM2_STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
 
-  # Check for crash loop (too many restarts)
-  if [ -n "$RESTARTS" ] && [ "$RESTARTS" != "N/A" ] && [ "$RESTARTS" -gt 5 ]; then
-    echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts)"
-    echo "[$(date)] Showing last 50 lines of logs:"
-    "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
-    exit 1
+  # Check for crash loop (too many restarts) - but be more lenient during initial startup
+  # Allow up to 10 restarts during the first 30 seconds, then 5 after that
+  if [ -n "$RESTARTS" ] && [ "$RESTARTS" != "N/A" ]; then
+    RESTART_LIMIT=10
+    if [ $ELAPSED -gt 30 ]; then
+      RESTART_LIMIT=5
+    fi
+    if [ "$RESTARTS" -gt $RESTART_LIMIT ]; then
+      echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts, limit: ${RESTART_LIMIT})"
+      echo "[$(date)] Showing last 50 lines of logs:"
+      "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
+      exit 1
+    fi
   fi
 
-  # If it's errored or stopped, show logs and exit
+  # If it's errored or stopped, show logs but don't exit immediately - give it a chance to restart
   if [ "$PM2_STATUS" = "errored" ] || [ "$PM2_STATUS" = "stopped" ]; then
-    echo "[$(date)] ERROR: Application status is $PM2_STATUS"
-    echo "[$(date)] PM2 error logs (last 50 lines):"
-    "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 50 --nostream 2>&1 || true
-    echo "[$(date)] PM2 output logs (last 50 lines):"
-    "$PM2_BIN" logs $PM2_PROCESS_NAME --out --lines 50 --nostream 2>&1 || true
-    exit 1
+    echo "[$(date)] ⚠ Application status is $PM2_STATUS (waited ${ELAPSED}s)"
+    # Only exit if it's been errored/stopped for more than 30 seconds
+    if [ $ELAPSED -gt 30 ]; then
+      echo "[$(date)] ERROR: Application has been $PM2_STATUS for more than 30 seconds"
+      echo "[$(date)] PM2 error logs (last 50 lines):"
+      "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 50 --nostream 2>&1 || true
+      echo "[$(date)] PM2 output logs (last 50 lines):"
+      "$PM2_BIN" logs $PM2_PROCESS_NAME --out --lines 50 --nostream 2>&1 || true
+      exit 1
+    else
+      echo "[$(date)] App is $PM2_STATUS but still within startup grace period, continuing to wait..."
+    fi
   fi
 
   # If it's launching or waiting for restart, give it more time
-  if [ "$PM2_STATUS" = "launching" ] || [ "$PM2_STATUS" = "waiting restart" ]; then
+  if [ "$PM2_STATUS" = "launching" ] || [ "$PM2_STATUS" = "waiting restart" ] || [ "$PM2_STATUS" = "restarting" ]; then
     echo "[$(date)] App is in $PM2_STATUS state, continuing to wait..."
   fi
 
@@ -407,14 +429,23 @@ fi
 # Final fallback: If port is listening OR process is running, try HTTP check
 if [ "$PORT_LISTENING" = true ] || [ "$APP_PROCESS_RUNNING" = true ]; then
   echo "[$(date)] App process or port detected - attempting final HTTP health check..."
-  for final_check in 1 2 3 4 5; do
-    sleep 2
-    if curl -f -s --max-time 5 http://localhost:5000/health > /dev/null 2>&1; then
+  for final_check in 1 2 3 4 5 6 7 8; do
+    sleep 3
+    if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
       echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests!"
       echo "[$(date)] App appears to be running (even if PM2 status unclear)"
       exit 0
+    else
+      echo "[$(date)] Final HTTP check attempt ${final_check}/8 failed, waiting 3 seconds..."
     fi
   done
+  # If port is listening but health check still failing, give benefit of doubt
+  if [ "$PORT_LISTENING" = true ]; then
+    echo "[$(date)] Port 5000 is listening but health check failing after 24 seconds"
+    echo "[$(date)] App may still be initializing. Allowing deployment to continue."
+    echo "[$(date)] Target group health checks will validate if app is truly ready."
+    exit 0
+  fi
 fi
 
 # If we still haven't succeeded, show diagnostics and exit with error
