@@ -72,14 +72,17 @@ export class RottenCornServer {
       })
     );
 
-    // Configure CORS to allow multiple origins (dev and production)
+    // Configure CORS to allow multiple origins (dev, staging, and production)
     const allowedOrigins = [
       config.CLIENT_URL,
       'https://dev.chatappserver.space',
+      'https://staging.chatappserver.space',
       'https://api.dev.chatappserver.space',
+      'https://api.staging.chatappserver.space',
       'https://chatappserver.space',
       'http://localhost:3000',
-      'http://localhost:3001'
+      'http://localhost:3001',
+      'http://localhost:8080' // Vite dev server port
     ].filter(Boolean); // Remove undefined values
 
     app.use(
@@ -245,18 +248,62 @@ export class RottenCornServer {
     const allowedOrigins = [
       config.CLIENT_URL,
       'https://dev.chatappserver.space',
+      'https://staging.chatappserver.space',
       'https://api.dev.chatappserver.space',
+      'https://api.staging.chatappserver.space',
       'https://chatappserver.space',
       'http://localhost:3000',
-      'http://localhost:3001'
+      'http://localhost:3001',
+      'http://localhost:8080' // Vite dev server port
     ].filter(Boolean);
 
     const io: Server = new Server(httpServer, {
       cors: {
         origin: (origin, callback) => {
-          if (!origin || allowedOrigins.some(allowed => origin === allowed || origin.includes(allowed?.replace(/^https?:\/\//, '') || ''))) {
+          // Allow requests with no origin (like mobile apps or server-to-server)
+          if (!origin) {
+            log.info('Socket.IO CORS: Allowing request with no origin header');
+            return callback(null, true);
+          }
+
+          // Normalize origin for comparison (remove trailing slash)
+          const normalizedOrigin = origin.replace(/\/$/, '');
+
+          // Check if origin is in allowed list (exact match or domain match)
+          const isAllowed = allowedOrigins.some(allowed => {
+            if (!allowed) return false;
+            const normalizedAllowed = allowed.replace(/\/$/, '');
+            const allowedDomain = normalizedAllowed.replace(/^https?:\/\//, '');
+            const originDomain = normalizedOrigin.replace(/^https?:\/\//, '');
+
+            // Exact match
+            if (normalizedOrigin === normalizedAllowed) {
+              log.info(`Socket.IO CORS: Allowing exact match: ${origin}`);
+              return true;
+            }
+
+            // Subdomain match (e.g., api.dev.chatappserver.space matches dev.chatappserver.space or chatappserver.space)
+            const baseDomain = allowedDomain.split('.').slice(-2).join('.'); // Get last 2 parts (e.g., chatappserver.space)
+            const originBaseDomain = originDomain.split('.').slice(-2).join('.');
+
+            if (originBaseDomain === baseDomain) {
+              log.info(`Socket.IO CORS: Allowing subdomain match: ${origin} matches base domain ${baseDomain}`);
+              return true;
+            }
+
+            // Domain match (e.g., https://dev.chatappserver.space matches dev.chatappserver.space)
+            if (normalizedOrigin.includes(allowedDomain)) {
+              log.info(`Socket.IO CORS: Allowing domain match: ${origin} matches ${allowed}`);
+              return true;
+            }
+
+            return false;
+          });
+
+          if (isAllowed) {
             callback(null, true);
           } else {
+            log.warn(`Socket.IO CORS blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`);
             callback(new Error('Not allowed by CORS'));
           }
         },
