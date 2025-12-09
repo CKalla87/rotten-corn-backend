@@ -145,6 +145,79 @@ jobs:
             echo "Deployment group already configured for IN_PLACE"
           fi
 
+      - name: Verify instances are available for deployment
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+
+          # Get ASG names from deployment group
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured in deployment group"
+            echo "Fix by running: cd deployment && ./fix-deployment-group.sh"
+            exit 1
+          fi
+
+          echo "Found ASG(s): $ASG_NAMES"
+
+          # Check each ASG for instances
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            echo "Checking ASG: $ASG_NAME"
+
+            # Get instances in InService state
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            else
+              # Get all instances to show their state
+              ALL_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG_NAME" \
+                --query 'AutoScalingGroups[0].Instances[*].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}' \
+                --output json 2>/dev/null || echo "[]")
+
+              TOTAL_COUNT=$(echo "$ALL_INSTANCES" | jq 'length')
+
+              if [ "$TOTAL_COUNT" -eq 0 ]; then
+                echo "❌ No instances in ASG $ASG_NAME"
+                echo "ASG may need to scale up. Check desired capacity:"
+                echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
+              else
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
+              fi
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo ""
+            echo "❌ ERROR: No instances available for deployment"
+            echo ""
+            echo "Possible fixes:"
+            echo "  1. Wait for instances to become healthy"
+            echo "  2. Check ASG desired capacity:"
+            echo "     aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAMES"
+            echo "  3. Manually set desired capacity if needed:"
+            echo "     aws autoscaling set-desired-capacity --auto-scaling-group-name <ASG_NAME> --desired-capacity 1"
+            echo "  4. Check instance health and logs"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -227,6 +300,79 @@ jobs:
             echo "Deployment group already configured for IN_PLACE"
           fi
 
+      - name: Verify instances are available for deployment
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+
+          # Get ASG names from deployment group
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured in deployment group"
+            echo "Fix by running: cd deployment && ./fix-deployment-group.sh"
+            exit 1
+          fi
+
+          echo "Found ASG(s): $ASG_NAMES"
+
+          # Check each ASG for instances
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            echo "Checking ASG: $ASG_NAME"
+
+            # Get instances in InService state
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            else
+              # Get all instances to show their state
+              ALL_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG_NAME" \
+                --query 'AutoScalingGroups[0].Instances[*].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}' \
+                --output json 2>/dev/null || echo "[]")
+
+              TOTAL_COUNT=$(echo "$ALL_INSTANCES" | jq 'length')
+
+              if [ "$TOTAL_COUNT" -eq 0 ]; then
+                echo "❌ No instances in ASG $ASG_NAME"
+                echo "ASG may need to scale up. Check desired capacity:"
+                echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
+              else
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
+              fi
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo ""
+            echo "❌ ERROR: No instances available for deployment"
+            echo ""
+            echo "Possible fixes:"
+            echo "  1. Wait for instances to become healthy"
+            echo "  2. Check ASG desired capacity:"
+            echo "     aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAMES"
+            echo "  3. Manually set desired capacity if needed:"
+            echo "     aws autoscaling set-desired-capacity --auto-scaling-group-name <ASG_NAME> --desired-capacity 1"
+            echo "  4. Check instance health and logs"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -308,6 +454,79 @@ jobs:
           else
             echo "Deployment group already configured for IN_PLACE"
           fi
+
+      - name: Verify instances are available for deployment
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+
+          # Get ASG names from deployment group
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured in deployment group"
+            echo "Fix by running: cd deployment && ./fix-deployment-group.sh"
+            exit 1
+          fi
+
+          echo "Found ASG(s): $ASG_NAMES"
+
+          # Check each ASG for instances
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            echo "Checking ASG: $ASG_NAME"
+
+            # Get instances in InService state
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            else
+              # Get all instances to show their state
+              ALL_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG_NAME" \
+                --query 'AutoScalingGroups[0].Instances[*].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}' \
+                --output json 2>/dev/null || echo "[]")
+
+              TOTAL_COUNT=$(echo "$ALL_INSTANCES" | jq 'length')
+
+              if [ "$TOTAL_COUNT" -eq 0 ]; then
+                echo "❌ No instances in ASG $ASG_NAME"
+                echo "ASG may need to scale up. Check desired capacity:"
+                echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
+              else
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
+              fi
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo ""
+            echo "❌ ERROR: No instances available for deployment"
+            echo ""
+            echo "Possible fixes:"
+            echo "  1. Wait for instances to become healthy"
+            echo "  2. Check ASG desired capacity:"
+            echo "     aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAMES"
+            echo "  3. Manually set desired capacity if needed:"
+            echo "     aws autoscaling set-desired-capacity --auto-scaling-group-name <ASG_NAME> --desired-capacity 1"
+            echo "  4. Check instance health and logs"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
 
       - name: Create CodeDeploy deployment
         id: deploy

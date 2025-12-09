@@ -152,7 +152,7 @@ if [ $NPM_EXIT_CODE -ne 0 ]; then
   NPM_OUTPUT=$(npm install --production --legacy-peer-deps 2>&1)
   NPM_EXIT_CODE=$?
   echo "$NPM_OUTPUT" | tee -a /tmp/npm-install.log
-  
+
   if [ $NPM_EXIT_CODE -ne 0 ]; then
     echo "[$(date)] ERROR: npm install failed completely with exit code $NPM_EXIT_CODE"
     echo "[$(date)] Last 100 lines of npm install output:"
@@ -190,6 +190,52 @@ fi
 
 echo "[$(date)] ✓ Critical dependencies verified: express, passport, dotenv"
 echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
+
+# Install build dependencies if build directory doesn't exist
+if [ ! -d "./build" ]; then
+  echo "[$(date)] Build directory not found, installing build dependencies..."
+  echo "[$(date)] Installing ttypescript and typescript for building..."
+  npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log || {
+    echo "[$(date)] ERROR: Failed to install build dependencies"
+    cat /tmp/build-deps-install.log
+    exit 1
+  }
+
+  echo "[$(date)] Building application..."
+  if ! npm run build 2>&1 | tee /tmp/build.log; then
+    echo "[$(date)] ERROR: Build failed"
+    echo "[$(date)] Build log (last 100 lines):"
+    tail -100 /tmp/build.log
+    exit 1
+  fi
+
+  echo "[$(date)] ✓ Build completed successfully"
+
+  # Verify build output exists
+  if [ ! -f "./build/src/app.js" ]; then
+    echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
+    echo "[$(date)] Build directory contents:"
+    ls -la build/ 2>&1 || echo "Build directory does not exist"
+    exit 1
+  fi
+
+  echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
+else
+  echo "[$(date)] Build directory exists, skipping build step"
+  if [ ! -f "./build/src/app.js" ]; then
+    echo "[$(date)] WARNING: Build directory exists but ./build/src/app.js not found"
+    echo "[$(date)] Rebuilding application..."
+    npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log || {
+      echo "[$(date)] ERROR: Failed to install build dependencies"
+      exit 1
+    }
+    if ! npm run build 2>&1 | tee /tmp/build.log; then
+      echo "[$(date)] ERROR: Build failed"
+      tail -100 /tmp/build.log
+      exit 1
+    fi
+  fi
+fi
 
 echo "[$(date)] AfterInstall hook completed successfully"
 
