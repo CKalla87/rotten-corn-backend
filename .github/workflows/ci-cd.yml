@@ -12,6 +12,11 @@ on:
       - staging
       - main
 
+# Prevent duplicate workflow runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: 20
 
@@ -85,7 +90,7 @@ jobs:
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
-      - name: Stop in-progress deployments
+      - name: Stop in-progress deployments and wait for completion
         env:
           CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
@@ -107,10 +112,46 @@ jobs:
                 --deployment-id "$deployment_id" \
                 --auto-rollback-enabled || echo "Warning: Could not stop $deployment_id"
             done
-            echo "Waiting 5 seconds for deployments to stop..."
-            sleep 5
+            echo "Waiting 10 seconds for deployments to stop and clean up..."
+            sleep 10
+            
+            # Verify no deployments are still in progress
+            REMAINING=$(aws deploy list-deployments \
+              --application-name "$CODEDEPLOY_APP" \
+              --deployment-group-name "$CODEDEPLOY_GROUP" \
+              --include-only-statuses Created Queued InProgress Ready \
+              --max-items 1 \
+              --query 'deployments[0]' \
+              --output text || echo "None")
+            
+            if [ -n "$REMAINING" ] && [ "$REMAINING" != "None" ]; then
+              echo "⚠ Warning: Deployment $REMAINING still in progress, waiting additional 10 seconds..."
+              sleep 10
+            fi
           else
             echo "No in-progress deployments found"
+          fi
+          
+          # Additional check: Make sure we're not creating a duplicate deployment
+          echo "Checking for very recent successful deployments (within last 2 minutes)..."
+          RECENT_SUCCESS=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Succeeded \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_SUCCESS" ] && [ "$RECENT_SUCCESS" != "None" ]; then
+            DEPLOYMENT_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_SUCCESS" \
+              --query 'deploymentInfo.completeTime' \
+              --output text || echo "")
+            
+            if [ -n "$DEPLOYMENT_TIME" ]; then
+              echo "Most recent successful deployment: $RECENT_SUCCESS completed at $DEPLOYMENT_TIME"
+              echo "Proceeding with new deployment..."
+            fi
           fi
 
       - name: Ensure deployment group uses IN_PLACE strategy
@@ -225,6 +266,49 @@ jobs:
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          # Check if a deployment was just created (within last 30 seconds) to avoid duplicates
+          echo "Checking for very recent deployments to avoid duplicates..."
+          RECENT_DEPLOY=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
+            echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
+            echo "Checking creation time..."
+            CREATE_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_DEPLOY" \
+              --query 'deploymentInfo.createTime' \
+              --output text || echo "")
+            
+            if [ -n "$CREATE_TIME" ]; then
+              echo "Recent deployment created at: $CREATE_TIME"
+              echo "Waiting 5 seconds and re-checking..."
+              sleep 5
+              
+              # Check again
+              STILL_ACTIVE=$(aws deploy list-deployments \
+                --application-name "$CODEDEPLOY_APP" \
+                --deployment-group-name "$CODEDEPLOY_GROUP" \
+                --include-only-statuses Created Queued InProgress \
+                --max-items 1 \
+                --query 'deployments[0]' \
+                --output text || echo "None")
+              
+              if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
+                echo "⚠ Another deployment is still active: $STILL_ACTIVE"
+                echo "This workflow run may be a duplicate. Skipping deployment creation."
+                echo "deployment_id=$STILL_ACTIVE" >> "$GITHUB_OUTPUT"
+                echo "Using existing deployment: $STILL_ACTIVE"
+                exit 0
+              fi
+            fi
+          fi
+          
+          echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
@@ -380,6 +464,49 @@ jobs:
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          # Check if a deployment was just created (within last 30 seconds) to avoid duplicates
+          echo "Checking for very recent deployments to avoid duplicates..."
+          RECENT_DEPLOY=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
+            echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
+            echo "Checking creation time..."
+            CREATE_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_DEPLOY" \
+              --query 'deploymentInfo.createTime' \
+              --output text || echo "")
+            
+            if [ -n "$CREATE_TIME" ]; then
+              echo "Recent deployment created at: $CREATE_TIME"
+              echo "Waiting 5 seconds and re-checking..."
+              sleep 5
+              
+              # Check again
+              STILL_ACTIVE=$(aws deploy list-deployments \
+                --application-name "$CODEDEPLOY_APP" \
+                --deployment-group-name "$CODEDEPLOY_GROUP" \
+                --include-only-statuses Created Queued InProgress \
+                --max-items 1 \
+                --query 'deployments[0]' \
+                --output text || echo "None")
+              
+              if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
+                echo "⚠ Another deployment is still active: $STILL_ACTIVE"
+                echo "This workflow run may be a duplicate. Skipping deployment creation."
+                echo "deployment_id=$STILL_ACTIVE" >> "$GITHUB_OUTPUT"
+                echo "Using existing deployment: $STILL_ACTIVE"
+                exit 0
+              fi
+            fi
+          fi
+          
+          echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
@@ -535,6 +662,49 @@ jobs:
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          # Check if a deployment was just created (within last 30 seconds) to avoid duplicates
+          echo "Checking for very recent deployments to avoid duplicates..."
+          RECENT_DEPLOY=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
+            echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
+            echo "Checking creation time..."
+            CREATE_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_DEPLOY" \
+              --query 'deploymentInfo.createTime' \
+              --output text || echo "")
+            
+            if [ -n "$CREATE_TIME" ]; then
+              echo "Recent deployment created at: $CREATE_TIME"
+              echo "Waiting 5 seconds and re-checking..."
+              sleep 5
+              
+              # Check again
+              STILL_ACTIVE=$(aws deploy list-deployments \
+                --application-name "$CODEDEPLOY_APP" \
+                --deployment-group-name "$CODEDEPLOY_GROUP" \
+                --include-only-statuses Created Queued InProgress \
+                --max-items 1 \
+                --query 'deployments[0]' \
+                --output text || echo "None")
+              
+              if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
+                echo "⚠ Another deployment is still active: $STILL_ACTIVE"
+                echo "This workflow run may be a duplicate. Skipping deployment creation."
+                echo "deployment_id=$STILL_ACTIVE" >> "$GITHUB_OUTPUT"
+                echo "Using existing deployment: $STILL_ACTIVE"
+                exit 0
+              fi
+            fi
+          fi
+          
+          echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
