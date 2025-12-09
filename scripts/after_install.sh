@@ -48,12 +48,14 @@ fi
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
   unzip -o env-file.zip
-  if [ -f .env.production ]; then
+  # Priority: .env.develop > .env.production > .env
+  # For dev environment, prefer .env.develop
+  if [ -f .env.develop ]; then
+    cp .env.develop .env
+    echo "[$(date)] Copied .env.develop to .env (dev environment)"
+  elif [ -f .env.production ]; then
     cp .env.production .env
     echo "[$(date)] Copied .env.production to .env"
-  elif [ -f .env.develop ]; then
-    cp .env.develop .env
-    echo "[$(date)] Copied .env.develop to .env"
   elif [ -f .env ]; then
     echo "[$(date)] .env file already exists"
   else
