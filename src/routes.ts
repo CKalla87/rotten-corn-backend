@@ -19,9 +19,12 @@ export default (app: Application) => {
   const routes = () => {
     app.use('/queues', serverAdapter.getRouter());
     app.use('', healthRoutes.routes());
+    // Register auth routes (signup, signin, etc.) WITHOUT middleware
     app.use(BASE_PATH, authRoutes.routes());
+    // Note: signoutRoute is now included in routes() above, but keeping for backward compatibility
     app.use(BASE_PATH, authRoutes.signoutRoute());
 
+    // All routes below require authentication
     app.use(BASE_PATH, authMiddleware.verifyUser, currentUserRoutes.routes());
     app.use(BASE_PATH, authMiddleware.verifyUser, postRoutes.routes());
     app.use(BASE_PATH, authMiddleware.verifyUser, reactionRoutes.routes());
