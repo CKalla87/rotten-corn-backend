@@ -7,13 +7,29 @@ set -e  # Exit on any error
 cd /home/ec2-user/chatty-backend
 echo "[$(date)] Changed to /home/ec2-user/chatty-backend"
 
-# Ensure Node.js and npm are in PATH
-export PATH="/usr/local/bin:/usr/bin:$PATH"
+# CRITICAL: Clean PATH - remove any references to non-existent /opt/nodejs paths
+# This prevents PM2 from trying to load from broken installations
+export PATH="/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/bin"
 
-# Add npm global bin to PATH if it exists
+# Verify Node.js and npm are available
+if ! command -v node >/dev/null 2>&1; then
+  echo "[$(date)] ERROR: node command not found"
+  exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "[$(date)] ERROR: npm command not found"
+  exit 1
+fi
+
+echo "[$(date)] Node.js version: $(node --version)"
+echo "[$(date)] npm version: $(npm --version)"
+
+# Add npm global bin to PATH if it exists (but verify it's a real directory)
 GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || echo '' || true)"
-if [ -n "$GLOBAL_NPM_BIN" ] && [ -d "$GLOBAL_NPM_BIN" ] && ! echo "$PATH" | grep -q "$GLOBAL_NPM_BIN"; then
+if [ -n "$GLOBAL_NPM_BIN" ] && [ -d "$GLOBAL_NPM_BIN" ] && [ ! "$GLOBAL_NPM_BIN" = "/opt/nodejs"* ]; then
   export PATH="$GLOBAL_NPM_BIN:$PATH"
+  echo "[$(date)] Added npm global bin to PATH: $GLOBAL_NPM_BIN"
 fi
 
 # Find PM2 - use command -v first (most reliable)
@@ -23,19 +39,38 @@ echo "[$(date)] Searching for PM2..."
 # First try: use command -v (finds it in PATH)
 if command -v pm2 >/dev/null 2>&1; then
   PM2_BIN=$(command -v pm2)
-  echo "[$(date)] ✓ Found PM2 via command -v: $PM2_BIN"
-elif [ -f "/usr/local/bin/pm2" ] && [ -x "/usr/local/bin/pm2" ]; then
-  PM2_BIN="/usr/local/bin/pm2"
-  echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
-elif [ -f "/usr/bin/pm2" ] && [ -x "/usr/bin/pm2" ]; then
-  PM2_BIN="/usr/bin/pm2"
-  echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
+  # Verify it's not pointing to a broken /opt/nodejs path
+  if [ -f "$PM2_BIN" ] && [ -x "$PM2_BIN" ] && ! echo "$PM2_BIN" | grep -q "/opt/nodejs"; then
+    echo "[$(date)] ✓ Found PM2 via command -v: $PM2_BIN"
+  else
+    echo "[$(date)] ⚠ PM2 found but path looks broken, will reinstall: $PM2_BIN"
+    PM2_BIN=""
+  fi
 fi
 
-# If not found, install PM2
+# Try standard locations if not found
 if [ -z "$PM2_BIN" ]; then
-  echo "[$(date)] pm2 not found, installing globally..."
-  npm install -g pm2 --unsafe-perm || {
+  if [ -f "/usr/local/bin/pm2" ] && [ -x "/usr/local/bin/pm2" ]; then
+    PM2_BIN="/usr/local/bin/pm2"
+    echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
+  elif [ -f "/usr/bin/pm2" ] && [ -x "/usr/bin/pm2" ]; then
+    PM2_BIN="/usr/bin/pm2"
+    echo "[$(date)] ✓ Found PM2 at: $PM2_BIN"
+  fi
+fi
+
+# If not found or broken, uninstall and reinstall PM2 cleanly
+if [ -z "$PM2_BIN" ]; then
+  echo "[$(date)] pm2 not found or broken, cleaning up and reinstalling..."
+  
+  # Remove any existing broken PM2 installations
+  npm uninstall -g pm2 2>/dev/null || true
+  rm -rf /usr/local/lib/node_modules/pm2 2>/dev/null || true
+  rm -rf /root/.pm2 2>/dev/null || true
+  rm -f /usr/local/bin/pm2 /usr/bin/pm2 2>/dev/null || true
+  
+  echo "[$(date)] Installing PM2 fresh..."
+  npm install -g pm2 --unsafe-perm --prefix /usr/local || {
     echo "[$(date)] ERROR: npm install -g pm2 failed"
     exit 1
   }
@@ -43,20 +78,28 @@ if [ -z "$PM2_BIN" ]; then
   # Update PATH after installation
   export PATH="/usr/local/bin:/usr/bin:$PATH"
   GLOBAL_NPM_BIN="$(npm bin -g 2>/dev/null || echo '' || true)"
-  if [ -n "$GLOBAL_NPM_BIN" ] && [ -d "$GLOBAL_NPM_BIN" ]; then
+  if [ -n "$GLOBAL_NPM_BIN" ] && [ -d "$GLOBAL_NPM_BIN" ] && [ ! "$GLOBAL_NPM_BIN" = "/opt/nodejs"* ]; then
     export PATH="$GLOBAL_NPM_BIN:$PATH"
   fi
 
   # Search again after installation using command -v
   if command -v pm2 >/dev/null 2>&1; then
     PM2_BIN=$(command -v pm2)
-    echo "[$(date)] ✓ Found PM2 after install via command -v: $PM2_BIN"
+    if [ -f "$PM2_BIN" ] && [ -x "$PM2_BIN" ] && ! echo "$PM2_BIN" | grep -q "/opt/nodejs"; then
+      echo "[$(date)] ✓ Found PM2 after install via command -v: $PM2_BIN"
+    else
+      echo "[$(date)] ERROR: PM2 still pointing to broken path: $PM2_BIN"
+      exit 1
+    fi
   elif [ -f "/usr/local/bin/pm2" ] && [ -x "/usr/local/bin/pm2" ]; then
     PM2_BIN="/usr/local/bin/pm2"
     echo "[$(date)] ✓ Found PM2 after install at: $PM2_BIN"
   elif [ -f "/usr/bin/pm2" ] && [ -x "/usr/bin/pm2" ]; then
     PM2_BIN="/usr/bin/pm2"
     echo "[$(date)] ✓ Found PM2 after install at: $PM2_BIN"
+  else
+    echo "[$(date)] ERROR: PM2 not found after installation"
+    exit 1
   fi
 fi
 

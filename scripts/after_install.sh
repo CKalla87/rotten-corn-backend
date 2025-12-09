@@ -75,13 +75,15 @@ else
 fi
 
 # Ensure Node.js and npm are in PATH
-export PATH="/usr/local/bin:/usr/bin:/opt/nodejs/node-v16.20.2-linux-x64/bin:$PATH"
+# DO NOT include /opt/nodejs paths - they don't exist and break PM2
+export PATH="/usr/local/bin:/usr/bin:$PATH"
 
 # Stop any existing PM2 processes
 if ! command -v npm >/dev/null 2>&1; then
   NODE_VERSION="16.20.2"
   NODE_DIST="node-v${NODE_VERSION}-linux-x64"
-  NODE_INSTALL_DIR="/opt/nodejs"
+  # Use system Node.js, not /opt/nodejs (which doesn't exist)
+  NODE_INSTALL_DIR="/usr/local"
 
   echo "[$(date)] Installing Node.js ${NODE_VERSION} from official tarball"
   curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_DIST}.tar.xz" -o /tmp/node.tar.xz
@@ -152,7 +154,7 @@ echo "[$(date)] This step may take 5-10 minutes depending on network speed..."
 if ! npm install --production 2>&1 | tee /tmp/npm-install.log; then
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   echo "[$(date)] npm install failed with exit code $NPM_EXIT_CODE, trying with --legacy-peer-deps"
-  
+
   if ! npm install --production --legacy-peer-deps 2>&1 | tee -a /tmp/npm-install.log; then
     NPM_EXIT_CODE=${PIPESTATUS[0]}
     echo "[$(date)] ERROR: npm install failed completely with exit code $NPM_EXIT_CODE"
@@ -198,7 +200,7 @@ if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
   else
     echo "[$(date)] Build directory exists but ./build/src/app.js not found, will rebuild..."
   fi
-  
+
   echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
   if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
     echo "[$(date)] ERROR: Failed to install build dependencies"
@@ -206,7 +208,7 @@ if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
     cat /tmp/build-deps-install.log
     exit 1
   fi
-  
+
   echo "[$(date)] Building application (this may take 2-5 minutes)..."
   if ! npm run build 2>&1 | tee /tmp/build.log; then
     echo "[$(date)] ERROR: Build failed"
@@ -214,9 +216,9 @@ if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
     tail -100 /tmp/build.log
     exit 1
   fi
-  
+
   echo "[$(date)] ✓ Build completed successfully"
-  
+
   # Verify build output exists
   if [ ! -f "./build/src/app.js" ]; then
     echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
@@ -226,7 +228,7 @@ if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
     tail -50 /tmp/build.log
     exit 1
   fi
-  
+
   echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
 else
   echo "[$(date)] ✓ Build directory and app.js exist, skipping build step"

@@ -9,18 +9,25 @@
 echo "[$(date)] Starting BeforeInstall hook - aggressive cleanup phase"
 
 # Ensure Node.js and npm are in PATH for PM2 commands
-export PATH="/usr/local/bin:/usr/bin:/opt/nodejs/node-v16.20.2-linux-x64/bin:$PATH"
+# DO NOT include /opt/nodejs paths - they don't exist and break PM2
+export PATH="/usr/local/bin:/usr/bin:$PATH"
 
 # Step 1: Kill all PM2 processes and daemon
 echo "[$(date)] Step 1: Cleaning up PM2 processes..."
-# Find PM2 binary
+# Find PM2 binary (avoid /opt/nodejs paths)
 PM2_BIN=""
 if command -v pm2 >/dev/null 2>&1; then
   PM2_BIN=$(command -v pm2)
-elif [ -f "/usr/local/bin/pm2" ]; then
+  # Verify it's not a broken /opt/nodejs path
+  if echo "$PM2_BIN" | grep -q "/opt/nodejs"; then
+    PM2_BIN=""
+  fi
+fi
+
+if [ -z "$PM2_BIN" ] && [ -f "/usr/local/bin/pm2" ]; then
   PM2_BIN="/usr/local/bin/pm2"
-elif [ -f "/opt/nodejs/node-v16.20.2-linux-x64/bin/pm2" ]; then
-  PM2_BIN="/opt/nodejs/node-v16.20.2-linux-x64/bin/pm2"
+elif [ -z "$PM2_BIN" ] && [ -f "/usr/bin/pm2" ]; then
+  PM2_BIN="/usr/bin/pm2"
 fi
 
 if [ -n "$PM2_BIN" ] && [ -x "$PM2_BIN" ]; then
