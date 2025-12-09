@@ -153,23 +153,23 @@ if [ -f "package-lock.json" ]; then
   echo "[$(date)] package-lock.json found - using npm ci (faster and more reliable)..."
   echo "[$(date)] Running: npm ci --production"
   echo "[$(date)] npm ci should take 2-5 minutes (much faster than npm install)..."
-  
+
   # Run npm ci - disable set -e temporarily to handle errors gracefully
   set +e
   npm ci --production 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   set -e
-  
+
   if [ $NPM_EXIT_CODE -ne 0 ]; then
     echo "[$(date)] npm ci failed with exit code $NPM_EXIT_CODE"
     echo "[$(date)] This might be due to package-lock.json mismatch, trying npm install as fallback..."
-    
+
     # Fallback to npm install
     set +e
     npm install --production 2>&1 | tee -a /tmp/npm-install.log
     NPM_EXIT_CODE=${PIPESTATUS[0]}
     set -e
-    
+
     if [ $NPM_EXIT_CODE -ne 0 ]; then
       echo "[$(date)] ERROR: Both npm ci and npm install failed"
       echo "[$(date)] Last 100 lines of npm output:"
@@ -183,13 +183,13 @@ else
   echo "[$(date)] No package-lock.json found - using npm install..."
   echo "[$(date)] Running: npm install --production"
   echo "[$(date)] This may take 5-10 minutes depending on network speed..."
-  
+
   # Run npm install - disable set -e temporarily
   set +e
   npm install --production 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   set -e
-  
+
   if [ $NPM_EXIT_CODE -ne 0 ]; then
     echo "[$(date)] ERROR: npm install failed with exit code $NPM_EXIT_CODE"
     echo "[$(date)] Last 100 lines of npm output:"
