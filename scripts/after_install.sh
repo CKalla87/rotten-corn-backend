@@ -224,47 +224,40 @@ fi
 echo "[$(date)] ✓ Critical dependencies verified: express, passport, dotenv"
 echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
 
-# Check if build directory exists and has the required files
-echo "[$(date)] Checking if build is needed..."
-if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
-  if [ ! -d "./build" ]; then
-    echo "[$(date)] Build directory not found, will build application..."
-  else
-    echo "[$(date)] Build directory exists but ./build/src/app.js not found, will rebuild..."
-  fi
+# Always rebuild to ensure latest source code changes are included
+# The deployment package may include an old build, so we rebuild to be safe
+echo "[$(date)] Rebuilding application to ensure latest code is used..."
+echo "[$(date)] (Deployment package may include old build, so we rebuild from source)"
 
-  echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
-  if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
-    echo "[$(date)] ERROR: Failed to install build dependencies"
-    echo "[$(date)] Build deps install log:"
-    cat /tmp/build-deps-install.log
-    exit 1
-  fi
-
-  echo "[$(date)] Building application (this may take 2-5 minutes)..."
-  if ! npm run build 2>&1 | tee /tmp/build.log; then
-    echo "[$(date)] ERROR: Build failed"
-    echo "[$(date)] Build log (last 100 lines):"
-    tail -100 /tmp/build.log
-    exit 1
-  fi
-
-  echo "[$(date)] ✓ Build completed successfully"
-
-  # Verify build output exists
-  if [ ! -f "./build/src/app.js" ]; then
-    echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
-    echo "[$(date)] Build directory contents:"
-    ls -la build/ 2>&1 || echo "Build directory does not exist"
-    echo "[$(date)] Build log (last 50 lines):"
-    tail -50 /tmp/build.log
-    exit 1
-  fi
-
-  echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
-else
-  echo "[$(date)] ✓ Build directory and app.js exist, skipping build step"
+echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
+if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
+  echo "[$(date)] ERROR: Failed to install build dependencies"
+  echo "[$(date)] Build deps install log:"
+  cat /tmp/build-deps-install.log
+  exit 1
 fi
+
+echo "[$(date)] Building application (this may take 2-5 minutes)..."
+if ! npm run build 2>&1 | tee /tmp/build.log; then
+  echo "[$(date)] ERROR: Build failed"
+  echo "[$(date)] Build log (last 100 lines):"
+  tail -100 /tmp/build.log
+  exit 1
+fi
+
+echo "[$(date)] ✓ Build completed successfully"
+
+# Verify build output exists
+if [ ! -f "./build/src/app.js" ]; then
+  echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
+  echo "[$(date)] Build directory contents:"
+  ls -la build/ 2>&1 || echo "Build directory does not exist"
+  echo "[$(date)] Build log (last 50 lines):"
+  tail -50 /tmp/build.log
+  exit 1
+fi
+
+echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
 
 echo "[$(date)] AfterInstall hook completed successfully"
 
