@@ -42,13 +42,15 @@ const getGoogleCallbackURL = (): string => {
 };
 
 const googleCallbackURL = getGoogleCallbackURL();
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID: config.GOOGLE_CLIENT_ID!,
-      clientSecret: config.GOOGLE_CLIENT_SECRET!,
-      callbackURL: googleCallbackURL
-    },
+// Only register Google OAuth if credentials are provided
+if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: config.GOOGLE_CLIENT_ID,
+        clientSecret: config.GOOGLE_CLIENT_SECRET,
+        callbackURL: googleCallbackURL
+      },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
       try {
@@ -148,7 +150,10 @@ passport.use(
       }
     }
   )
-);
+  );
+} else {
+  log.warn('Google OAuth credentials not configured - Google OAuth will be disabled');
+}
 
 // GitHub OAuth Strategy
 const getGitHubCallbackURL = (): string => {
@@ -171,13 +176,15 @@ const getGitHubCallbackURL = (): string => {
   return url;
 };
 
-passport.use(
-  new GitHubStrategy(
-    {
-      clientID: config.GITHUB_CLIENT_ID!,
-      clientSecret: config.GITHUB_CLIENT_SECRET!,
-      callbackURL: getGitHubCallbackURL()
-    },
+// Only register GitHub OAuth if credentials are provided
+if (config.GITHUB_CLIENT_ID && config.GITHUB_CLIENT_SECRET) {
+  passport.use(
+    new GitHubStrategy(
+      {
+        clientID: config.GITHUB_CLIENT_ID,
+        clientSecret: config.GITHUB_CLIENT_SECRET,
+        callbackURL: getGitHubCallbackURL()
+      },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
       try {
@@ -275,7 +282,10 @@ passport.use(
       }
     }
   )
-);
+  );
+} else {
+  log.warn('GitHub OAuth credentials not configured - GitHub OAuth will be disabled');
+}
 
 // Facebook OAuth Strategy
 const getFacebookCallbackURL = (): string => {
@@ -298,14 +308,16 @@ const getFacebookCallbackURL = (): string => {
   return url;
 };
 
-passport.use(
-  new FacebookStrategy(
-    {
-      clientID: config.FACEBOOK_APP_ID!,
-      clientSecret: config.FACEBOOK_APP_SECRET!,
-      callbackURL: getFacebookCallbackURL(),
-      profileFields: ['id', 'displayName', 'email', 'picture.type(large)']
-    },
+// Only register Facebook OAuth if credentials are provided
+if (config.FACEBOOK_APP_ID && config.FACEBOOK_APP_SECRET) {
+  passport.use(
+    new FacebookStrategy(
+      {
+        clientID: config.FACEBOOK_APP_ID,
+        clientSecret: config.FACEBOOK_APP_SECRET,
+        callbackURL: getFacebookCallbackURL(),
+        profileFields: ['id', 'displayName', 'email', 'picture.type(large)']
+      },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (accessToken: string, refreshToken: string, profile: any, done: (error: Error | null, user?: IAuthDocument) => void) => {
       try {
@@ -405,6 +417,9 @@ passport.use(
       }
     }
   )
-);
+  );
+} else {
+  log.warn('Facebook OAuth credentials not configured - Facebook OAuth will be disabled');
+}
 
 export default passport;
