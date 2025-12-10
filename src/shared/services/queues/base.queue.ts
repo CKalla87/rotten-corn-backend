@@ -33,7 +33,8 @@ export abstract class BaseQueue {
   log: Logger;
 
   constructor(queueName: string) {
-    this.queue = new Queue(queueName, `${config.REDIS_HOST}`);
+    const redisUrl = config.REDIS_HOST || 'redis://localhost:6379';
+    this.queue = new Queue(queueName, redisUrl);
     bullAdapters.push(new BullAdapter(this.queue));
     bullAdapters = [...new Set(bullAdapters)];
     serverAdapter = new ExpressAdapter();
@@ -46,16 +47,30 @@ export abstract class BaseQueue {
 
     this.log = config.createLogger(`${queueName}Queue`);
 
-    this.queue.on('global: completed', (job: Job) => {
+    // Queue event handlers
+    this.queue.on('error', (error: Error) => {
+      this.log.error(`Queue error: ${error.message}`, error);
+    });
+
+    this.queue.on('waiting', (jobId: string | number) => {
+      this.log.info(`Job ${jobId} is waiting`);
+    });
+
+    this.queue.on('active', (job: Job) => {
+      this.log.info(`Job ${job.id} is now active`);
+    });
+
+    this.queue.on('completed', (job: Job) => {
+      this.log.info(`Job ${job.id} completed`);
       job.remove();
     });
 
-    this.queue.on('global: completed', (jobId: Job) => {
-      this.log.info(`Job ${jobId} completed`);
+    this.queue.on('failed', (job: Job | undefined, error: Error) => {
+      this.log.error(`Job ${job?.id || 'unknown'} failed: ${error.message}`, error);
     });
 
-    this.queue.on('global: completed', (jobId: Job) => {
-      this.log.info(`Job ${jobId} is stalled`);
+    this.queue.on('stalled', (jobId: string | number) => {
+      this.log.warn(`Job ${jobId} is stalled`);
     });
   }
 

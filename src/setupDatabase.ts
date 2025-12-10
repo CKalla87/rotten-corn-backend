@@ -16,7 +16,10 @@ export default () => {
       })
       .catch((error) => {
         log.error('Error connecting to database', error);
-        return process.exit(1);
+        log.error('Database URL:', config.DATABASE_URL ? '***configured***' : 'NOT SET');
+        // Don't exit immediately - retry connection instead
+        log.info('Retrying database connection in 5 seconds...');
+        setTimeout(connect, 5000);
       });
   };
   connect();

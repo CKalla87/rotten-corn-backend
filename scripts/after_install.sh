@@ -1,12 +1,14 @@
 #!/bin/bash
-set -e  # Exit on any error
+# Use set -e carefully - we want to catch errors but not exit on npm timeouts
+set -e
 
 # CodeDeploy AfterInstall hook
 # This script runs after the application files are extracted
 # The current working directory is the deployment archive location
 
 # Trap to catch termination signals and log them
-trap 'EXIT_CODE=$?; echo "[$(date)] Script received signal or exited with code: $EXIT_CODE"; exit $EXIT_CODE' EXIT INT TERM
+# Exit code 244 might be from CodeDeploy timeout, so we log it
+trap 'EXIT_CODE=$?; echo "[$(date)] Script received signal or exited with code: $EXIT_CODE"; if [ $EXIT_CODE -eq 244 ] || [ $EXIT_CODE -eq 124 ]; then echo "[$(date)] WARNING: This might be a timeout issue"; fi; exit $EXIT_CODE' EXIT INT TERM
 
 DEPLOYMENT_DIR="/home/ec2-user/chatty-backend"
 mkdir -p "$DEPLOYMENT_DIR"
@@ -46,12 +48,14 @@ fi
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
   unzip -o env-file.zip
-  if [ -f .env.production ]; then
+  # Priority: .env.develop > .env.production > .env
+  # For dev environment, prefer .env.develop
+  if [ -f .env.develop ]; then
+    cp .env.develop .env
+    echo "[$(date)] Copied .env.develop to .env (dev environment)"
+  elif [ -f .env.production ]; then
     cp .env.production .env
     echo "[$(date)] Copied .env.production to .env"
-  elif [ -f .env.develop ]; then
-    cp .env.develop .env
-    echo "[$(date)] Copied .env.develop to .env"
   elif [ -f .env ]; then
     echo "[$(date)] .env file already exists"
   else
@@ -140,30 +144,60 @@ fi
 echo "[$(date)] package.json found. Checking dependencies..."
 grep -A 5 '"dependencies"' package.json | head -10 || echo "Could not read dependencies from package.json"
 
-# Clean install to ensure fresh dependencies
-echo "[$(date)] Removing old node_modules and package-lock.json..."
-rm -rf node_modules package-lock.json 2>/dev/null || true
+# Clean install - remove only node_modules, keep package-lock.json for faster installs
+echo "[$(date)] Removing old node_modules (keeping package-lock.json for faster install)..."
+rm -rf node_modules 2>/dev/null || true
 echo "[$(date)] Cleanup complete"
 
-# Run npm install with verbose output and ensure we capture exit code properly
-echo "[$(date)] Starting npm install (this may take several minutes)..."
-echo "[$(date)] Running: npm install --production"
-echo "[$(date)] This step may take 5-10 minutes depending on network speed..."
+# Use npm ci if package-lock.json exists (faster, more reliable, deterministic)
+# npm ci is 2-3x faster than npm install and more reliable
+if [ -f "package-lock.json" ]; then
+  echo "[$(date)] package-lock.json found - using npm ci (faster and more reliable)..."
+  echo "[$(date)] Running: npm ci --production"
+  echo "[$(date)] npm ci should take 2-5 minutes (much faster than npm install)..."
 
-# Run npm install directly (don't capture in variable to avoid issues)
-if ! npm install --production 2>&1 | tee /tmp/npm-install.log; then
+  # Run npm ci - disable set -e temporarily to handle errors gracefully
+  set +e
+  npm ci --production 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
-  echo "[$(date)] npm install failed with exit code $NPM_EXIT_CODE, trying with --legacy-peer-deps"
+  set -e
 
-  if ! npm install --production --legacy-peer-deps 2>&1 | tee -a /tmp/npm-install.log; then
+  if [ $NPM_EXIT_CODE -ne 0 ]; then
+    echo "[$(date)] npm ci failed with exit code $NPM_EXIT_CODE"
+    echo "[$(date)] This might be due to package-lock.json mismatch, trying npm install as fallback..."
+
+    # Fallback to npm install
+    set +e
+    npm install --production 2>&1 | tee -a /tmp/npm-install.log
     NPM_EXIT_CODE=${PIPESTATUS[0]}
-    echo "[$(date)] ERROR: npm install failed completely with exit code $NPM_EXIT_CODE"
-    echo "[$(date)] Last 100 lines of npm install output:"
+    set -e
+
+    if [ $NPM_EXIT_CODE -ne 0 ]; then
+      echo "[$(date)] ERROR: Both npm ci and npm install failed"
+      echo "[$(date)] Last 100 lines of npm output:"
+      tail -100 /tmp/npm-install.log
+      echo "[$(date)] Checking if partial node_modules exists:"
+      ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+      exit 1
+    fi
+  fi
+else
+  echo "[$(date)] No package-lock.json found - using npm install..."
+  echo "[$(date)] Running: npm install --production"
+  echo "[$(date)] This may take 5-10 minutes depending on network speed..."
+
+  # Run npm install - disable set -e temporarily
+  set +e
+  npm install --production 2>&1 | tee /tmp/npm-install.log
+  NPM_EXIT_CODE=${PIPESTATUS[0]}
+  set -e
+
+  if [ $NPM_EXIT_CODE -ne 0 ]; then
+    echo "[$(date)] ERROR: npm install failed with exit code $NPM_EXIT_CODE"
+    echo "[$(date)] Last 100 lines of npm output:"
     tail -100 /tmp/npm-install.log
-    echo "[$(date)] Checking if node_modules exists:"
+    echo "[$(date)] Checking if partial node_modules exists:"
     ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
-    echo "[$(date)] Current directory contents:"
-    ls -la | head -20
     exit 1
   fi
 fi
@@ -192,47 +226,40 @@ fi
 echo "[$(date)] ✓ Critical dependencies verified: express, passport, dotenv"
 echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
 
-# Check if build directory exists and has the required files
-echo "[$(date)] Checking if build is needed..."
-if [ ! -d "./build" ] || [ ! -f "./build/src/app.js" ]; then
-  if [ ! -d "./build" ]; then
-    echo "[$(date)] Build directory not found, will build application..."
-  else
-    echo "[$(date)] Build directory exists but ./build/src/app.js not found, will rebuild..."
-  fi
+# Always rebuild to ensure latest source code changes are included
+# The deployment package may include an old build, so we rebuild to be safe
+echo "[$(date)] Rebuilding application to ensure latest code is used..."
+echo "[$(date)] (Deployment package may include old build, so we rebuild from source)"
 
-  echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
-  if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
-    echo "[$(date)] ERROR: Failed to install build dependencies"
-    echo "[$(date)] Build deps install log:"
-    cat /tmp/build-deps-install.log
-    exit 1
-  fi
-
-  echo "[$(date)] Building application (this may take 2-5 minutes)..."
-  if ! npm run build 2>&1 | tee /tmp/build.log; then
-    echo "[$(date)] ERROR: Build failed"
-    echo "[$(date)] Build log (last 100 lines):"
-    tail -100 /tmp/build.log
-    exit 1
-  fi
-
-  echo "[$(date)] ✓ Build completed successfully"
-
-  # Verify build output exists
-  if [ ! -f "./build/src/app.js" ]; then
-    echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
-    echo "[$(date)] Build directory contents:"
-    ls -la build/ 2>&1 || echo "Build directory does not exist"
-    echo "[$(date)] Build log (last 50 lines):"
-    tail -50 /tmp/build.log
-    exit 1
-  fi
-
-  echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
-else
-  echo "[$(date)] ✓ Build directory and app.js exist, skipping build step"
+echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
+if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
+  echo "[$(date)] ERROR: Failed to install build dependencies"
+  echo "[$(date)] Build deps install log:"
+  cat /tmp/build-deps-install.log
+  exit 1
 fi
+
+echo "[$(date)] Building application (this may take 2-5 minutes)..."
+if ! npm run build 2>&1 | tee /tmp/build.log; then
+  echo "[$(date)] ERROR: Build failed"
+  echo "[$(date)] Build log (last 100 lines):"
+  tail -100 /tmp/build.log
+  exit 1
+fi
+
+echo "[$(date)] ✓ Build completed successfully"
+
+# Verify build output exists
+if [ ! -f "./build/src/app.js" ]; then
+  echo "[$(date)] ERROR: Build output not found at ./build/src/app.js"
+  echo "[$(date)] Build directory contents:"
+  ls -la build/ 2>&1 || echo "Build directory does not exist"
+  echo "[$(date)] Build log (last 50 lines):"
+  tail -50 /tmp/build.log
+  exit 1
+fi
+
+echo "[$(date)] ✓ Build output verified: ./build/src/app.js exists"
 
 echo "[$(date)] AfterInstall hook completed successfully"
 

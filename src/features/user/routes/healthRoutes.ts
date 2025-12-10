@@ -4,6 +4,8 @@ import HTTP_STATUS from 'http-status-codes';
 import { config } from '@root/config';
 import axios from 'axios';
 import moment from 'moment';
+import mongoose from 'mongoose';
+import { authCodeService } from '@service/oauth/auth-code.service';
 
 class HealthRoutes {
   private router: Router;
@@ -13,8 +15,25 @@ class HealthRoutes {
   }
 
   public routes(): Router {
-    this.router.get('/health', (req: Request, res: Response) => {
-      res.status(HTTP_STATUS.OK).send(`Health: Server instance is healthy with process id ${process.pid} on ${moment().format('LL')}`);
+    this.router.get('/health', async (req: Request, res: Response) => {
+      const health = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        processId: process.pid,
+        services: {
+          database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+          redis: await authCodeService.isRedisAvailable() ? 'available' : 'unavailable',
+          oauth: {
+            google: !!(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
+            github: !!(config.GITHUB_CLIENT_ID && config.GITHUB_CLIENT_SECRET),
+            facebook: !!(config.FACEBOOK_APP_ID && config.FACEBOOK_APP_SECRET)
+          }
+        }
+      };
+      
+      // Return 503 if critical services are down
+      const isHealthy = health.services.database === 'connected';
+      res.status(isHealthy ? 200 : 503).json(health);
     });
 
     this.router.get('/env', (req: Request, res: Response) => {
