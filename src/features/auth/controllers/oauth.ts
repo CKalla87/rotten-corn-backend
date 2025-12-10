@@ -12,7 +12,69 @@ import Logger from 'bunyan';
 
 const log: Logger = config.createLogger('oauthController');
 
+// Helper function for structured OAuth error logging
+const logOAuthError = (provider: string, error: Error, context: Record<string, any>): void => {
+  log.error(`OAuth error for ${provider}:`, {
+    provider,
+    error: error.message,
+    stack: error.stack,
+    ...context,
+    timestamp: new Date().toISOString()
+  });
+};
+
 export class OAuthController {
+  /**
+   * Validate redirect URI to prevent open redirects
+   */
+  private validateRedirectUri(redirectUri: string): boolean {
+    try {
+      const url = new URL(redirectUri);
+      // Allow localhost for development
+      if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+        return true;
+      }
+      // Check against allowed origins from config
+      const allowedOrigins = [
+        config.CLIENT_URL,
+        config.EC2_URL,
+        'https://dev.chatappserver.space',
+        'https://chatappserver.space'
+      ].filter(Boolean);
+
+      return allowedOrigins.some(origin => {
+        if (!origin) return false;
+        try {
+          const originUrl = new URL(origin);
+          // Check if same protocol, hostname, and port
+          return url.protocol === originUrl.protocol &&
+                 url.hostname === originUrl.hostname &&
+                 url.port === originUrl.port;
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get the expected callback URL for a provider
+   */
+  private getExpectedCallbackUrl(provider: string): string {
+    if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
+      return `${config.CLIENT_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
+    }
+    if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') &&
+        (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
+      return `${config.EC2_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
+    }
+    return config.NODE_ENV === 'development'
+      ? `http://localhost:5000/api/v1/auth/${provider}/callback`
+      : `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+  }
+
   /**
    * Initiate OAuth flow - redirect to provider
    */
@@ -30,6 +92,16 @@ export class OAuthController {
 
       if (!redirectUri) {
         throw new BadRequestError('redirect_uri is required');
+      }
+
+      // Validate redirect URI to prevent open redirects
+      if (!this.validateRedirectUri(redirectUri)) {
+        log.error(`Invalid redirect_uri: ${redirectUri}`, {
+          provider,
+          origin: req.get('origin'),
+          allowedOrigins: [config.CLIENT_URL, config.EC2_URL].filter(Boolean)
+        });
+        throw new BadRequestError('Invalid redirect_uri. The redirect URI must be from an allowed origin.');
       }
 
       const validProviders = ['google', 'github', 'facebook'];
@@ -50,6 +122,11 @@ export class OAuthController {
         log.error('Facebook OAuth credentials not configured');
         throw new BadRequestError('OAuth provider not configured');
       }
+
+      // Log the expected callback URL for debugging
+      const expectedCallbackUrl = this.getExpectedCallbackUrl(provider);
+      log.info(`Expected OAuth callback URL for ${provider}: ${expectedCallbackUrl}`);
+      log.warn(`IMPORTANT: Make sure this callback URL is registered in your ${provider} OAuth app settings: ${expectedCallbackUrl}`);
 
       // Store redirect_uri in state parameter (base64 encoded)
       const state = Buffer.from(redirectUri).toString('base64');
@@ -80,29 +157,72 @@ export class OAuthController {
       provider,
       { session: false, failureRedirect: '/login' },
       async (err: Error | null, user: IAuthDocument | null) => {
+        // Helper function to safely get redirect URI
+        const getRedirectUri = (): string => {
+          try {
+            if (req.query.state) {
+              return Buffer.from(req.query.state as string, 'base64').toString();
+            }
+          } catch (error) {
+            log.error('Error decoding state parameter:', error);
+          }
+          return `${req.protocol}://${req.get('host')}/auth/${provider}/callback`;
+        };
+
         try {
           if (err || !user) {
-            const errorMessage = err?.message || 'Authentication failed';
-            const redirectUri = req.query.state
-              ? Buffer.from(req.query.state as string, 'base64').toString()
-              : `${req.protocol}://${req.get('host')}/auth/${provider}/callback`;
+            let errorMessage = err?.message || 'Authentication failed';
+
+            // Provide more helpful error messages for common OAuth errors
+            if (err?.message?.includes('redirect_uri_mismatch') ||
+                err?.message?.includes('redirect_uri') ||
+                err?.message?.includes('invalid_request')) {
+              const expectedCallbackUrl = this.getExpectedCallbackUrl(provider);
+              errorMessage = `OAuth callback URL mismatch. Expected: ${expectedCallbackUrl}. Please verify this URL is registered in your ${provider} OAuth app settings.`;
+              log.error(`OAuth callback URL mismatch for ${provider}:`, {
+                expected: expectedCallbackUrl,
+                error: err?.message,
+                hasState: !!req.query.state,
+                userAgent: req.get('user-agent'),
+                ip: req.ip
+              });
+            }
+
+            const redirectUri = getRedirectUri();
+            if (err) {
+              logOAuthError(provider, err, {
+                redirectUri,
+                hasState: !!req.query.state,
+                userAgent: req.get('user-agent'),
+                ip: req.ip,
+                expectedCallbackUrl: this.getExpectedCallbackUrl(provider)
+              });
+            } else {
+              log.error(`OAuth callback failed for ${provider}:`, {
+                error: errorMessage,
+                redirectUri,
+                hasState: !!req.query.state,
+                userAgent: req.get('user-agent'),
+                ip: req.ip,
+                expectedCallbackUrl: this.getExpectedCallbackUrl(provider),
+                timestamp: new Date().toISOString()
+              });
+            }
             res.redirect(`${redirectUri}?error=${encodeURIComponent(errorMessage)}`);
             return;
           }
 
-          // Get redirect_uri from state
-          const redirectUri = req.query.state
-            ? Buffer.from(req.query.state as string, 'base64').toString()
-            : `${req.protocol}://${req.get('host')}/auth/${provider}/callback`;
+          const redirectUri = getRedirectUri();
 
           // Get user document
           const userDocument: IUserDocument = await userService.getUserByAuthId(`${user._id}`);
 
           if (!userDocument) {
-            log.error(`User document not found for authId: ${user._id}`);
-            const redirectUri = req.query.state
-              ? Buffer.from(req.query.state as string, 'base64').toString()
-              : `${req.protocol}://${req.get('host')}/auth/${provider}/callback`;
+            log.error(`User document not found for authId: ${user._id}`, {
+              provider,
+              userId: user._id,
+              email: user.email
+            });
             res.redirect(`${redirectUri}?error=${encodeURIComponent('User profile not found')}`);
             return;
           }
@@ -119,16 +239,61 @@ export class OAuthController {
             config.JWT_TOKEN!
           );
 
-          // Generate authorization code
-          const code = await authCodeService.generateCode(`${userDocument._id}`, token);
-
-          // Redirect to frontend with code
-          res.redirect(`${redirectUri}?code=${code}`);
+          // Generate authorization code with error handling
+          try {
+            const code = await authCodeService.generateCode(`${userDocument._id}`, token);
+            log.info(`OAuth callback successful for ${provider}`, {
+              userId: userDocument._id,
+              email: user.email
+            });
+            res.redirect(`${redirectUri}?code=${code}`);
+          } catch (codeError) {
+            // If code generation fails (e.g., Redis down), still redirect with error
+            if (codeError instanceof Error) {
+              logOAuthError(provider, codeError, {
+                redirectUri,
+                userId: userDocument._id,
+                email: user.email,
+                userAgent: req.get('user-agent'),
+                ip: req.ip
+              });
+            } else {
+              log.error(`Failed to generate auth code for ${provider}:`, {
+                error: codeError,
+                userId: userDocument._id,
+                email: user.email,
+                redirectUri,
+                userAgent: req.get('user-agent'),
+                ip: req.ip,
+                timestamp: new Date().toISOString()
+              });
+            }
+            const errorMessage = codeError instanceof Error ? codeError.message : 'Failed to complete authentication';
+            res.redirect(`${redirectUri}?error=${encodeURIComponent(errorMessage)}`);
+          }
         } catch (error) {
-          const redirectUri = req.query.state
-            ? Buffer.from(req.query.state as string, 'base64').toString()
-            : `${req.protocol}://${req.get('host')}/auth/${provider}/callback`;
-          res.redirect(`${redirectUri}?error=${encodeURIComponent((error as Error).message)}`);
+          // Catch-all for any unexpected errors
+          if (error instanceof Error) {
+            logOAuthError(provider, error, {
+              redirectUri: getRedirectUri(),
+              hasState: !!req.query.state,
+              userAgent: req.get('user-agent'),
+              ip: req.ip
+            });
+          } else {
+            log.error(`Unexpected error in OAuth callback for ${provider}:`, {
+              error,
+              stack: error instanceof Error ? error.stack : undefined,
+              redirectUri: getRedirectUri(),
+              hasState: !!req.query.state,
+              userAgent: req.get('user-agent'),
+              ip: req.ip,
+              timestamp: new Date().toISOString()
+            });
+          }
+          const redirectUri = getRedirectUri();
+          const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+          res.redirect(`${redirectUri}?error=${encodeURIComponent(errorMessage)}`);
         }
       }
     )(req, res, next);

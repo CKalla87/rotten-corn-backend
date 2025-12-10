@@ -6,9 +6,28 @@ const SALT_ROUND = 10;
 
 const authSchema: Schema = new Schema(
   {
-    username: { type: String },
-    uId: { type: String },
-    email: { type: String },
+    username: { 
+      type: String, 
+      required: true, 
+      unique: true, 
+      index: true,
+      lowercase: true, // Automatically lowercase
+      trim: true // Remove whitespace
+    },
+    email: { 
+      type: String, 
+      required: true, 
+      unique: true, 
+      index: true,
+      lowercase: true, // Automatically lowercase
+      trim: true // Remove whitespace
+    },
+    uId: { 
+      type: String, 
+      required: true, 
+      unique: true, 
+      index: true 
+    },
     password: { type: String },
     avatarColor: { type: String },
     createdAt: { type: Date, default: Date.now },

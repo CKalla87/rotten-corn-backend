@@ -18,15 +18,22 @@ class AuthService {
   }
 
   public async getUserByUsernameOrEmail(username: string, email: string): Promise<IAuthDocument> {
+    const normalizedUsername = Helpers.normalizeUsername(username);
+    const normalizedEmail = Helpers.lowerCase(email);
+    
     const query = {
-      $or: [{ username: Helpers.firstLetterUppercase(username) }, { email: Helpers.lowerCase(email) }]
+      $or: [
+        { username: normalizedUsername }, 
+        { email: normalizedEmail }
+      ]
     };
     const user: IAuthDocument = (await AuthModel.findOne(query).exec()) as IAuthDocument;
     return user;
   }
 
   public async getAuthUserByUsername(username: string): Promise<IAuthDocument> {
-    const user: IAuthDocument = (await AuthModel.findOne({ username: Helpers.firstLetterUppercase(username) }).exec()) as IAuthDocument;
+    const normalizedUsername = Helpers.normalizeUsername(username);
+    const user: IAuthDocument = (await AuthModel.findOne({ username: normalizedUsername }).exec()) as IAuthDocument;
     return user;
   }
 

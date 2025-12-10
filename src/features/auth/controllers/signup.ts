@@ -16,6 +16,7 @@ import JWT from 'jsonwebtoken';
 import { authQueue } from '@service/queues/auth.queue';
 import { userQueue } from '@service/queues/user.queue';
 import { config } from '@root/config';
+import { generateAvatarColor } from '@global/helpers/oauth-helpers';
 
 const userCache: UserCache = new UserCache();
 
@@ -25,8 +26,22 @@ export class SignUp {
     const { username, email, password, avatarColor, avatarImage } = req.body;
     const checkIfUserExists: IAuthDocument = await authService.getUserByUsernameOrEmail(username, email);
     if (checkIfUserExists) {
-      throw new BadRequestError('Invalid credentials');
+      const normalizedUsername = Helpers.normalizeUsername(username);
+      const normalizedEmail = Helpers.lowerCase(email);
+
+      // Check which field caused the conflict
+      if (checkIfUserExists.username?.toLowerCase() === normalizedUsername) {
+        throw new BadRequestError('Username is already taken');
+      }
+      if (checkIfUserExists.email?.toLowerCase() === normalizedEmail) {
+        throw new BadRequestError('Email is already registered');
+      }
+      // Fallback (shouldn't happen, but just in case)
+      throw new BadRequestError('Username or email is already taken');
     }
+
+    // Generate color if not provided
+    const finalAvatarColor = avatarColor || generateAvatarColor();
 
     const authObjectId: ObjectId = new ObjectId();
     const userObjectId: ObjectId = new ObjectId();
@@ -37,7 +52,7 @@ export class SignUp {
       username,
       email,
       password,
-      avatarColor
+      avatarColor: finalAvatarColor
     });
 
     const result: UploadApiResponse = (await uploads(avatarImage, `${userObjectId}`, true, true)) as UploadApiResponse;
@@ -79,7 +94,7 @@ export class SignUp {
     return {
       _id,
       uId,
-      username: Helpers.firstLetterUppercase(username),
+      username: Helpers.normalizeUsername(username),
       email: Helpers.lowerCase(email),
       password,
       avatarColor,
@@ -93,7 +108,7 @@ export class SignUp {
       _id: userObjectId,
       authId: _id,
       uId,
-      username: Helpers.firstLetterUppercase(username),
+      username: Helpers.normalizeUsername(username),
       email,
       password,
       avatarColor,
