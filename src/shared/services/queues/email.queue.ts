@@ -13,7 +13,13 @@ class EmailQueue extends BaseQueue {
   }
 
   public addEmailJob(name: string, data: IEmailJob): void {
-    this.addJob(name, data);
+    try {
+      this.addJob(name, data);
+      this.log.info(`Email job "${name}" added to queue for ${data.receiverEmail}`);
+    } catch (error) {
+      this.log.error(`Failed to add email job "${name}": ${error}`, error);
+      throw error;
+    }
   }
 }
 

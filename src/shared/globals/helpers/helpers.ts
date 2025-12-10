@@ -11,6 +11,13 @@ export class Helpers {
     return str.toLowerCase();
   }
 
+  static normalizeUsername(str: string): string {
+    // Remove leading/trailing whitespace
+    const trimmed = str.trim();
+    // Convert to lowercase for consistency
+    return trimmed.toLowerCase();
+  }
+
   static generateRandomIntegers(integerLength: number): number {
     const characters = '0123456789';
     let result = ' ';

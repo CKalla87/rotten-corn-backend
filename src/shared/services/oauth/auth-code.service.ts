@@ -1,6 +1,7 @@
 import { createClient } from 'redis';
 import { config } from '@root/config';
 import Logger from 'bunyan';
+import { ServerError } from '@global/helpers/error-handler';
 
 const log: Logger = config.createLogger('authCodeService');
 
@@ -16,8 +17,44 @@ class AuthCodeService {
 
   constructor() {
     this.client.on('error', (err) => {
-      log.error('Redis Client Error in AuthCodeService:', err);
+      log.error('Redis Client Error in AuthCodeService:', {
+        error: err.message,
+        code: (err as any).code,
+        timestamp: new Date().toISOString()
+      });
     });
+
+    this.client.on('connect', () => {
+      log.info('Redis client connected in AuthCodeService');
+    });
+
+    this.client.on('reconnecting', () => {
+      log.warn('Redis client reconnecting in AuthCodeService');
+    });
+
+    this.client.on('ready', () => {
+      log.info('Redis client ready in AuthCodeService');
+    });
+  }
+
+  /**
+   * Check if Redis is available
+   * @returns true if Redis is connected, false otherwise
+   */
+  public async isRedisAvailable(): Promise<boolean> {
+    try {
+      if (!config.REDIS_HOST) {
+        return false;
+      }
+      if (!this.client.isOpen) {
+        await this.client.connect();
+      }
+      await this.client.ping();
+      return true;
+    } catch (error) {
+      log.error('Redis health check failed:', error);
+      return false;
+    }
   }
 
   /**
@@ -28,6 +65,11 @@ class AuthCodeService {
    */
   public async generateCode(userId: string, token: string): Promise<string> {
     try {
+      // Check Redis availability first
+      if (!(await this.isRedisAvailable())) {
+        throw new ServerError('OAuth service temporarily unavailable. Redis connection failed.');
+      }
+
       if (!this.client.isOpen) {
         await this.client.connect();
       }
@@ -44,7 +86,18 @@ class AuthCodeService {
       return code;
     } catch (error) {
       log.error('Error generating auth code:', error);
-      throw error;
+      // Re-throw ServerError as-is, wrap others
+      if (error instanceof ServerError) {
+        throw error;
+      }
+      // Check for Redis-specific errors
+      if (error && typeof error === 'object' && 'code' in error) {
+        const redisError = error as { code: string; message?: string };
+        if (redisError.code === 'ECONNREFUSED' || redisError.message?.includes('Redis')) {
+          throw new ServerError('OAuth service temporarily unavailable. Redis connection failed.');
+        }
+      }
+      throw new ServerError('Failed to generate authorization code. Please try again.');
     }
   }
 
@@ -55,6 +108,12 @@ class AuthCodeService {
    */
   public async exchangeCode(code: string): Promise<AuthCodeData | null> {
     try {
+      // Check Redis availability first
+      if (!(await this.isRedisAvailable())) {
+        log.error('Redis unavailable during code exchange');
+        return null;
+      }
+
       if (!this.client.isOpen) {
         await this.client.connect();
       }

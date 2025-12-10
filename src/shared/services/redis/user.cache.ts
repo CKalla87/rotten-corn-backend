@@ -94,8 +94,11 @@ export class UserCache extends BaseCache {
       const response: IUserDocument = (await this.client.HGETALL(`users:${userId}`)) as unknown as IUserDocument;
       response.createdAt = new Date(Helpers.parseJson(`${response.createdAt}`));
       response.postsCount = Helpers.parseJson(`${response.postsCount}`);
-      response.blocked = Helpers.parseJson(`${response.blocked}`);
-      response.blockedBy = Helpers.parseJson(`${response.blockedBy}`);
+      // Ensure blocked and blockedBy are always arrays
+      const parsedBlocked = Helpers.parseJson(`${response.blocked}`);
+      response.blocked = Array.isArray(parsedBlocked) ? parsedBlocked : [];
+      const parsedBlockedBy = Helpers.parseJson(`${response.blockedBy}`);
+      response.blockedBy = Array.isArray(parsedBlockedBy) ? parsedBlockedBy : [];
       response.notifications = Helpers.parseJson(`${response.notifications}`);
       response.social = Helpers.parseJson(`${response.social}`);
       response.followersCount = Helpers.parseJson(`${response.followersCount}`);
@@ -148,8 +151,11 @@ export class UserCache extends BaseCache {
       for (const reply of replies as IUserDocument[]) {
         reply.createdAt = new Date(Helpers.parseJson(`${reply.createdAt}`));
         reply.postsCount = Helpers.parseJson(`${reply.postsCount}`);
-        reply.blocked = Helpers.parseJson(`${reply.blocked}`);
-        reply.blockedBy = Helpers.parseJson(`${reply.blockedBy}`);
+        // Ensure blocked and blockedBy are always arrays
+        const parsedBlocked = Helpers.parseJson(`${reply.blocked}`);
+        reply.blocked = Array.isArray(parsedBlocked) ? parsedBlocked : [];
+        const parsedBlockedBy = Helpers.parseJson(`${reply.blockedBy}`);
+        reply.blockedBy = Array.isArray(parsedBlockedBy) ? parsedBlockedBy : [];
         reply.notifications = Helpers.parseJson(`${reply.notifications}`);
         reply.social = Helpers.parseJson(`${reply.social}`);
         reply.followersCount = Helpers.parseJson(`${reply.followersCount}`);
@@ -208,8 +214,11 @@ export class UserCache extends BaseCache {
       for (const reply of replies) {
         reply.createdAt = new Date(Helpers.parseJson(`${reply.createdAt}`));
         reply.postsCount = Helpers.parseJson(`${reply.postsCount}`);
-        reply.blocked = Helpers.parseJson(`${reply.blocked}`);
-        reply.blockedBy = Helpers.parseJson(`${reply.blockedBy}`);
+        // Ensure blocked and blockedBy are always arrays
+        const parsedBlocked = Helpers.parseJson(`${reply.blocked}`);
+        reply.blocked = Array.isArray(parsedBlocked) ? parsedBlocked : [];
+        const parsedBlockedBy = Helpers.parseJson(`${reply.blockedBy}`);
+        reply.blockedBy = Array.isArray(parsedBlockedBy) ? parsedBlockedBy : [];
         reply.notifications = Helpers.parseJson(`${reply.notifications}`);
         reply.social = Helpers.parseJson(`${reply.social}`);
         reply.followersCount = Helpers.parseJson(`${reply.followersCount}`);
