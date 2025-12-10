@@ -19,27 +19,38 @@ const log: Logger = config.createLogger('passportConfig');
 const userCache: UserCache = new UserCache();
 
 // Helper function to construct callback URL consistently
+// NOTE: Callback URL must point to the BACKEND server, not the frontend CLIENT_URL
 const getCallbackURL = (provider: string): string => {
-  // Use CLIENT_URL if available (should be the backend domain)
-  if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
-    // Remove trailing slash if present
-    const baseUrl = config.CLIENT_URL.replace(/\/$/, '');
-    const url = `${baseUrl}/api/v1/auth/${provider}/callback`;
-    log.info(`${provider} OAuth callback URL: ${url}`);
+  // In development, always use localhost:5000 (backend server)
+  if (config.NODE_ENV === 'development') {
+    const url = `http://localhost:5000/api/v1/auth/${provider}/callback`;
+    log.info(`${provider} OAuth callback URL (development): ${url}`);
     return url;
   }
-  // Check EC2_URL only if it's a valid URL (not the metadata endpoint)
-  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') && (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
-    // Remove trailing slash if present
+  
+  // For production, check EC2_URL first (backend server URL)
+  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') && 
+      (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
     const baseUrl = config.EC2_URL.replace(/\/$/, '');
     const url = `${baseUrl}/api/v1/auth/${provider}/callback`;
-    log.info(`${provider} OAuth callback URL: ${url}`);
+    log.info(`${provider} OAuth callback URL (EC2_URL): ${url}`);
     return url;
   }
-  // Fallback for development
-  const url = config.NODE_ENV === 'development'
-    ? `http://localhost:5000/api/v1/auth/${provider}/callback`
-    : `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+  
+  // Fallback: use CLIENT_URL only if it looks like a backend URL (contains /api or port 5000)
+  // Otherwise, default to known backend URL
+  if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
+    // If CLIENT_URL looks like it might be a backend URL, use it
+    if (config.CLIENT_URL.includes(':5000') || config.CLIENT_URL.includes('/api')) {
+      const baseUrl = config.CLIENT_URL.replace(/\/$/, '');
+      const url = `${baseUrl}/api/v1/auth/${provider}/callback`;
+      log.info(`${provider} OAuth callback URL (CLIENT_URL): ${url}`);
+      return url;
+    }
+  }
+  
+  // Final fallback
+  const url = `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
   log.warn(`${provider} OAuth callback URL (fallback): ${url} - Make sure this matches your OAuth provider settings!`);
   return url;
 };

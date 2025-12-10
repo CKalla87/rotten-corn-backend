@@ -30,16 +30,26 @@ class AuthRoutes {
     // OAuth health check endpoint
     this.router.get('/health/oauth', async (req: Request, res: Response) => {
       const getCallbackUrl = (provider: string): string => {
-        if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
-          return `${config.CLIENT_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
+        // In development, always use localhost:5000 (backend server)
+        if (config.NODE_ENV === 'development') {
+          return `http://localhost:5000/api/v1/auth/${provider}/callback`;
         }
+        
+        // For production, check EC2_URL first (backend server URL)
         if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') &&
             (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
           return `${config.EC2_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
         }
-        return config.NODE_ENV === 'development'
-          ? `http://localhost:5000/api/v1/auth/${provider}/callback`
-          : `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+        
+        // Fallback: use CLIENT_URL only if it looks like a backend URL
+        if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
+          if (config.CLIENT_URL.includes(':5000') || config.CLIENT_URL.includes('/api')) {
+            return `${config.CLIENT_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
+          }
+        }
+        
+        // Final fallback
+        return `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
       };
 
       const health = {
