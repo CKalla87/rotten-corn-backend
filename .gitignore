@@ -152,4 +152,8 @@ build
 # Terraform variable files (contain secrets)
 *.tfvars
 
+# Cursor files
+.cursor
+/thoughts
+
 # End of https://www.toptal.com/developers/gitignore/api/node
