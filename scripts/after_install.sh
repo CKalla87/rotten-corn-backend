@@ -36,8 +36,43 @@ rm -rf env-file.zip .env .env.production
 
 # Download and extract environment files
 ENV_BUCKET="chattapplication1-env-files"
-# Determine environment prefix based on deployment group or default to staging
-ENV_PREFIX="${ENV_PREFIX:-staging}"
+
+# Detect environment from CodeDeploy deployment group name
+# CodeDeploy automatically provides DEPLOYMENT_GROUP_NAME environment variable
+# Deployment group names follow pattern: ${prefix}-group
+# Examples: chatapp-develop-group, chatapp-staging-group, chatapp-production-group
+ENV_PREFIX=""
+
+if [ -n "$DEPLOYMENT_GROUP_NAME" ]; then
+  # Extract environment from deployment group name
+  # Pattern: extract "develop", "staging", or "production" from group name
+  if echo "$DEPLOYMENT_GROUP_NAME" | grep -qE "-(develop|staging|production)-group"; then
+    ENV_PREFIX=$(echo "$DEPLOYMENT_GROUP_NAME" | sed -E 's/.*-(develop|staging|production)-group.*/\1/')
+    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME: ${ENV_PREFIX}"
+  fi
+fi
+
+# Fallback: try to detect from S3 bucket structure
+if [ -z "$ENV_PREFIX" ]; then
+  echo "[$(date)] DEPLOYMENT_GROUP_NAME not available or doesn't match pattern, checking S3..."
+  for env in develop staging production; do
+    if aws s3 ls "s3://${ENV_BUCKET}/${env}/" >/dev/null 2>&1; then
+      # Check if this is the only environment folder (likely the correct one)
+      ENV_PREFIX="$env"
+      echo "[$(date)] Found environment folder in S3: ${env}"
+      break
+    fi
+  done
+fi
+
+# Ultimate fallback: default to staging (but log warning)
+if [ -z "$ENV_PREFIX" ]; then
+  ENV_PREFIX="staging"
+  echo "[$(date)] WARNING: Could not detect environment, defaulting to staging"
+  echo "[$(date)] DEPLOYMENT_GROUP_NAME was: ${DEPLOYMENT_GROUP_NAME:-not set}"
+fi
+
+echo "[$(date)] Using environment: ${ENV_PREFIX}"
 
 echo "[$(date)] Downloading environment files from S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"
 if ! aws s3 sync "s3://${ENV_BUCKET}/${ENV_PREFIX}" . 2>&1; then
@@ -48,18 +83,35 @@ fi
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
   unzip -o env-file.zip
-  # Priority: .env.develop > .env.production > .env
-  # For dev environment, prefer .env.develop
-  if [ -f .env.develop ]; then
-    cp .env.develop .env
-    echo "[$(date)] Copied .env.develop to .env (dev environment)"
-  elif [ -f .env.production ]; then
+  # Select environment file based on detected environment
+  # Priority: .env.{ENV_PREFIX} > .env.production > .env
+  ENV_FILE_COPIED=false
+
+  if [ -f ".env.${ENV_PREFIX}" ]; then
+    cp ".env.${ENV_PREFIX}" .env
+    echo "[$(date)] Copied .env.${ENV_PREFIX} to .env (${ENV_PREFIX} environment)"
+    ENV_FILE_COPIED=true
+  elif [ -f .env.production ] && [ "$ENV_PREFIX" = "production" ]; then
     cp .env.production .env
-    echo "[$(date)] Copied .env.production to .env"
+    echo "[$(date)] Copied .env.production to .env (production environment)"
+    ENV_FILE_COPIED=true
+  elif [ -f .env.staging ] && [ "$ENV_PREFIX" = "staging" ]; then
+    cp .env.staging .env
+    echo "[$(date)] Copied .env.staging to .env (staging environment)"
+    ENV_FILE_COPIED=true
+  elif [ -f .env.develop ] && [ "$ENV_PREFIX" = "develop" ]; then
+    cp .env.develop .env
+    echo "[$(date)] Copied .env.develop to .env (develop environment)"
+    ENV_FILE_COPIED=true
   elif [ -f .env ]; then
-    echo "[$(date)] .env file already exists"
-  else
-    echo "[$(date)] ERROR: No .env, .env.production, or .env.develop file found after extraction!"
+    echo "[$(date)] Using existing .env file (no environment-specific file found)"
+    ENV_FILE_COPIED=true
+  fi
+
+  if [ "$ENV_FILE_COPIED" = false ]; then
+    echo "[$(date)] ERROR: No .env file found for environment ${ENV_PREFIX}!"
+    echo "[$(date)] Expected one of: .env.${ENV_PREFIX}, .env.production, .env.staging, .env.develop, or .env"
+    exit 1
   fi
 else
   echo "[$(date)] ERROR: env-file.zip not found in S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"

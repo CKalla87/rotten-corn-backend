@@ -43,6 +43,21 @@ export class RottenCornServer {
   }
 
   private securityMiddleware(app: Application): void {
+    // Helper function to get session domain based on environment
+    const getSessionDomain = (): string | undefined => {
+      if (config.NODE_ENV === 'development') {
+        return undefined; // No domain restriction for localhost
+      }
+
+      // For staging, use staging-specific domain
+      if (config.NODE_ENV === 'staging') {
+        return '.staging.chatappserver.space';
+      }
+
+      // For production, use production domain
+      return '.chatappserver.space';
+    };
+
     app.use(
       cookieSession({
         name: 'session',
@@ -50,7 +65,7 @@ export class RottenCornServer {
         maxAge: 24 * 7 * 360000,
         secure: config.NODE_ENV !== 'development',
         sameSite: config.NODE_ENV !== 'development' ? 'none' : 'lax',
-        domain: config.NODE_ENV !== 'development' ? '.chatappserver.space' : undefined
+        domain: getSessionDomain()
       })
     );
     app.use(hpp());
@@ -317,11 +332,11 @@ export class RottenCornServer {
       log.warn('REDIS_HOST not configured - Socket.IO will run in single-instance mode (no Redis adapter)');
       return io;
     }
-    
+
     try {
       const pubClient = createClient({ url: config.REDIS_HOST });
       const subClient = pubClient.duplicate();
-      
+
       // Add error handlers to prevent unhandled rejections
       pubClient.on('error', (err) => {
         log.error('Redis pubClient error:', err);
@@ -329,7 +344,7 @@ export class RottenCornServer {
       subClient.on('error', (err) => {
         log.error('Redis subClient error:', err);
       });
-      
+
       await Promise.all([pubClient.connect(), subClient.connect()]);
       io.adapter(createAdapter(pubClient, subClient));
       log.info('Socket.IO Redis adapter connected successfully');

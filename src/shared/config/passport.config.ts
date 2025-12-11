@@ -27,31 +27,32 @@ const getCallbackURL = (provider: string): string => {
     log.info(`${provider} OAuth callback URL (development): ${url}`);
     return url;
   }
-  
-  // For production, check EC2_URL first (backend server URL)
-  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') && 
+
+  // For staging and production, check EC2_URL first (backend server URL)
+  if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') &&
       (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
     const baseUrl = config.EC2_URL.replace(/\/$/, '');
     const url = `${baseUrl}/api/v1/auth/${provider}/callback`;
     log.info(`${provider} OAuth callback URL (EC2_URL): ${url}`);
     return url;
   }
-  
-  // Fallback: use CLIENT_URL only if it looks like a backend URL (contains /api or port 5000)
-  // Otherwise, default to known backend URL
-  if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
-    // If CLIENT_URL looks like it might be a backend URL, use it
-    if (config.CLIENT_URL.includes(':5000') || config.CLIENT_URL.includes('/api')) {
-      const baseUrl = config.CLIENT_URL.replace(/\/$/, '');
-      const url = `${baseUrl}/api/v1/auth/${provider}/callback`;
-      log.info(`${provider} OAuth callback URL (CLIENT_URL): ${url}`);
-      return url;
-    }
+
+  // Environment-specific fallbacks based on NODE_ENV
+  if (config.NODE_ENV === 'staging') {
+    const url = `https://api.staging.chatappserver.space/api/v1/auth/${provider}/callback`;
+    log.info(`${provider} OAuth callback URL (staging fallback): ${url}`);
+    return url;
   }
-  
-  // Final fallback
-  const url = `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
-  log.warn(`${provider} OAuth callback URL (fallback): ${url} - Make sure this matches your OAuth provider settings!`);
+
+  if (config.NODE_ENV === 'production') {
+    const url = `https://api.chatappserver.space/api/v1/auth/${provider}/callback`;
+    log.info(`${provider} OAuth callback URL (production fallback): ${url}`);
+    return url;
+  }
+
+  // Final fallback for development (deployed)
+  const url = `https://api.dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+  log.warn(`${provider} OAuth callback URL (final fallback): ${url} - Make sure this matches your OAuth provider settings!`);
   return url;
 };
 

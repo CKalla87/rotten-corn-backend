@@ -39,7 +39,11 @@ export class OAuthController {
         config.CLIENT_URL,
         config.EC2_URL,
         'https://dev.chatappserver.space',
-        'https://chatappserver.space'
+        'https://api.dev.chatappserver.space',
+        'https://staging.chatappserver.space',
+        'https://api.staging.chatappserver.space',
+        'https://chatappserver.space',
+        'https://api.chatappserver.space'
       ].filter(Boolean);
 
       return allowedOrigins.some(origin => {
@@ -68,22 +72,24 @@ export class OAuthController {
     if (config.NODE_ENV === 'development') {
       return `http://localhost:5000/api/v1/auth/${provider}/callback`;
     }
-    
-    // For production, check EC2_URL first (backend server URL)
+
+    // For staging and production, check EC2_URL first (backend server URL)
     if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') &&
         (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
       return `${config.EC2_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
     }
-    
-    // Fallback: use CLIENT_URL only if it looks like a backend URL
-    if (config.CLIENT_URL && !config.CLIENT_URL.includes('169.254.169.254')) {
-      if (config.CLIENT_URL.includes(':5000') || config.CLIENT_URL.includes('/api')) {
-        return `${config.CLIENT_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
-      }
+
+    // Environment-specific fallbacks based on NODE_ENV
+    if (config.NODE_ENV === 'staging') {
+      return `https://api.staging.chatappserver.space/api/v1/auth/${provider}/callback`;
     }
-    
-    // Final fallback
-    return `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+
+    if (config.NODE_ENV === 'production') {
+      return `https://api.chatappserver.space/api/v1/auth/${provider}/callback`;
+    }
+
+    // Final fallback for development (deployed)
+    return `https://api.dev.chatappserver.space/api/v1/auth/${provider}/callback`;
   }
 
   /**
