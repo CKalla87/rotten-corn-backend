@@ -1,6 +1,6 @@
 {
   "name": "rotten-corn-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "This is the api for The Rotten Corn Horror App",
   "main": "app.js",
   "scripts": {
