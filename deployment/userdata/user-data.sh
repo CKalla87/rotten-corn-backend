@@ -37,12 +37,18 @@ if [ $(program_is_installed pm2) == 0 ]; then
 fi
 
 cd /home/ec2-user
-git clone -b develop https://github.com/uzochukwueddie/chatty-backend.git
-cd chatty-backend
+git clone -b develop https://github.com/CKalla87/rotten-corn-backend.git
+cd rotten-corn-backend
 npm install
 aws s3 sync s3://chattapplication1-env-files/develop .
-unzip env-file.zip
-cp .env.develop .env
+if [ -f env-file.zip ]; then
+  unzip -o env-file.zip
+  if [ -f .env.develop ]; then
+    cp .env.develop .env
+  elif [ -f .env ]; then
+    echo "Using existing .env file"
+  fi
+fi
 npm run build
 npm run start
 
