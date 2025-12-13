@@ -68,8 +68,13 @@ export class OAuthController {
    * NOTE: Callback URL must point to the BACKEND server, not the frontend CLIENT_URL
    */
   private getExpectedCallbackUrl(provider: string): string {
-    // In development, always use localhost:5000 (backend server)
-    if (config.NODE_ENV === 'development') {
+    // Check if we're truly in local development (not deployed)
+    // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
+    const isTrulyLocal = config.NODE_ENV === 'development' &&
+                        !config.EC2_URL &&
+                        !config.CLIENT_URL?.includes('chatappserver.space');
+    
+    if (isTrulyLocal) {
       return `http://localhost:5000/api/v1/auth/${provider}/callback`;
     }
 
@@ -169,6 +174,16 @@ export class OAuthController {
    */
   public async callback(req: Request, res: Response, next: NextFunction): Promise<void> {
     const { provider } = req.params;
+    
+    // Log callback request for debugging
+    log.info(`OAuth callback received for ${provider}`, {
+      path: req.path,
+      fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
+      query: req.query,
+      origin: req.get('origin'),
+      referer: req.get('referer'),
+      userAgent: req.get('user-agent')
+    });
 
     passport.authenticate(
       provider,
@@ -342,8 +357,33 @@ export class OAuthController {
         throw new BadRequestError('User not found');
       }
 
-      // Set session cookie (same as regular signin)
-      req.session = { jwt: authData.token };
+      // Set session - DO NOT replace req.session, only modify it
+      // cookie-session uses a Proxy to detect changes, so we must modify the existing object
+      if (!req.session) {
+        (req as any).session = {};
+      }
+      (req.session as any).jwt = authData.token;
+      
+      // ALSO set a regular cookie with the JWT as a fallback
+      // Deployed environments are: 'develop', 'staging', 'production'
+      // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
+      const isLocalDev = config.NODE_ENV === 'development' &&
+                         !config.EC2_URL &&
+                         !config.CLIENT_URL?.includes('chatappserver.space');
+      
+      const cookieOptions: any = {
+        maxAge: 24 * 7 * 3600000,
+        httpOnly: true,
+        secure: !isLocalDev,
+        sameSite: isLocalDev ? 'lax' : 'none',
+        path: '/'
+      };
+      
+      if (!isLocalDev) {
+        cookieOptions.domain = '.chatappserver.space';
+      }
+      
+      res.cookie('jwt', authData.token, cookieOptions);
 
       // Return token and user data
       res.status(HTTP_STATUS.OK).json({

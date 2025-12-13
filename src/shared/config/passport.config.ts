@@ -21,10 +21,15 @@ const userCache: UserCache = new UserCache();
 // Helper function to construct callback URL consistently
 // NOTE: Callback URL must point to the BACKEND server, not the frontend CLIENT_URL
 const getCallbackURL = (provider: string): string => {
-  // In development, always use localhost:5000 (backend server)
-  if (config.NODE_ENV === 'development') {
+  // Check if we're truly in local development (not deployed)
+  // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
+  const isTrulyLocal = config.NODE_ENV === 'development' &&
+                      !config.EC2_URL &&
+                      !config.CLIENT_URL?.includes('chatappserver.space');
+  
+  if (isTrulyLocal) {
     const url = `http://localhost:5000/api/v1/auth/${provider}/callback`;
-    log.info(`${provider} OAuth callback URL (development): ${url}`);
+    log.info(`${provider} OAuth callback URL (local development): ${url}`);
     return url;
   }
 
