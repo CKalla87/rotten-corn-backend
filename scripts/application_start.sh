@@ -370,14 +370,13 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     # Accept both 200 (healthy) and 503 (database connecting) as valid responses
     # The app is running if it responds with any HTTP status code
     HTTP_CHECK_SUCCESS=false
-    HTTP_STATUS=0
+    HTTP_STATUS="000"
     for check_attempt in 1 2 3 4 5 6 7 8; do
-      HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || echo -e "\n000")
-      HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -1)
-      HTTP_BODY=$(echo "$HTTP_RESPONSE" | head -n -1)
+      # Use printf instead of echo -e for better compatibility
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || printf "000")
       
       # Accept 200 (healthy) or 503 (database connecting) as success
-      # Also accept connection (any status code means server is responding)
+      # Also accept any 3-digit status code (means server is responding)
       if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ]; then
         HTTP_CHECK_SUCCESS=true
         echo "[$(date)] ✓ HTTP check succeeded with status $HTTP_STATUS (attempt $check_attempt/8)"
@@ -385,8 +384,8 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
           echo "[$(date)] ⚠ Health endpoint returned 503 - database may still be connecting (this is OK)"
         fi
         break
-      elif [ "$HTTP_STATUS" != "000" ] && [ "$HTTP_STATUS" != "" ]; then
-        # Any HTTP status code means the server is responding
+      elif [ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]; then
+        # Any 3-digit HTTP status code means the server is responding
         HTTP_CHECK_SUCCESS=true
         echo "[$(date)] ✓ Server is responding with status $HTTP_STATUS (attempt $check_attempt/8)"
         break
@@ -438,9 +437,8 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
           exit 0
         fi
         # Also try HTTP check
-        HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || echo -e "\n000")
-        HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -1)
-        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ] || ([ "$HTTP_STATUS" != "000" ] && [ "$HTTP_STATUS" != "" ]); then
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || printf "000")
+        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ] || ([ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]); then
           echo "[$(date)] ✓ Application is now responding to HTTP requests (status: $HTTP_STATUS, after ${retry} retries)"
           exit 0
         else
@@ -530,15 +528,14 @@ if [ "$PORT_LISTENING" = true ] || [ "$APP_PROCESS_RUNNING" = true ]; then
   echo "[$(date)] App process or port detected - attempting final HTTP health check..."
   for final_check in 1 2 3 4 5 6 7 8; do
     sleep 3
-    HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || echo -e "\n000")
-    HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -1)
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || printf "000")
     # Accept 200 (healthy) or 503 (database connecting) as success
     if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ]; then
       echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests (status: $HTTP_STATUS)!"
       echo "[$(date)] App appears to be running (even if PM2 status unclear)"
       exit 0
-    elif [ "$HTTP_STATUS" != "000" ] && [ "$HTTP_STATUS" != "" ]; then
-      # Any HTTP status code means server is responding
+    elif [ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]; then
+      # Any 3-digit HTTP status code means server is responding
       echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests (status: $HTTP_STATUS)!"
       echo "[$(date)] App appears to be running (even if PM2 status unclear)"
       exit 0
