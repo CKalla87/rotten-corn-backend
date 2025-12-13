@@ -19,12 +19,12 @@ export class CurrentUser {
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
       res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
     }
-    
+
     try {
       let isUser = false;
       let token = null;
       let user = null;
-      
+
       if (!req.currentUser?.userId) {
         log.warn('CurrentUser endpoint called without userId', {
           hasCurrentUser: !!req.currentUser,
@@ -37,17 +37,17 @@ export class CurrentUser {
         });
         return;
       }
-      
+
       // Try to get user from cache with timeout, fallback to database
       let existingUser: IUserDocument | null = null;
-      
+
       try {
         // Add timeout to Redis operation (5 seconds)
         const cachePromise = userCache.getUserFromCache(`${req.currentUser?.userId}`);
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Redis operation timeout')), 5000);
         });
-        
+
         const cachedUser = await Promise.race([cachePromise, timeoutPromise]) as IUserDocument | null;
         if (cachedUser && Object.keys(cachedUser).length > 0) {
           existingUser = cachedUser;
@@ -60,7 +60,7 @@ export class CurrentUser {
         });
         // Continue to database fallback
       }
-      
+
       // If not in cache or cache failed, get from database
       if (!existingUser || Object.keys(existingUser).length === 0) {
         try {
@@ -89,7 +89,7 @@ export class CurrentUser {
           return;
         }
       }
-      
+
       // At this point, existingUser should be valid
       if (existingUser && Object.keys(existingUser).length > 0) {
         isUser = true;
@@ -104,7 +104,7 @@ export class CurrentUser {
         });
         return;
       }
-      
+
       res.status(HTTP_STATUS.OK).json({ token, isUser, user });
     } catch (error) {
       log.error('Unexpected error in currentUser endpoint', {

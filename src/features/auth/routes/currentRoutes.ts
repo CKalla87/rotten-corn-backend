@@ -29,7 +29,7 @@ class CurrentUserRoutes {
       this.setCorsHeaders(req, res);
       res.status(200).end();
     });
-    
+
     // GET currentUser endpoint with authentication
     // Note: verifyUser is already applied at the route level in routes.ts
     this.router.get('/currentUser', authMiddleware.checkAuthentication, CurrentUser.prototype.read);
