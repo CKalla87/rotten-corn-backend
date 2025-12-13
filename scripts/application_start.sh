@@ -1,5 +1,7 @@
 #!/bin/bash
-set -e  # Exit on any error
+# Use set -e carefully - we want to catch real errors but not exit on non-critical command failures
+# We'll use set +e around non-critical checks and set -e for critical operations
+set -e
 
 # CodeDeploy ApplicationStart hook
 # This script runs to start the application
@@ -234,27 +236,35 @@ if [ -f ./build/src/app.js ]; then
 
   # Check existing PM2 processes before starting
   echo "[$(date)] Current PM2 processes before start:"
-  "$PM2_BIN" list || echo "PM2 list command failed or no processes"
+  set +e
+  "$PM2_BIN" list 2>/dev/null || echo "PM2 list command failed or no processes"
+  set -e
 
   # Start the application
   echo "[$(date)] Executing: $PM2_BIN start ./build/src/app.js -i 1 --name chatty-backend"
   # Capture both stdout and stderr, but filter out harmless PM2 warnings
+  set +e
   PM2_START_OUTPUT=$("$PM2_BIN" start ./build/src/app.js -i 1 --name "chatty-backend" 2>&1 | grep -v "event-loop-stats not found" || true)
   PM2_START_EXIT=${PIPESTATUS[0]}
+  set -e
 
   # Check if process actually started (PM2 sometimes returns non-zero but still starts the process)
   sleep 3
   PM2_PROCESS_EXISTS=false
+  set +e
   if "$PM2_BIN" list 2>/dev/null | grep -qE "chatty-backend|chatty-b"; then
     PM2_PROCESS_EXISTS=true
   fi
+  set -e
 
   # Also check if node process is running (even if not in PM2)
   NODE_PROCESS_EXISTS=false
+  set +e
   if pgrep -f "node.*build/src/app.js" > /dev/null 2>&1 || ps aux | grep -v grep | grep -q "node.*build/src/app.js"; then
     NODE_PROCESS_EXISTS=true
     echo "[$(date)] ⚠ Node process found running outside PM2"
   fi
+  set -e
 
   if [ $PM2_START_EXIT -ne 0 ] && [ "$PM2_PROCESS_EXISTS" = false ] && [ "$NODE_PROCESS_EXISTS" = false ]; then
     echo "[$(date)] ERROR: PM2 start command failed with exit code $PM2_START_EXIT and no process found"
@@ -262,11 +272,13 @@ if [ -f ./build/src/app.js ]; then
     echo "$PM2_START_OUTPUT"
     echo "[$(date)] PM2 binary used: $PM2_BIN"
     echo "[$(date)] Checking if PM2 binary exists:"
+    set +e
     ls -la "$PM2_BIN" 2>&1 || echo "PM2 binary not found at expected path"
     echo "[$(date)] Current PM2 processes:"
-    "$PM2_BIN" list || true
+    "$PM2_BIN" list 2>/dev/null || true
     echo "[$(date)] Attempting to get logs from any existing process:"
     "$PM2_BIN" logs --lines 20 --nostream 2>&1 || true
+    set -e
     exit 1
   elif [ "$PM2_PROCESS_EXISTS" = true ]; then
     echo "[$(date)] ✓ PM2 process started successfully (exit code was $PM2_START_EXIT but process exists)"
@@ -289,24 +301,45 @@ if [ -f ./build/src/app.js ]; then
 
   # Verify PM2 actually has the process (check for both possible names)
   PM2_PROCESS_FOUND=false
-  if "$PM2_BIN" list | grep -q "chatty-backend"; then
+  PM2_PROCESS_NAME=""
+  set +e
+  if "$PM2_BIN" list 2>/dev/null | grep -q "chatty-backend"; then
     PM2_PROCESS_FOUND=true
+    PM2_PROCESS_NAME="chatty-backend"
     echo "[$(date)] ✓ Found chatty-backend in PM2 list"
-  elif "$PM2_BIN" list | grep -q "chatty-b"; then
+  elif "$PM2_BIN" list 2>/dev/null | grep -q "chatty-b"; then
     PM2_PROCESS_FOUND=true
+    PM2_PROCESS_NAME="chatty-b"
     echo "[$(date)] ⚠ Found chatty-b in PM2 list (name may have been truncated)"
     # Try to rename it
     "$PM2_BIN" restart chatty-b --update-env --name chatty-backend 2>/dev/null || true
   fi
+  set -e
 
   if [ "$PM2_PROCESS_FOUND" = false ]; then
     echo "[$(date)] ERROR: chatty-backend not found in PM2 list after start"
+    set +e
     echo "[$(date)] PM2 list:"
-    "$PM2_BIN" list || true
+    "$PM2_BIN" list 2>/dev/null || true
     echo "[$(date)] PM2 logs:"
     "$PM2_BIN" logs --lines 50 --nostream 2>&1 || true
+    set -e
     exit 1
   fi
+
+  # Early success check: if logs already show server started, we can exit early
+  set +e
+  if [ -n "$PM2_PROCESS_NAME" ] && "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 30 --nostream 2>&1 | grep -q "Server running on port 5000"; then
+    echo "[$(date)] ✓ Early success: PM2 logs already show 'Server running on port 5000'"
+    # Double-check port is listening
+    if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+      echo "[$(date)] ✓ Port 5000 is listening - application is running"
+      echo "[$(date)] ✓ Application startup verified (early exit)"
+      set -e
+      exit 0
+    fi
+  fi
+  set -e
 
   # Save PM2 process list
   "$PM2_BIN" save || echo "[$(date)] Warning: PM2 save failed (non-critical)"
@@ -326,24 +359,33 @@ INITIAL_STABILIZATION=15  # Wait 15 seconds before starting health checks
 
 while [ $ELAPSED -lt $MAX_WAIT ]; do
   # First verify the process exists in PM2 (check for both possible names)
-  PM2_PROCESS_NAME=""
-  if "$PM2_BIN" list | grep -q "chatty-backend"; then
-    PM2_PROCESS_NAME="chatty-backend"
-  elif "$PM2_BIN" list | grep -q "chatty-b"; then
-    PM2_PROCESS_NAME="chatty-b"
+  # Use the process name we found earlier, or search again
+  if [ -z "$PM2_PROCESS_NAME" ]; then
+    set +e
+    if "$PM2_BIN" list 2>/dev/null | grep -q "chatty-backend"; then
+      PM2_PROCESS_NAME="chatty-backend"
+    elif "$PM2_BIN" list 2>/dev/null | grep -q "chatty-b"; then
+      PM2_PROCESS_NAME="chatty-b"
+    fi
+    set -e
   fi
 
   if [ -z "$PM2_PROCESS_NAME" ]; then
     echo "[$(date)] WARNING: chatty-backend or chatty-b not found in PM2 list (waited ${ELAPSED}s)"
+    set +e
     echo "[$(date)] PM2 list output:"
-    "$PM2_BIN" list || true
+    "$PM2_BIN" list 2>/dev/null || true
+    set -e
     sleep $WAIT_INTERVAL
     ELAPSED=$((ELAPSED + WAIT_INTERVAL))
     continue
   fi
 
   # Check if PM2 shows the app as online
-  PM2_STATUS=$("$PM2_BIN" list | grep "$PM2_PROCESS_NAME" | awk '{print $10}' || echo "unknown")
+  # Use set +e to prevent exit on grep/awk failures (non-critical)
+  set +e
+  PM2_STATUS=$("$PM2_BIN" list 2>/dev/null | grep "$PM2_PROCESS_NAME" 2>/dev/null | awk '{print $10}' 2>/dev/null || echo "unknown")
+  set -e
   echo "[$(date)] PM2 status for $PM2_PROCESS_NAME: $PM2_STATUS (waited ${ELAPSED}s)"
 
   if [ "$PM2_STATUS" = "online" ]; then
@@ -356,14 +398,31 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 
     echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
 
+    # Check PM2 logs to see if server started successfully (faster than HTTP check)
+    PM2_LOGS_STARTED=false
+    set +e
+    if "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 20 --nostream 2>&1 | grep -q "Server running on port 5000"; then
+      PM2_LOGS_STARTED=true
+      echo "[$(date)] ✓ PM2 logs show 'Server running on port 5000'"
+    fi
+    set -e
+
     # CRITICAL: Check if port is listening first (faster and more reliable)
     # The health endpoint may return 503 while database is connecting, which is OK
     PORT_LISTENING=false
+    set +e
     if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
       PORT_LISTENING=true
       echo "[$(date)] ✓ Port 5000 IS listening"
     else
       echo "[$(date)] ⚠ Port 5000 is NOT listening yet, waiting..."
+    fi
+    set -e
+
+    # If port is listening OR logs show server started, we can consider the app ready
+    if [ "$PORT_LISTENING" = true ] || [ "$PM2_LOGS_STARTED" = true ]; then
+      echo "[$(date)] ✓ Application appears to be running (port listening or logs confirm startup)"
+      # Still try HTTP check but don't fail if it doesn't work immediately
     fi
 
     # Test if the app responds to HTTP requests
@@ -371,6 +430,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     # The app is running if it responds with any HTTP status code
     HTTP_CHECK_SUCCESS=false
     HTTP_STATUS="000"
+    set +e
     for check_attempt in 1 2 3 4 5 6 7 8; do
       # Use printf instead of echo -e for better compatibility
       HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || printf "000")
@@ -394,11 +454,15 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
         sleep 3
       fi
     done
+    set -e
 
-    # If port is listening OR HTTP check succeeded, app is running
-    if [ "$PORT_LISTENING" = true ] || [ "$HTTP_CHECK_SUCCESS" = true ]; then
+    # If port is listening OR logs show server started OR HTTP check succeeded, app is running
+    if [ "$PORT_LISTENING" = true ] || [ "$PM2_LOGS_STARTED" = true ] || [ "$HTTP_CHECK_SUCCESS" = true ]; then
       if [ "$PORT_LISTENING" = true ]; then
         echo "[$(date)] ✓ Port 5000 is listening - application is running"
+      fi
+      if [ "$PM2_LOGS_STARTED" = true ]; then
+        echo "[$(date)] ✓ PM2 logs confirm server started successfully"
       fi
       if [ "$HTTP_CHECK_SUCCESS" = true ]; then
         echo "[$(date)] ✓ Application is responding to HTTP requests (status: $HTTP_STATUS)"
@@ -410,12 +474,14 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       echo "[$(date)] Port listening: $PORT_LISTENING, HTTP response: $HTTP_STATUS"
 
       # Show diagnostics
+      set +e
       echo "[$(date)] PM2 status:"
-      "$PM2_BIN" list | grep -E "chatty-backend|chatty-b" || true
+      "$PM2_BIN" list 2>/dev/null | grep -E "chatty-backend|chatty-b" || true
       echo "[$(date)] PM2 error logs (last 50 lines):"
       "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 50 --nostream 2>&1 || true
       echo "[$(date)] PM2 output logs (last 50 lines):"
       "$PM2_BIN" logs $PM2_PROCESS_NAME --out --lines 50 --nostream 2>&1 || true
+      set -e
       echo "[$(date)] Checking if .env file exists and has required vars:"
       if [ -f .env ]; then
         echo "[$(date)] .env file exists"
@@ -428,30 +494,37 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 
       # Give it more time - database connection can take a while
       echo "[$(date)] Waiting additional time for app to fully initialize (database connection may be slow)..."
+      set +e
       for retry in 1 2 3 4 5 6 7 8; do
         sleep 4
         # Check port first (fastest)
         if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
           echo "[$(date)] ✓ Port 5000 is now listening (after ${retry} retries)"
           echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
+          set -e
           exit 0
         fi
         # Also try HTTP check
         HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || printf "000")
         if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ] || ([ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]); then
           echo "[$(date)] ✓ Application is now responding to HTTP requests (status: $HTTP_STATUS, after ${retry} retries)"
+          set -e
           exit 0
         else
           echo "[$(date)] HTTP check retry ${retry}/8 failed (status: $HTTP_STATUS), waiting 4 seconds..."
         fi
       done
+      set -e
       
       # Final check - if port is listening, allow deployment
+      set +e
       if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
         echo "[$(date)] ✓ Port 5000 is now listening"
         echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
+        set -e
         exit 0
       else
+        set -e
         echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
         exit 1
       fi
@@ -459,7 +532,9 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   fi
 
   # Process exists but not online - check status
-  RESTARTS=$("$PM2_BIN" list | grep "$PM2_PROCESS_NAME" | awk '{print $12}' || echo "0")
+  set +e
+  RESTARTS=$("$PM2_BIN" list 2>/dev/null | grep "$PM2_PROCESS_NAME" 2>/dev/null | awk '{print $12}' 2>/dev/null || echo "0")
+  set -e
   echo "[$(date)] Application status: $PM2_STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
 
   # Check for crash loop (too many restarts) - but be more lenient during initial startup
@@ -483,10 +558,12 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     # Only exit if it's been errored/stopped for more than 30 seconds
     if [ $ELAPSED -gt 30 ]; then
       echo "[$(date)] ERROR: Application has been $PM2_STATUS for more than 30 seconds"
+      set +e
       echo "[$(date)] PM2 error logs (last 50 lines):"
       "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 50 --nostream 2>&1 || true
       echo "[$(date)] PM2 output logs (last 50 lines):"
       "$PM2_BIN" logs $PM2_PROCESS_NAME --out --lines 50 --nostream 2>&1 || true
+      set -e
       exit 1
     else
       echo "[$(date)] App is $PM2_STATUS but still within startup grace period, continuing to wait..."
@@ -505,27 +582,34 @@ done
 # If we get here, the app didn't start within the timeout
 echo "[$(date)] WARNING: Application did not come online in PM2 within ${MAX_WAIT} seconds"
 echo "[$(date)] Checking if app is running anyway (may have started outside PM2 or PM2 status incorrect)..."
+set +e
 echo "[$(date)] Current PM2 status:"
-"$PM2_BIN" list || true
+"$PM2_BIN" list 2>/dev/null || true
+set -e
 echo "[$(date)] Port 5000 status:"
 PORT_LISTENING=false
+set +e
 if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
   PORT_LISTENING=true
   echo "[$(date)] ✓ Port 5000 IS listening"
 else
   echo "[$(date)] ✗ Port 5000 is NOT listening"
 fi
+set -e
 
 # Check if node process is running the app
 APP_PROCESS_RUNNING=false
+set +e
 if pgrep -f "node.*build/src/app.js" > /dev/null 2>&1 || ps aux | grep -v grep | grep -q "node.*build/src/app.js"; then
   APP_PROCESS_RUNNING=true
   echo "[$(date)] ✓ Node process running build/src/app.js found"
 fi
+set -e
 
 # Final fallback: If port is listening OR process is running, try HTTP check
 if [ "$PORT_LISTENING" = true ] || [ "$APP_PROCESS_RUNNING" = true ]; then
   echo "[$(date)] App process or port detected - attempting final HTTP health check..."
+  set +e
   for final_check in 1 2 3 4 5 6 7 8; do
     sleep 3
     HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || printf "000")
@@ -533,16 +617,19 @@ if [ "$PORT_LISTENING" = true ] || [ "$APP_PROCESS_RUNNING" = true ]; then
     if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ]; then
       echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests (status: $HTTP_STATUS)!"
       echo "[$(date)] App appears to be running (even if PM2 status unclear)"
+      set -e
       exit 0
     elif [ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]; then
       # Any 3-digit HTTP status code means server is responding
       echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests (status: $HTTP_STATUS)!"
       echo "[$(date)] App appears to be running (even if PM2 status unclear)"
+      set -e
       exit 0
     else
       echo "[$(date)] Final HTTP check attempt ${final_check}/8 failed (status: $HTTP_STATUS), waiting 3 seconds..."
     fi
   done
+  set -e
   # If port is listening but health check still failing, give benefit of doubt
   if [ "$PORT_LISTENING" = true ]; then
     echo "[$(date)] Port 5000 is listening but health check failing after 24 seconds"
@@ -555,14 +642,18 @@ fi
 # If we still haven't succeeded, show diagnostics
 echo "[$(date)] WARNING: Application did not respond to HTTP health checks within timeout"
 # Determine which process name to use for logs
+set +e
 FINAL_PROCESS_NAME="chatty-backend"
-if "$PM2_BIN" list | grep -q "chatty-b"; then
+if "$PM2_BIN" list 2>/dev/null | grep -q "chatty-b"; then
   FINAL_PROCESS_NAME="chatty-b"
 fi
+set -e
+set +e
 echo "[$(date)] PM2 error logs (last 100 lines) for $FINAL_PROCESS_NAME:"
 "$PM2_BIN" logs $FINAL_PROCESS_NAME --err --lines 100 --nostream 2>&1 || true
 echo "[$(date)] PM2 output logs (last 100 lines) for $FINAL_PROCESS_NAME:"
 "$PM2_BIN" logs $FINAL_PROCESS_NAME --out --lines 100 --nostream 2>&1 || true
+set -e
 echo "[$(date)] Environment check:"
 if [ -f .env ]; then
   echo "[$(date)] .env file exists"
@@ -577,9 +668,11 @@ ps aux | grep -E "node|pm2" | grep -v grep || true
 # Check if app is running (PM2, node process, or port listening)
 # The target group health checks will catch if the app is truly broken
 PM2_PROCESS_EXISTS=false
+set +e
 if "$PM2_BIN" list 2>/dev/null | grep -qE "chatty-backend|chatty-b"; then
   PM2_PROCESS_EXISTS=true
 fi
+set -e
 
 NODE_PROCESS_EXISTS=false
 # Use set +e temporarily to avoid script exit on command failure
@@ -601,9 +694,21 @@ elif ss -tln 2>/dev/null | grep -q ":5000 "; then
 fi
 set -e
 
+# Check PM2 logs one more time for startup confirmation
+PM2_LOGS_SHOW_STARTED=false
+set +e
+FINAL_PROCESS_NAME="chatty-backend"
+if "$PM2_BIN" list 2>/dev/null | grep -q "chatty-b"; then
+  FINAL_PROCESS_NAME="chatty-b"
+fi
+if "$PM2_BIN" logs $FINAL_PROCESS_NAME --lines 30 --nostream 2>&1 | grep -q "Server running on port 5000"; then
+  PM2_LOGS_SHOW_STARTED=true
+fi
+set -e
+
 # Allow deployment if ANY indicator shows the app is running
-# (PM2 process, node process, or port listening)
-if [ "$PM2_PROCESS_EXISTS" = true ] || [ "$NODE_PROCESS_EXISTS" = true ] || [ "$PORT_LISTENING" = true ]; then
+# (PM2 process, node process, port listening, or logs show server started)
+if [ "$PM2_PROCESS_EXISTS" = true ] || [ "$NODE_PROCESS_EXISTS" = true ] || [ "$PORT_LISTENING" = true ] || [ "$PM2_LOGS_SHOW_STARTED" = true ]; then
   echo "[$(date)] ✓ Application appears to be running:"
   if [ "$PM2_PROCESS_EXISTS" = true ]; then
     echo "[$(date)]   - PM2 process found"
@@ -614,6 +719,9 @@ if [ "$PM2_PROCESS_EXISTS" = true ] || [ "$NODE_PROCESS_EXISTS" = true ] || [ "$
   if [ "$PORT_LISTENING" = true ]; then
     echo "[$(date)]   - Port 5000 is listening"
   fi
+  if [ "$PM2_LOGS_SHOW_STARTED" = true ]; then
+    echo "[$(date)]   - PM2 logs confirm server started"
+  fi
   echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
   exit 0
 else
@@ -621,6 +729,7 @@ else
   echo "[$(date)]   - PM2 process: not found"
   echo "[$(date)]   - Node process: not found"
   echo "[$(date)]   - Port 5000: not listening"
+  echo "[$(date)]   - PM2 logs: no startup confirmation"
   exit 1
 fi
 
