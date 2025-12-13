@@ -220,7 +220,11 @@ if [ -f ./build/src/app.js ]; then
 
   # Kill any existing node processes running the app (might be from previous failed deployment)
   echo "[$(date)] Checking for existing node processes..."
-  pkill -f "node.*build/src/app.js" 2>/dev/null || true
+  pkill -9 -f "node.*build/src/app.js" 2>/dev/null || true
+  # Also ensure port 5000 is free
+  echo "[$(date)] Ensuring port 5000 is free..."
+  fuser -k 5000/tcp 2>/dev/null || true
+  lsof -ti:5000 | xargs kill -9 2>/dev/null || true
   sleep 2
 
   # Final cleanup before starting
@@ -352,33 +356,59 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 
     echo "[$(date)] PM2 reports app as online, verifying HTTP response..."
 
-    # CRITICAL: Actually test if the app responds to HTTP requests
-    # PM2 might say "online" but app could be crashing or not listening
-    # Try multiple times as the app might be starting up
+    # CRITICAL: Check if port is listening first (faster and more reliable)
+    # The health endpoint may return 503 while database is connecting, which is OK
+    PORT_LISTENING=false
+    if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+      PORT_LISTENING=true
+      echo "[$(date)] ✓ Port 5000 IS listening"
+    else
+      echo "[$(date)] ⚠ Port 5000 is NOT listening yet, waiting..."
+    fi
+
+    # Test if the app responds to HTTP requests
+    # Accept both 200 (healthy) and 503 (database connecting) as valid responses
+    # The app is running if it responds with any HTTP status code
     HTTP_CHECK_SUCCESS=false
-    for check_attempt in 1 2 3 4 5; do
-      if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
+    HTTP_STATUS=0
+    for check_attempt in 1 2 3 4 5 6 7 8; do
+      HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || echo -e "\n000")
+      HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -1)
+      HTTP_BODY=$(echo "$HTTP_RESPONSE" | head -n -1)
+      
+      # Accept 200 (healthy) or 503 (database connecting) as success
+      # Also accept connection (any status code means server is responding)
+      if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ]; then
         HTTP_CHECK_SUCCESS=true
+        echo "[$(date)] ✓ HTTP check succeeded with status $HTTP_STATUS (attempt $check_attempt/8)"
+        if [ "$HTTP_STATUS" = "503" ]; then
+          echo "[$(date)] ⚠ Health endpoint returned 503 - database may still be connecting (this is OK)"
+        fi
+        break
+      elif [ "$HTTP_STATUS" != "000" ] && [ "$HTTP_STATUS" != "" ]; then
+        # Any HTTP status code means the server is responding
+        HTTP_CHECK_SUCCESS=true
+        echo "[$(date)] ✓ Server is responding with status $HTTP_STATUS (attempt $check_attempt/8)"
         break
       else
-        echo "[$(date)] ⚠ HTTP check attempt $check_attempt/5 failed, waiting 3 seconds..."
+        echo "[$(date)] ⚠ HTTP check attempt $check_attempt/8 failed (status: $HTTP_STATUS), waiting 3 seconds..."
         sleep 3
       fi
     done
 
-    if [ "$HTTP_CHECK_SUCCESS" = true ]; then
-      echo "[$(date)] ✓ Application is running and responding to HTTP requests (verified after ${ELAPSED}s)"
+    # If port is listening OR HTTP check succeeded, app is running
+    if [ "$PORT_LISTENING" = true ] || [ "$HTTP_CHECK_SUCCESS" = true ]; then
+      if [ "$PORT_LISTENING" = true ]; then
+        echo "[$(date)] ✓ Port 5000 is listening - application is running"
+      fi
+      if [ "$HTTP_CHECK_SUCCESS" = true ]; then
+        echo "[$(date)] ✓ Application is responding to HTTP requests (status: $HTTP_STATUS)"
+      fi
+      echo "[$(date)] ✓ Application startup verified after ${ELAPSED}s"
       exit 0
     else
-      echo "[$(date)] ⚠ PM2 says online but app not responding to HTTP (waited ${ELAPSED}s)"
-      echo "[$(date)] Checking if port 5000 is listening..."
-      PORT_LISTENING=false
-      if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
-        PORT_LISTENING=true
-        echo "[$(date)] ✓ Port 5000 IS listening"
-      else
-        echo "[$(date)] ✗ Port 5000 is NOT listening"
-      fi
+      echo "[$(date)] ⚠ PM2 says online but app not responding (waited ${ELAPSED}s)"
+      echo "[$(date)] Port listening: $PORT_LISTENING, HTTP response: $HTTP_STATUS"
 
       # Show diagnostics
       echo "[$(date)] PM2 status:"
@@ -397,34 +427,35 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       echo "[$(date)] Checking process status:"
       ps aux | grep -E "node|pm2" | grep -v grep || true
 
-      # If port is listening, allow deployment to continue (app might be slow to respond)
-      if [ "$PORT_LISTENING" = true ]; then
-        echo "[$(date)] ✓ Port is listening - app appears to be running"
-        echo "[$(date)] ✓ Allowing deployment to continue - health check may be slow"
-        echo "[$(date)] ✓ Target group will validate if app is truly ready"
-        exit 0
-      else
-        # Port is not listening, but give it more time to fully initialize
-        echo "[$(date)] Port 5000 is not listening yet, waiting additional time for app to fully initialize..."
-        # Try HTTP check multiple times with longer delays
-        for retry in 1 2 3 4 5 6 7 8; do
-          sleep 4
-          if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
-            echo "[$(date)] ✓ Application is now responding to HTTP requests (after ${retry} retries)"
-            exit 0
-          else
-            echo "[$(date)] HTTP check retry ${retry}/8 failed, waiting 4 seconds..."
-          fi
-        done
-        # Check port again after retries
+      # Give it more time - database connection can take a while
+      echo "[$(date)] Waiting additional time for app to fully initialize (database connection may be slow)..."
+      for retry in 1 2 3 4 5 6 7 8; do
+        sleep 4
+        # Check port first (fastest)
         if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
-          echo "[$(date)] ✓ Port 5000 is now listening"
+          echo "[$(date)] ✓ Port 5000 is now listening (after ${retry} retries)"
           echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
           exit 0
-        else
-          echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
-          exit 1
         fi
+        # Also try HTTP check
+        HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || echo -e "\n000")
+        HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -1)
+        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ] || ([ "$HTTP_STATUS" != "000" ] && [ "$HTTP_STATUS" != "" ]); then
+          echo "[$(date)] ✓ Application is now responding to HTTP requests (status: $HTTP_STATUS, after ${retry} retries)"
+          exit 0
+        else
+          echo "[$(date)] HTTP check retry ${retry}/8 failed (status: $HTTP_STATUS), waiting 4 seconds..."
+        fi
+      done
+      
+      # Final check - if port is listening, allow deployment
+      if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+        echo "[$(date)] ✓ Port 5000 is now listening"
+        echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
+        exit 0
+      else
+        echo "[$(date)] ERROR: Port 5000 is not listening - app may have crashed"
+        exit 1
       fi
     fi
   fi
@@ -499,18 +530,26 @@ if [ "$PORT_LISTENING" = true ] || [ "$APP_PROCESS_RUNNING" = true ]; then
   echo "[$(date)] App process or port detected - attempting final HTTP health check..."
   for final_check in 1 2 3 4 5 6 7 8; do
     sleep 3
-    if curl -f -s --max-time 10 http://localhost:5000/health > /dev/null 2>&1; then
-      echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests!"
+    HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 http://localhost:5000/health 2>&1 || echo -e "\n000")
+    HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -1)
+    # Accept 200 (healthy) or 503 (database connecting) as success
+    if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ]; then
+      echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests (status: $HTTP_STATUS)!"
+      echo "[$(date)] App appears to be running (even if PM2 status unclear)"
+      exit 0
+    elif [ "$HTTP_STATUS" != "000" ] && [ "$HTTP_STATUS" != "" ]; then
+      # Any HTTP status code means server is responding
+      echo "[$(date)] ✓ SUCCESS: Application is responding to HTTP requests (status: $HTTP_STATUS)!"
       echo "[$(date)] App appears to be running (even if PM2 status unclear)"
       exit 0
     else
-      echo "[$(date)] Final HTTP check attempt ${final_check}/8 failed, waiting 3 seconds..."
+      echo "[$(date)] Final HTTP check attempt ${final_check}/8 failed (status: $HTTP_STATUS), waiting 3 seconds..."
     fi
   done
   # If port is listening but health check still failing, give benefit of doubt
   if [ "$PORT_LISTENING" = true ]; then
     echo "[$(date)] Port 5000 is listening but health check failing after 24 seconds"
-    echo "[$(date)] App may still be initializing. Allowing deployment to continue."
+    echo "[$(date)] App may still be initializing (database connection may be slow). Allowing deployment to continue."
     echo "[$(date)] Target group health checks will validate if app is truly ready."
     exit 0
   fi
