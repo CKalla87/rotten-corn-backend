@@ -3,21 +3,120 @@ import { Request, Response } from 'express';
 import { UserCache } from '@service/redis/user.cache';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { userService } from '@service/db/user.service';
+import { config } from '@root/config';
+import Logger from 'bunyan';
 
 const userCache: UserCache = new UserCache();
+const log: Logger = config.createLogger('currentUser');
 
 export class CurrentUser {
   public async read(req: Request, res: Response): Promise<void> {
-    let isUser = false;
-    let token = null;
-    let user = null;
-    const cachedUser: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser?.userId}`)) as IUserDocument;
-    const existingUser: IUserDocument = cachedUser ? cachedUser : await userService.getUserById(`${req.currentUser?.userId}`);
-    if (Object.keys(existingUser).length) {
-      isUser = true;
-      token = req.session?.jwt;
-      user = existingUser;
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
     }
-    res.status(HTTP_STATUS.OK).json({ token, isUser, user });
+    
+    try {
+      let isUser = false;
+      let token = null;
+      let user = null;
+      
+      if (!req.currentUser?.userId) {
+        log.warn('CurrentUser endpoint called without userId', {
+          hasCurrentUser: !!req.currentUser,
+          origin: req.get('origin')
+        });
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          message: 'User not authenticated',
+          status: 'error',
+          statusCode: HTTP_STATUS.UNAUTHORIZED
+        });
+        return;
+      }
+      
+      // Try to get user from cache with timeout, fallback to database
+      let existingUser: IUserDocument | null = null;
+      
+      try {
+        // Add timeout to Redis operation (5 seconds)
+        const cachePromise = userCache.getUserFromCache(`${req.currentUser?.userId}`);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Redis operation timeout')), 5000);
+        });
+        
+        const cachedUser = await Promise.race([cachePromise, timeoutPromise]) as IUserDocument | null;
+        if (cachedUser && Object.keys(cachedUser).length > 0) {
+          existingUser = cachedUser;
+          log.info('User retrieved from cache', { userId: req.currentUser?.userId });
+        }
+      } catch (cacheError) {
+        log.warn('Failed to get user from cache, falling back to database', {
+          error: cacheError instanceof Error ? cacheError.message : 'Unknown error',
+          userId: req.currentUser?.userId
+        });
+        // Continue to database fallback
+      }
+      
+      // If not in cache or cache failed, get from database
+      if (!existingUser || Object.keys(existingUser).length === 0) {
+        try {
+          existingUser = await userService.getUserById(`${req.currentUser?.userId}`);
+          if (existingUser && Object.keys(existingUser).length > 0) {
+            log.info('User retrieved from database', { userId: req.currentUser?.userId });
+          } else {
+            log.warn('User not found in database', { userId: req.currentUser?.userId });
+            res.status(HTTP_STATUS.NOT_FOUND).json({
+              message: 'User not found',
+              status: 'error',
+              statusCode: HTTP_STATUS.NOT_FOUND
+            });
+            return;
+          }
+        } catch (dbError) {
+          log.error('Failed to get user from database', {
+            error: dbError instanceof Error ? dbError.message : 'Unknown error',
+            userId: req.currentUser?.userId
+          });
+          res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+            message: 'Error fetching current user',
+            status: 'error',
+            statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+          });
+          return;
+        }
+      }
+      
+      // At this point, existingUser should be valid
+      if (existingUser && Object.keys(existingUser).length > 0) {
+        isUser = true;
+        token = req.session?.jwt;
+        user = existingUser;
+      } else {
+        log.warn('User data is empty', { userId: req.currentUser?.userId });
+        res.status(HTTP_STATUS.NOT_FOUND).json({
+          message: 'User not found',
+          status: 'error',
+          statusCode: HTTP_STATUS.NOT_FOUND
+        });
+        return;
+      }
+      
+      res.status(HTTP_STATUS.OK).json({ token, isUser, user });
+    } catch (error) {
+      log.error('Unexpected error in currentUser endpoint', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userId: req.currentUser?.userId
+      });
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: 'Error fetching current user',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    }
   }
 }
