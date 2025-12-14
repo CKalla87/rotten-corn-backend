@@ -170,10 +170,14 @@ export class OAuthController {
       // Authenticate with the provider
       // Note: passport.authenticate will redirect to the OAuth provider
       // The callbackURL is set in the Passport strategy configuration (passport.config.ts)
-      // This is a GET request that should redirect, not return JSON
+      // CRITICAL: The callbackURL in the strategy config is what Google will redirect to
+      // This must ALWAYS be the backend API URL, never the frontend URL
+      log.warn(`About to call passport.authenticate('${provider}') - callback URL should be: ${expectedCallbackUrl}`);
       passport.authenticate(provider, {
         scope: provider === 'google' ? ['profile', 'email'] : provider === 'github' ? ['user:email'] : ['email'],
         state
+        // Note: We cannot override callbackURL here - it's set in the strategy config
+        // If Google redirects to the wrong URL, check the strategy configuration in passport.config.ts
       })(req, res, next);
     } catch (error) {
       log.error('Error in OAuth initiate:', error);
