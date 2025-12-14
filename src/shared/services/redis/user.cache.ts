@@ -92,6 +92,13 @@ export class UserCache extends BaseCache {
       }
 
       const response: IUserDocument = (await this.client.HGETALL(`users:${userId}`)) as unknown as IUserDocument;
+
+      // Fast check: if no _id field, cache miss - return null immediately
+      if (!response || !response._id || Object.keys(response).length < 3) {
+        return null;
+      }
+
+      // Parse JSON fields efficiently
       response.createdAt = new Date(Helpers.parseJson(`${response.createdAt}`));
       response.postsCount = Helpers.parseJson(`${response.postsCount}`);
       // Ensure blocked and blockedBy are always arrays
@@ -115,7 +122,8 @@ export class UserCache extends BaseCache {
       return response;
     } catch (error) {
       log.error(error);
-      throw new ServerError('Server error. Try again.');
+      // Return null instead of throwing to allow fast fallback to database
+      return null;
     }
   }
 

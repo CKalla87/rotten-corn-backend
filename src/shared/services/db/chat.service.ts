@@ -24,6 +24,7 @@ class ChatService {
   }
 
   public async getUserConversationList(userId: mongoose.Types.ObjectId): Promise<IMessageData[]> {
+    // Add limit to prevent slow queries with many messages
     const messages: IMessageData[] = await MessageModel.aggregate([
       {
         $match: {
@@ -58,8 +59,9 @@ class ChatService {
           deleteForEveryone: '$result.deleteForEveryone'
         }
       },
-      { $sort: { createdAt: -1 } }
-    ]);
+      { $sort: { createdAt: -1 } },
+      { $limit: 100 } // Limit to prevent slow queries
+    ]).allowDiskUse(true); // Allow disk use for large aggregations
 
     return messages;
   }

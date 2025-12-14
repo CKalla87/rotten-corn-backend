@@ -26,7 +26,7 @@ const getCallbackURL = (provider: string): string => {
   const isTrulyLocal = config.NODE_ENV === 'development' &&
                       !config.EC2_URL &&
                       !config.CLIENT_URL?.includes('chatappserver.space');
-  
+
   if (isTrulyLocal) {
     const url = `http://localhost:5000/api/v1/auth/${provider}/callback`;
     log.info(`${provider} OAuth callback URL (local development): ${url}`);
@@ -68,6 +68,7 @@ const getGoogleCallbackURL = (): string => {
 };
 
 const googleCallbackURL = getGoogleCallbackURL();
+log.info('Google OAuth Strategy configured with callback URL:', { callbackURL: googleCallbackURL });
 // Only register Google OAuth if credentials are provided
 if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
   passport.use(
@@ -160,8 +161,10 @@ if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
             }
           } as unknown as IUserDocument;
 
-          // Save to cache
-          await userCache.saveUserToCache(`${userObjectId}`, uId, userData);
+          // Save to cache (non-blocking - don't wait if Redis is slow)
+          userCache.saveUserToCache(`${userObjectId}`, uId, userData).catch(err => {
+            log.warn('Failed to save user to cache during Google OAuth:', err);
+          });
 
           // Queue database writes
           const userResult = omit(userData, ['uId', 'username', 'email', 'avatarColor', 'password']);
@@ -276,8 +279,10 @@ if (config.GITHUB_CLIENT_ID && config.GITHUB_CLIENT_SECRET) {
             }
           } as unknown as IUserDocument;
 
-          // Save to cache
-          await userCache.saveUserToCache(`${userObjectId}`, uId, userData);
+          // Save to cache (non-blocking - don't wait if Redis is slow)
+          userCache.saveUserToCache(`${userObjectId}`, uId, userData).catch(err => {
+            log.warn('Failed to save user to cache during GitHub OAuth:', err);
+          });
 
           // Queue database writes
           const userResult = omit(userData, ['uId', 'username', 'email', 'avatarColor', 'password']);
@@ -395,8 +400,10 @@ if (config.FACEBOOK_APP_ID && config.FACEBOOK_APP_SECRET) {
             }
           } as unknown as IUserDocument;
 
-          // Save to cache
-          await userCache.saveUserToCache(`${userObjectId}`, uId, userData);
+          // Save to cache (non-blocking - don't wait if Redis is slow)
+          userCache.saveUserToCache(`${userObjectId}`, uId, userData).catch(err => {
+            log.warn('Failed to save user to cache during Facebook OAuth:', err);
+          });
 
           // Queue database writes
           const userResult = omit(userData, ['uId', 'username', 'email', 'avatarColor', 'password']);

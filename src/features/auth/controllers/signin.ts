@@ -9,12 +9,26 @@ import { BadRequestError } from '@global/helpers/error-handler';
 import { loginSchema } from '@auth/schemes/signin';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { userService } from '@service/db/user.service';
+import Logger from 'bunyan';
+
+const log: Logger = config.createLogger('signin');
 
 export class SignIn {
   @joiValidation(loginSchema)
   public async read(req: Request, res: Response): Promise<void> {
     const { username, password } = req.body;
-    const existingUser: IAuthDocument = await authService.getAuthUserByUsername(username);
+
+    let existingUser: IAuthDocument;
+    try {
+      existingUser = await authService.getAuthUserByUsername(username);
+    } catch (error) {
+      log.error('Database error during signin:', error);
+      if (error instanceof Error && error.message.includes('Database not connected')) {
+        throw new BadRequestError('Database connection error. Please try again in a moment.');
+      }
+      throw new BadRequestError('An error occurred during signin. Please try again.');
+    }
+
     if (!existingUser) {
       throw new BadRequestError('Invalid credentials');
     }
@@ -41,7 +55,20 @@ export class SignIn {
       config.JWT_TOKEN!
     );
 
+    // Set session cookie
     req.session = { jwt: userJwt };
+
+    // Log session setting for debugging
+    log.info('Session set for user login', {
+      username: existingUser.username,
+      userId: user._id,
+      hasSession: !!req.session,
+      hasJwt: !!req.session?.jwt,
+      origin: req.get('origin'),
+      host: req.get('host'),
+      protocol: req.protocol
+    });
+
     const userDocument: IUserDocument = {
       ...user,
       authId: existingUser!._id,

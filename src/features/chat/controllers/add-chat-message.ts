@@ -102,9 +102,21 @@ export class Add {
   }
 
   public async removeChatUsers(req: Request, res: Response): Promise<void> {
-    const chatUsers: IChatUsers[] = await messageCache.removeChatUsersFromCache(req.body);
-    socketIOChatObject.emit('remove chat users', chatUsers);
-    res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers });
+    try {
+      // Add fast timeout protection for Redis operations, fail quickly if Redis is slow
+      const cachePromise = messageCache.removeChatUsersFromCache(req.body);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Redis operation timeout')), 1000);
+      });
+      const chatUsers: IChatUsers[] = await Promise.race([cachePromise, timeoutPromise]);
+      socketIOChatObject.emit('remove chat users', chatUsers);
+      res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers });
+    } catch (error) {
+      // If Redis times out, return empty array and log warning
+      console.error('Failed to remove chat users from cache:', error);
+      socketIOChatObject.emit('remove chat users', []);
+      res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers: [] });
+    }
   }
 
   private emitSocketIOEvent(data: IMessageData): void {

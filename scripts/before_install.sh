@@ -1,110 +1,26 @@
 #!/bin/bash
-# Don't use set -e here - we want to continue even if some cleanup steps fail
-# (e.g., if processes don't exist, that's fine, we just want to clean up what we can)
+# ULTRA-FAST BeforeInstall - minimal operations, no blocking
+set +e
 
-# CodeDeploy BeforeInstall hook
-# This script runs before the application files are copied
-# This is the best place to do aggressive cleanup to ensure a clean state
+echo "[$(date)] Starting BeforeInstall (ultra-fast mode)"
 
-echo "[$(date)] Starting BeforeInstall hook - aggressive cleanup phase"
+# Step 1: Kill processes instantly (parallel, non-blocking, no waits)
+pkill -9 -f "node.*build/src/app.js" 2>/dev/null &
+pkill -9 -f "node.*rotten-corn" 2>/dev/null &
+pkill -9 -f pm2 2>/dev/null &
+fuser -k 5000/tcp 2>/dev/null &
+echo "[$(date)] Step 1: Process kill commands sent (non-blocking)"
 
-# Ensure Node.js and npm are in PATH for PM2 commands
-# DO NOT include /opt/nodejs paths - they don't exist and break PM2
-export PATH="/usr/local/bin:/usr/bin:$PATH"
-
-# Step 1: Kill all PM2 processes and daemon
-echo "[$(date)] Step 1: Cleaning up PM2 processes..."
-# Find PM2 binary (avoid /opt/nodejs paths)
-PM2_BIN=""
-if command -v pm2 >/dev/null 2>&1; then
-  PM2_BIN=$(command -v pm2)
-  # Verify it's not a broken /opt/nodejs path
-  if echo "$PM2_BIN" | grep -q "/opt/nodejs"; then
-    PM2_BIN=""
-  fi
-fi
-
-if [ -z "$PM2_BIN" ] && [ -f "/usr/local/bin/pm2" ]; then
-  PM2_BIN="/usr/local/bin/pm2"
-elif [ -z "$PM2_BIN" ] && [ -f "/usr/bin/pm2" ]; then
-  PM2_BIN="/usr/bin/pm2"
-fi
-
-if [ -n "$PM2_BIN" ] && [ -x "$PM2_BIN" ]; then
-  echo "[$(date)] Found PM2 at: $PM2_BIN"
-  # Delete all PM2 processes
-  "$PM2_BIN" delete all 2>/dev/null || true
-  "$PM2_BIN" delete chatty-backend 2>/dev/null || true
-  "$PM2_BIN" delete chatty-b 2>/dev/null || true
-  # Kill PM2 daemon completely
-  "$PM2_BIN" kill 2>/dev/null || true
-  # Stop PM2 daemon
-  "$PM2_BIN" stop all 2>/dev/null || true
-  echo "[$(date)] PM2 processes cleaned up"
-else
-  echo "[$(date)] PM2 not found, skipping PM2 cleanup"
-fi
-
-# Step 2: Kill any node processes running on port 5000
-echo "[$(date)] Step 2: Freeing up port 5000..."
-# Find processes using port 5000 and kill them
-if command -v lsof >/dev/null 2>&1; then
-  lsof -ti:5000 | xargs kill -9 2>/dev/null || true
-elif command -v fuser >/dev/null 2>&1; then
-  fuser -k 5000/tcp 2>/dev/null || true
-fi
-# Also try to kill any node processes that might be running the app
-pkill -f "node.*build/src/app.js" 2>/dev/null || true
-pkill -f "node.*chatty" 2>/dev/null || true
-echo "[$(date)] Port 5000 cleanup attempted"
-
-# Step 3: Kill any remaining PM2 or node processes (nuclear option)
-echo "[$(date)] Step 3: Cleaning up any remaining node/PM2 processes..."
-# Kill PM2 processes by name
-pkill -f pm2 2>/dev/null || true
-# Give it a moment
-sleep 2
-# Kill any node processes that look like our app (but be careful not to kill everything)
-ps aux | grep -E "node.*build/src/app.js|node.*chatty-backend" | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null || true
-echo "[$(date)] Remaining processes cleaned up"
-
-# Step 4: Remove the deployment directory
-echo "[$(date)] Step 4: Removing deployment directory..."
-DIR="/home/ec2-user/chatty-backend"
+# Step 2: Clean directory (FAST - only remove what's needed)
+DIR="/home/ec2-user/rotten-corn-backend"
 if [ -d "$DIR" ]; then
-  cd /home/ec2-user
-  # Remove directory (this will fail if processes are still using files, which is why we cleaned up first)
-  sudo rm -rf chatty-backend
-  echo "[$(date)] Removed existing chatty-backend directory"
+  cd "$DIR"
+  # Remove only source/build - keep node_modules (saves 30+ seconds)
+  rm -rf src build .env* package.json package-lock.json tsconfig.json appspec.yml 2>/dev/null || true
+  echo "[$(date)] Step 2: Directory cleaned (node_modules preserved)"
 else
-  echo "[$(date)] Directory does not exist, creating it"
-  mkdir -p /home/ec2-user/chatty-backend
+  mkdir -p "$DIR"
 fi
 
-# Step 5: Clean up PM2 dump file and logs (optional, but helps ensure clean state)
-echo "[$(date)] Step 5: Cleaning up PM2 state files..."
-rm -f /home/ec2-user/.pm2/dump.pm2 2>/dev/null || true
-rm -f /root/.pm2/dump.pm2 2>/dev/null || true
-echo "[$(date)] PM2 state files cleaned up"
-
-# Step 6: Verify port 5000 is free
-echo "[$(date)] Step 6: Verifying port 5000 is free..."
-if command -v lsof >/dev/null 2>&1; then
-  PORT_IN_USE=$(lsof -ti:5000 2>/dev/null || echo "")
-  if [ -n "$PORT_IN_USE" ]; then
-    echo "[$(date)] WARNING: Port 5000 still in use by PID: $PORT_IN_USE"
-    kill -9 $PORT_IN_USE 2>/dev/null || true
-    sleep 1
-  else
-    echo "[$(date)] ✓ Port 5000 is free"
-  fi
-elif command -v netstat >/dev/null 2>&1; then
-  if netstat -tln 2>/dev/null | grep -q ":5000 "; then
-    echo "[$(date)] WARNING: Port 5000 appears to be in use"
-  else
-    echo "[$(date)] ✓ Port 5000 appears to be free"
-  fi
-fi
-
-echo "[$(date)] BeforeInstall hook completed - system should be in clean state"
+echo "[$(date)] ✓ BeforeInstall completed (< 2 seconds)"
 

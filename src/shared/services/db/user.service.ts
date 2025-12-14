@@ -15,8 +15,9 @@ class UserService {
       { $match: { _id: new mongoose.Types.ObjectId(userId) } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
-      { $project: this.aggregateProject() }
-    ]);
+      { $project: this.aggregateProject() },
+      { $limit: 1 } // Ensure we only get one result
+    ]).allowDiskUse(true); // Allow disk use for better performance with large datasets
     const user = users[0];
     if (user) {
       // Normalize profile picture - replace broken URLs with initials avatar
@@ -30,8 +31,9 @@ class UserService {
       { $match: { authId: new mongoose.Types.ObjectId(authId) } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
-      { $project: this.aggregateProject() }
-    ]);
+      { $project: this.aggregateProject() },
+      { $limit: 1 } // Ensure we only get one result
+    ]).allowDiskUse(true); // Allow disk use for better performance
     const user = users[0];
     if (user) {
       // Normalize profile picture - replace broken URLs with initials avatar
@@ -41,15 +43,17 @@ class UserService {
   }
 
   public async getAllUsers(userId: string, skip: number, limit: number): Promise<IUserDocument[]> {
+    // Ensure limit is reasonable (max 100)
+    const safeLimit = Math.min(limit, 100);
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
       { $skip: skip },
-      { $limit: limit },
+      { $limit: safeLimit },
       { $sort: { createdAt: -1 } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
-    ]);
+    ]).allowDiskUse(true); // Allow disk use for better performance
     // Normalize profile pictures for all users
     return users.map((user) => {
       user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
@@ -79,7 +83,7 @@ class UserService {
           __v: 0
         }
       }
-    ]);
+    ]).allowDiskUse(true); // Allow disk use for better performance with $sample
     const followers: string[] = await followerService.getFolloweesIds(`${userId}`);
     for (const user of users) {
       const followerIndex = followers.indexOf(user._id.toString());

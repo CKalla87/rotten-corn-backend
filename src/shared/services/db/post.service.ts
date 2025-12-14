@@ -20,7 +20,14 @@ class PostService {
     } else {
       postQuery = query;
     }
-    const posts: IPostDocument[] = await PostModel.aggregate([{ $match: postQuery }, { $sort: sort }, { $skip: skip }, { $limit: limit }]);
+    // Ensure limit is set (max 100 to prevent slow queries)
+    const safeLimit = limit > 0 ? Math.min(limit, 100) : 10;
+    const posts: IPostDocument[] = await PostModel.aggregate([
+      { $match: postQuery },
+      { $sort: sort },
+      { $skip: skip },
+      { $limit: safeLimit }
+    ]).allowDiskUse(true); // Allow disk use for large aggregations
     return posts;
   }
 

@@ -38,56 +38,31 @@ export class CurrentUser {
         return;
       }
 
-      // Try to get user from cache with timeout, fallback to database
-      let existingUser: IUserDocument | null = null;
-
+      // Skip cache - go directly to database for instant response
+      let existingUser: IUserDocument;
       try {
-        // Add timeout to Redis operation (5 seconds)
-        const cachePromise = userCache.getUserFromCache(`${req.currentUser?.userId}`);
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Redis operation timeout')), 5000);
-        });
-
-        const cachedUser = await Promise.race([cachePromise, timeoutPromise]) as IUserDocument | null;
-        if (cachedUser && Object.keys(cachedUser).length > 0) {
-          existingUser = cachedUser;
-          log.info('User retrieved from cache', { userId: req.currentUser?.userId });
-        }
-      } catch (cacheError) {
-        log.warn('Failed to get user from cache, falling back to database', {
-          error: cacheError instanceof Error ? cacheError.message : 'Unknown error',
-          userId: req.currentUser?.userId
-        });
-        // Continue to database fallback
-      }
-
-      // If not in cache or cache failed, get from database
-      if (!existingUser || Object.keys(existingUser).length === 0) {
-        try {
-          existingUser = await userService.getUserById(`${req.currentUser?.userId}`);
-          if (existingUser && Object.keys(existingUser).length > 0) {
-            log.info('User retrieved from database', { userId: req.currentUser?.userId });
-          } else {
-            log.warn('User not found in database', { userId: req.currentUser?.userId });
-            res.status(HTTP_STATUS.NOT_FOUND).json({
-              message: 'User not found',
-              status: 'error',
-              statusCode: HTTP_STATUS.NOT_FOUND
-            });
-            return;
-          }
-        } catch (dbError) {
-          log.error('Failed to get user from database', {
-            error: dbError instanceof Error ? dbError.message : 'Unknown error',
-            userId: req.currentUser?.userId
-          });
-          res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-            message: 'Error fetching current user',
+        existingUser = await userService.getUserById(`${req.currentUser?.userId}`);
+        if (!existingUser || !existingUser._id) {
+          log.warn('User not found in database', { userId: req.currentUser?.userId });
+          res.status(HTTP_STATUS.NOT_FOUND).json({
+            message: 'User not found',
             status: 'error',
-            statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+            statusCode: HTTP_STATUS.NOT_FOUND
           });
           return;
         }
+        log.info('User retrieved from database', { userId: req.currentUser?.userId });
+      } catch (dbError) {
+        log.error('Failed to get user from database', {
+          error: dbError instanceof Error ? dbError.message : 'Unknown error',
+          userId: req.currentUser?.userId
+        });
+        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+          message: 'Error fetching current user',
+          status: 'error',
+          statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+        });
+        return;
       }
 
       // At this point, existingUser should be valid

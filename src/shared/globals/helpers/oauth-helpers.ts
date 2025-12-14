@@ -77,3 +77,4 @@ export function generateAvatarImage(name: string, avatarColor: string): string {
   const initials = Helpers.generateUserInitials(name);
   return Helpers.generateInitialsAvatar(initials, avatarColor);
 }
+

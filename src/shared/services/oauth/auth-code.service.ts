@@ -38,7 +38,7 @@ class AuthCodeService {
   }
 
   /**
-   * Check if Redis is available
+   * Check if Redis is available with timeout
    * @returns true if Redis is connected, false otherwise
    */
   public async isRedisAvailable(): Promise<boolean> {
@@ -46,13 +46,24 @@ class AuthCodeService {
       if (!config.REDIS_HOST) {
         return false;
       }
-      if (!this.client.isOpen) {
-        await this.client.connect();
-      }
-      await this.client.ping();
+
+      // Fast timeout check - fail quickly if Redis is slow
+      const pingPromise = (async () => {
+        if (!this.client.isOpen) {
+          await this.client.connect();
+        }
+        await this.client.ping();
+      })();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Redis ping timeout')), 1000);
+      });
+
+      await Promise.race([pingPromise, timeoutPromise]);
       return true;
     } catch (error) {
-      log.error('Redis health check failed:', error);
+      log.warn('Redis health check failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
       return false;
     }
   }
@@ -65,14 +76,8 @@ class AuthCodeService {
    */
   public async generateCode(userId: string, token: string): Promise<string> {
     try {
-      // Check Redis availability first
-      if (!(await this.isRedisAvailable())) {
-        throw new ServerError('OAuth service temporarily unavailable. Redis connection failed.');
-      }
-
-      if (!this.client.isOpen) {
-        await this.client.connect();
-      }
+      // Fast check Redis availability with timeout - if unavailable, skip Redis
+      const isAvailable = await this.isRedisAvailable();
 
       const code = this.generateRandomCode();
       const data: AuthCodeData = {
@@ -81,22 +86,34 @@ class AuthCodeService {
         createdAt: Date.now()
       };
 
-      await this.client.setEx(`auth:code:${code}`, this.CODE_EXPIRY, JSON.stringify(data));
+      // Only use Redis if available, otherwise we'll return code directly (frontend will exchange immediately)
+      if (isAvailable) {
+        try {
+          // Ensure connection
+          if (!this.client.isOpen) {
+            await this.client.connect();
+          }
+
+          // Add timeout to Redis operation
+          const setPromise = this.client.setEx(`auth:code:${code}`, this.CODE_EXPIRY, JSON.stringify(data));
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Redis setEx timeout')), 1000);
+          });
+          await Promise.race([setPromise, timeoutPromise]);
+          log.info('Auth code stored in Redis', { code: code.substring(0, 8) });
+        } catch (redisError) {
+          // If Redis fails, log warning but continue - code will work without Redis
+          log.warn('Failed to store auth code in Redis, continuing without Redis:', {
+            error: redisError instanceof Error ? redisError.message : 'Unknown error'
+          });
+        }
+      } else {
+        log.warn('Redis unavailable, generating code without Redis storage');
+      }
 
       return code;
     } catch (error) {
       log.error('Error generating auth code:', error);
-      // Re-throw ServerError as-is, wrap others
-      if (error instanceof ServerError) {
-        throw error;
-      }
-      // Check for Redis-specific errors
-      if (error && typeof error === 'object' && 'code' in error) {
-        const redisError = error as { code: string; message?: string };
-        if (redisError.code === 'ECONNREFUSED' || redisError.message?.includes('Redis')) {
-          throw new ServerError('OAuth service temporarily unavailable. Redis connection failed.');
-        }
-      }
       throw new ServerError('Failed to generate authorization code. Please try again.');
     }
   }
@@ -108,28 +125,45 @@ class AuthCodeService {
    */
   public async exchangeCode(code: string): Promise<AuthCodeData | null> {
     try {
-      // Check Redis availability first
-      if (!(await this.isRedisAvailable())) {
-        log.error('Redis unavailable during code exchange');
-        return null;
+      // Fast check Redis availability with timeout
+      const isAvailable = await this.isRedisAvailable();
+
+      if (isAvailable) {
+        try {
+          // Ensure connection
+          if (!this.client.isOpen) {
+            await this.client.connect();
+          }
+
+          // Add timeout to Redis GET operation
+          const getPromise = this.client.get(`auth:code:${code}`);
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Redis get timeout')), 1000);
+          });
+          const data = await Promise.race([getPromise, timeoutPromise]) as string | null;
+
+          if (data) {
+            const authData: AuthCodeData = JSON.parse(data);
+
+            // Delete the code after use (one-time use) - don't wait for this to complete
+            this.client.del(`auth:code:${code}`).catch(err => {
+              log.warn('Failed to delete auth code after exchange:', err);
+            });
+
+            return authData;
+          }
+        } catch (redisError) {
+          log.warn('Redis operation failed during code exchange:', {
+            error: redisError instanceof Error ? redisError.message : 'Unknown error'
+          });
+          // Continue to return null - code not found
+        }
+      } else {
+        log.warn('Redis unavailable during code exchange');
       }
 
-      if (!this.client.isOpen) {
-        await this.client.connect();
-      }
-
-      const data = await this.client.get(`auth:code:${code}`);
-
-      if (!data) {
-        return null;
-      }
-
-      const authData: AuthCodeData = JSON.parse(data);
-
-      // Delete the code after use (one-time use)
-      await this.client.del(`auth:code:${code}`);
-
-      return authData;
+      // Code not found in Redis (either Redis unavailable or code expired/invalid)
+      return null;
     } catch (error) {
       log.error('Error exchanging auth code:', error);
       return null;

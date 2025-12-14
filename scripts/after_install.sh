@@ -10,7 +10,7 @@ set -e
 # Exit code 244 might be from CodeDeploy timeout, so we log it
 trap 'EXIT_CODE=$?; echo "[$(date)] Script received signal or exited with code: $EXIT_CODE"; if [ $EXIT_CODE -eq 244 ] || [ $EXIT_CODE -eq 124 ]; then echo "[$(date)] WARNING: This might be a timeout issue"; fi; exit $EXIT_CODE' EXIT INT TERM
 
-DEPLOYMENT_DIR="/home/ec2-user/chatty-backend"
+DEPLOYMENT_DIR="/home/ec2-user/rotten-corn-backend"
 mkdir -p "$DEPLOYMENT_DIR"
 
 echo "[$(date)] Using deployment directory $DEPLOYMENT_DIR"
@@ -28,6 +28,34 @@ echo "[$(date)] Directory should be: $DEPLOYMENT_DIR"
 if [ "$(pwd)" != "$DEPLOYMENT_DIR" ]; then
   echo "[$(date)] ERROR: Not in expected directory!"
   exit 1
+fi
+
+# Fix: Verify critical source files were extracted correctly
+# CodeDeploy sometimes extracts files as 0 bytes - restore from archive if needed
+echo "[$(date)] Verifying source files were extracted correctly..."
+DEPLOYMENT_ARCHIVE="/opt/codedeploy-agent/deployment-root/*/d-*/deployment-archive"
+ARCHIVE_PATH=$(find /opt/codedeploy-agent/deployment-root -type d -name "deployment-archive" -path "*/d-*" 2>/dev/null | sort -t'/' -k10 | tail -1)
+
+if [ -n "$ARCHIVE_PATH" ] && [ -d "$ARCHIVE_PATH" ]; then
+  echo "[$(date)] Found deployment archive: $ARCHIVE_PATH"
+
+  # Check and fix critical source files if they're 0 bytes or missing
+  CRITICAL_FILES=("src/setupDatabase.ts" "src/app.ts" "package.json")
+  for file in "${CRITICAL_FILES[@]}"; do
+    if [ ! -f "$file" ] || [ ! -s "$file" ]; then
+      echo "[$(date)] WARNING: $file is missing or 0 bytes, restoring from archive..."
+      if [ -f "$ARCHIVE_PATH/$file" ] && [ -s "$ARCHIVE_PATH/$file" ]; then
+        cp "$ARCHIVE_PATH/$file" "$file"
+        echo "[$(date)] ✓ Restored $file from archive ($(wc -c < "$file") bytes)"
+      else
+        echo "[$(date)] ERROR: $file not found in archive either!"
+      fi
+    else
+      echo "[$(date)] ✓ $file is valid ($(wc -c < "$file") bytes)"
+    fi
+  done
+else
+  echo "[$(date)] WARNING: Could not find deployment archive to verify files"
 fi
 
 # Clean up old environment files

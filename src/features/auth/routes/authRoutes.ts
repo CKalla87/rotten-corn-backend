@@ -151,6 +151,12 @@ class AuthRoutes {
       });
     });
 
+    // Handle OPTIONS preflight for OAuth callback endpoints
+    this.router.options('/:provider/callback', (req: Request, res: Response) => {
+      this.setCorsHeaders(req, res);
+      res.status(200).end();
+    });
+
     // OAuth routes - register AFTER specific routes to avoid route conflicts
     // Note: No /auth prefix here since router is mounted at /api/v1/auth
     this.router.get('/:provider', this.oauthController.initiate.bind(this.oauthController));
@@ -165,7 +171,7 @@ class AuthRoutes {
         const isTrulyLocal = config.NODE_ENV === 'development' &&
                             !config.EC2_URL &&
                             !config.CLIENT_URL?.includes('chatappserver.space');
-        
+
         if (isTrulyLocal) {
           return `http://localhost:5000/api/v1/auth/${provider}/callback`;
         }
@@ -184,8 +190,8 @@ class AuthRoutes {
           }
         }
 
-        // Final fallback - use the dev domain
-        return `https://dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+        // Final fallback - use the dev API domain (NOT frontend)
+        return `https://api.dev.chatappserver.space/api/v1/auth/${provider}/callback`;
       };
 
       const health = {
