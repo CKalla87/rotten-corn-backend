@@ -7,27 +7,25 @@ import { Query, UpdateQuery } from 'mongoose';
 class PostService {
   public async addPostToDB(userId: string, createdPost: IPostDocument): Promise<void> {
     const post: Promise<IPostDocument> = PostModel.create(createdPost);
-    const user: UpdateQuery<IUserDocument> = UserModel.updateOne({ _id: userId }, { $inc: { postCount: 1 } });
+    const user: UpdateQuery<IUserDocument> = UserModel.updateOne({ _id: userId }, { $inc: { postCount: 1 }});
     await Promise.all([post, user]);
   }
 
   public async getPosts(query: IGetPostsQuery, skip = 0, limit = 0, sort: Record<string, 1 | -1>): Promise<IPostDocument[]> {
     let postQuery = {};
     if (query?.imgId && query?.gifUrl) {
-      postQuery = { $or: [{ imgId: { $ne: '' } }, { gifUrl: { $ne: '' } }] };
+      postQuery = { $or: [{ imgId: { $ne: ''} }, { gifUrl: { $ne: '' }}] };
     } else if (query?.videoId) {
-      postQuery = { $or: [{ videoId: { $ne: '' } }] };
+      postQuery = { $or: [{ videoId: { $ne: ''} }] };
     } else {
       postQuery = query;
     }
-    // Ensure limit is set (max 100 to prevent slow queries)
-    const safeLimit = limit > 0 ? Math.min(limit, 100) : 10;
     const posts: IPostDocument[] = await PostModel.aggregate([
       { $match: postQuery },
       { $sort: sort },
       { $skip: skip },
-      { $limit: safeLimit }
-    ]).allowDiskUse(true); // Allow disk use for large aggregations
+      { $limit: limit }
+    ]);
     return posts;
   }
 
@@ -39,7 +37,7 @@ class PostService {
   public async deletePost(postId: string, userId: string): Promise<void> {
     const deletePost: Query<IQueryComplete & IQueryDeleted, IPostDocument> = PostModel.deleteOne({ _id: postId });
     // delete reactions here
-    const decrementPostCount: UpdateQuery<IUserDocument> = UserModel.updateOne({ _id: userId }, { $inc: { postsCount: -1 } });
+    const decrementPostCount: UpdateQuery<IUserDocument> = UserModel.updateOne({ _id: userId }, { $inc: { postsCount: -1 }});
     await Promise.all([deletePost, decrementPostCount]);
   }
 

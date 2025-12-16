@@ -18,7 +18,7 @@ const notificationSchema: Schema = new Schema({
   createdAt: { type: Date, default: Date.now() }
 });
 
-notificationSchema.methods.insertNotification = async function (body: INotification): Promise<INotificationDocument[]> {
+notificationSchema.methods.insertNotification = async function(body: INotification): Promise<INotificationDocument[]> {
   const {
     userTo,
     userFrom,
@@ -60,6 +60,10 @@ notificationSchema.methods.insertNotification = async function (body: INotificat
   }
 };
 
-const NotificationModel: Model<INotificationDocument> = model<INotificationDocument>('Notification', notificationSchema, 'Notification');
+const NotificationModel: Model<INotificationDocument> = model<INotificationDocument>(
+  'Notification',
+  notificationSchema,
+  'Notification'
+);
 
 export { NotificationModel };

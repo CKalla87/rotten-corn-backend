@@ -23,7 +23,10 @@ export class Get {
   public async messages(req: Request, res: Response): Promise<void> {
     let messages: IMessageData[] = [];
     const { receiverId } = req.params;
-    const cachedMessages: IMessageData[] = await messageCache.getChatMessagesFromCache(`${req.currentUser!.userId}`, receiverId);
+    const cachedMessages: IMessageData[] = await messageCache.getChatMessagesFromCache(
+      `${req.currentUser!.userId}`,
+      receiverId
+    );
     if (cachedMessages.length) {
       messages = cachedMessages;
     } else {

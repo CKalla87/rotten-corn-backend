@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
 import { UploadApiResponse } from 'cloudinary';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
-import { uploads, getCloudinaryImageUrl } from '@global/helpers/cloudinary-upload';
+import { uploads } from '@global/helpers/cloudinary-upload';
 import { BadRequestError } from '@global/helpers/error-handler';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserCache } from '@service/redis/user.cache';
@@ -43,11 +43,16 @@ export class Add {
     const sender: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
 
     if (selectedImage && selectedImage.length) {
-      const result: UploadApiResponse = (await uploads(selectedImage, req.currentUser!.userId, true, true)) as UploadApiResponse;
+      const result: UploadApiResponse = (await uploads(
+        selectedImage,
+        req.currentUser!.userId,
+        true,
+        true
+      )) as UploadApiResponse;
       if (!result?.public_id) {
         throw new BadRequestError(result.message);
       }
-      fileUrl = getCloudinaryImageUrl(result.public_id, result.version);
+      fileUrl = `https://res.cloudinary.com/dynamr9ym3/image/upload/v${result.version}/${result.public_id}`;
     }
 
     const messageData: IMessageData = {
@@ -102,21 +107,9 @@ export class Add {
   }
 
   public async removeChatUsers(req: Request, res: Response): Promise<void> {
-    try {
-      // Add fast timeout protection for Redis operations, fail quickly if Redis is slow
-      const cachePromise = messageCache.removeChatUsersFromCache(req.body);
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Redis operation timeout')), 1000);
-      });
-      const chatUsers: IChatUsers[] = await Promise.race([cachePromise, timeoutPromise]);
-      socketIOChatObject.emit('remove chat users', chatUsers);
-      res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers });
-    } catch (error) {
-      // If Redis times out, return empty array and log warning
-      console.error('Failed to remove chat users from cache:', error);
-      socketIOChatObject.emit('remove chat users', []);
-      res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers: [] });
-    }
+    const chatUsers: IChatUsers[] = await messageCache.removeChatUsersFromCache(req.body);
+    socketIOChatObject.emit('remove chat users', chatUsers);
+    res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers });
   }
 
   private emitSocketIOEvent(data: IMessageData): void {

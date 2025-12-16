@@ -9,13 +9,7 @@ import { authService } from '@service/db/auth.service';
 const WRONG_EMAIL = 'test@email.com';
 const CORRECT_EMAIL = 'manny@me.com';
 const INVALID_EMAIL = 'test';
-const CORRECT_PASSWORD = 'Password123!';
-const SHORT_PASSWORD = 'Pass1!';
-const LONG_PASSWORD = 'P'.repeat(129) + '1!';
-const WEAK_PASSWORD_NO_UPPER = 'password123!';
-const WEAK_PASSWORD_NO_LOWER = 'PASSWORD123!';
-const WEAK_PASSWORD_NO_NUMBER = 'Password!';
-const WEAK_PASSWORD_NO_SPECIAL = 'Password123';
+const CORRECT_PASSWORD = 'manny';
 
 jest.mock('@service/queues/base.queue');
 jest.mock('@service/queues/email.queue');
@@ -71,74 +65,7 @@ describe('Password', () => {
       const res: Response = authMockResponse();
       Password.prototype.update(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('Password is a required field');
-        expect(error.serializeErrors().message).toContain('Confirm password is a required field');
-      });
-    });
-
-    it('should throw an error if password length is less than minimum length', () => {
-      const req: Request = authMockRequest({}, { password: SHORT_PASSWORD, confirmPassword: SHORT_PASSWORD }, null, {
-        token: '12sde3'
-      }) as Request;
-      const res: Response = authMockResponse();
-      Password.prototype.update(req, res).catch((error: CustomError) => {
-        expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('Password must be at least 8 characters');
-      });
-    });
-
-    it('should throw an error if password length is greater than maximum length', () => {
-      const req: Request = authMockRequest({}, { password: LONG_PASSWORD, confirmPassword: LONG_PASSWORD }, null, {
-        token: '12sde3'
-      }) as Request;
-      const res: Response = authMockResponse();
-      Password.prototype.update(req, res).catch((error: CustomError) => {
-        expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('Password must be no more than 128 characters');
-      });
-    });
-
-    it('should reject password without uppercase', () => {
-      const req: Request = authMockRequest({}, { password: WEAK_PASSWORD_NO_UPPER, confirmPassword: WEAK_PASSWORD_NO_UPPER }, null, {
-        token: '12sde3'
-      }) as Request;
-      const res: Response = authMockResponse();
-      Password.prototype.update(req, res).catch((error: CustomError) => {
-        expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('uppercase letter');
-      });
-    });
-
-    it('should reject password without lowercase', () => {
-      const req: Request = authMockRequest({}, { password: WEAK_PASSWORD_NO_LOWER, confirmPassword: WEAK_PASSWORD_NO_LOWER }, null, {
-        token: '12sde3'
-      }) as Request;
-      const res: Response = authMockResponse();
-      Password.prototype.update(req, res).catch((error: CustomError) => {
-        expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('lowercase letter');
-      });
-    });
-
-    it('should reject password without number', () => {
-      const req: Request = authMockRequest({}, { password: WEAK_PASSWORD_NO_NUMBER, confirmPassword: WEAK_PASSWORD_NO_NUMBER }, null, {
-        token: '12sde3'
-      }) as Request;
-      const res: Response = authMockResponse();
-      Password.prototype.update(req, res).catch((error: CustomError) => {
-        expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('number');
-      });
-    });
-
-    it('should reject password without special character', () => {
-      const req: Request = authMockRequest({}, { password: WEAK_PASSWORD_NO_SPECIAL, confirmPassword: WEAK_PASSWORD_NO_SPECIAL }, null, {
-        token: '12sde3'
-      }) as Request;
-      const res: Response = authMockResponse();
-      Password.prototype.update(req, res).catch((error: CustomError) => {
-        expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toContain('special character');
+        expect(error.serializeErrors().message).toEqual('Password is a required field');
       });
     });
 

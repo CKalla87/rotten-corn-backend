@@ -3,7 +3,6 @@ import { IUserDocument, ISearchUser, IBasicInfo, INotificationSettings, ISocialL
 import mongoose from 'mongoose';
 import { followerService } from '@service/db/follower.service';
 import { AuthModel } from '@auth/models/auth.schema';
-import { Helpers } from '@global/helpers/helpers';
 
 class UserService {
   public async addUserData(data: IUserDocument): Promise<void> {
@@ -12,53 +11,35 @@ class UserService {
 
   public async getUserById(userId: string): Promise<IUserDocument> {
     const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(userId) } },
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      { $project: this.aggregateProject() },
-      { $limit: 1 } // Ensure we only get one result
-    ]).allowDiskUse(true); // Allow disk use for better performance with large datasets
-    const user = users[0];
-    if (user) {
-      // Normalize profile picture - replace broken URLs with initials avatar
-      user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
-    }
-    return user;
+      { $match: { _id: new mongoose.Types.ObjectId(userId)}},
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
+      { $unwind: '$authId'},
+      { $project: this.aggregateProject()}
+    ]);
+    return users[0];
   }
 
   public async getUserByAuthId(authId: string): Promise<IUserDocument> {
     const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { authId: new mongoose.Types.ObjectId(authId) } },
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      { $project: this.aggregateProject() },
-      { $limit: 1 } // Ensure we only get one result
-    ]).allowDiskUse(true); // Allow disk use for better performance
-    const user = users[0];
-    if (user) {
-      // Normalize profile picture - replace broken URLs with initials avatar
-      user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
-    }
-    return user;
+      { $match: { authId: new mongoose.Types.ObjectId(authId)}},
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
+      { $unwind: '$authId'},
+      { $project: this.aggregateProject()}
+    ]);
+    return users[0];
   }
 
   public async getAllUsers(userId: string, skip: number, limit: number): Promise<IUserDocument[]> {
-    // Ensure limit is reasonable (max 100)
-    const safeLimit = Math.min(limit, 100);
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
       { $skip: skip },
-      { $limit: safeLimit },
+      { $limit: limit },
       { $sort: { createdAt: -1 } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
-    ]).allowDiskUse(true); // Allow disk use for better performance
-    // Normalize profile pictures for all users
-    return users.map((user) => {
-      user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
-      return user;
-    });
+    ]);
+    return users;
   }
 
   public async getRandomUsers(userId: string): Promise<IUserDocument[]> {
@@ -83,13 +64,11 @@ class UserService {
           __v: 0
         }
       }
-    ]).allowDiskUse(true); // Allow disk use for better performance with $sample
+    ]);
     const followers: string[] = await followerService.getFolloweesIds(`${userId}`);
     for (const user of users) {
       const followerIndex = followers.indexOf(user._id.toString());
       if (followerIndex < 0) {
-        // Normalize profile picture - replace broken URLs with initials avatar
-        user.profilePicture = Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor);
         randomUsers.push(user);
       }
     }
@@ -116,11 +95,7 @@ class UserService {
         }
       }
     ]);
-    // Normalize profile pictures for search results
-    return users.map((user) => ({
-      ...user,
-      profilePicture: Helpers.normalizeProfilePicture(user.profilePicture, user.username, user.avatarColor)
-    }));
+    return users;
   }
 
   public async updatePassword(username: string, hashedPassword: string): Promise<void> {

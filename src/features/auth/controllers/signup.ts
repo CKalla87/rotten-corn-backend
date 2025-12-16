@@ -10,13 +10,12 @@ import { Request, Response } from 'express';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
 import { signupSchema } from '@auth/schemes/signup';
 import { Helpers } from '@global/helpers/helpers';
-import { uploads, getCloudinaryImageUrl } from '@global/helpers/cloudinary-upload';
+import { uploads } from '@global/helpers/cloudinary-upload';
 import { omit } from 'lodash';
 import JWT from 'jsonwebtoken';
 import { authQueue } from '@service/queues/auth.queue';
 import { userQueue } from '@service/queues/user.queue';
 import { config } from '@root/config';
-import { generateAvatarColor } from '@global/helpers/oauth-helpers';
 
 const userCache: UserCache = new UserCache();
 
@@ -26,22 +25,8 @@ export class SignUp {
     const { username, email, password, avatarColor, avatarImage } = req.body;
     const checkIfUserExists: IAuthDocument = await authService.getUserByUsernameOrEmail(username, email);
     if (checkIfUserExists) {
-      const normalizedUsername = Helpers.normalizeUsername(username);
-      const normalizedEmail = Helpers.lowerCase(email);
-
-      // Check which field caused the conflict
-      if (checkIfUserExists.username?.toLowerCase() === normalizedUsername) {
-        throw new BadRequestError('Username is already taken');
-      }
-      if (checkIfUserExists.email?.toLowerCase() === normalizedEmail) {
-        throw new BadRequestError('Email is already registered');
-      }
-      // Fallback (shouldn't happen, but just in case)
-      throw new BadRequestError('Username or email is already taken');
+      throw new BadRequestError('Invalid credentials');
     }
-
-    // Generate color if not provided
-    const finalAvatarColor = avatarColor || generateAvatarColor();
 
     const authObjectId: ObjectId = new ObjectId();
     const userObjectId: ObjectId = new ObjectId();
@@ -52,17 +37,17 @@ export class SignUp {
       username,
       email,
       password,
-      avatarColor: finalAvatarColor
+      avatarColor
     });
 
-    const result: UploadApiResponse = (await uploads(avatarImage, `${userObjectId}`, true, true)) as UploadApiResponse;
+    const result: UploadApiResponse = await uploads(avatarImage, `${userObjectId}`, true, true) as UploadApiResponse;
     if (!result?.public_id) {
       throw new BadRequestError('File upload: Eerror occured. Try again.');
     }
 
     // Add to redis cache
     const userDataForCache: IUserDocument = SignUp.prototype.userData(authData, userObjectId);
-    userDataForCache.profilePicture = getCloudinaryImageUrl(result.public_id, result.version);
+    userDataForCache.profilePicture = `https://res/cloudingary.com/dajmo61zu/image/upload/v${result.version}/${userObjectId}`;
     await userCache.saveUserToCache(`${userObjectId}`, uId, userDataForCache);
 
     // Add to database
@@ -71,34 +56,7 @@ export class SignUp {
     userQueue.addUserJob('addUserToDB', { value: userResult });
 
     const userJwt: string = SignUp.prototype.signToken(authData, userObjectId);
-    
-    // Set session - DO NOT replace req.session, only modify it
-    // cookie-session uses a Proxy to detect changes, so we must modify the existing object
-    if (!req.session) {
-      (req as any).session = {};
-    }
-    (req.session as any).jwt = userJwt;
-    
-    // ALSO set a regular cookie with the JWT as a fallback
-    // Deployed environments are: 'develop', 'staging', 'production'
-    // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
-    const isLocalDev = config.NODE_ENV === 'development' &&
-                       !config.EC2_URL &&
-                       !config.CLIENT_URL?.includes('chatappserver.space');
-    
-    const cookieOptions: any = {
-      maxAge: 24 * 7 * 3600000,
-      httpOnly: true,
-      secure: !isLocalDev,
-      sameSite: isLocalDev ? 'lax' : 'none',
-      path: '/'
-    };
-    
-    if (!isLocalDev) {
-      cookieOptions.domain = '.chatappserver.space';
-    }
-    
-    res.cookie('jwt', userJwt, cookieOptions);
+    req.session = { jwt: userJwt };
 
     res.status(HTTP_STATUS.CREATED).json({ message: 'User created successfully', user: userDataForCache, token: userJwt });
   }
@@ -121,7 +79,7 @@ export class SignUp {
     return {
       _id,
       uId,
-      username: Helpers.normalizeUsername(username),
+      username: Helpers.firstLetterUppercase(username),
       email: Helpers.lowerCase(email),
       password,
       avatarColor,
@@ -135,7 +93,7 @@ export class SignUp {
       _id: userObjectId,
       authId: _id,
       uId,
-      username: Helpers.normalizeUsername(username),
+      username: Helpers.firstLetterUppercase(username),
       email,
       password,
       avatarColor,

@@ -23,20 +23,24 @@ class ReactionService {
       updatedReactionObject = omit(reactionObject, ['_id']);
     }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const updatedReaction: [IUserDocument, IReactionDocument, IPostDocument] = (await Promise.all([
+    const updatedReaction: [IUserDocument, IReactionDocument, IPostDocument] = await Promise.all([
       userCache.getUserFromCache(`${userTo}`),
-      ReactionModel.findOneAndUpdate({ postId, username }, updatedReactionObject, { upsert: true, new: true }),
+      ReactionModel.findOneAndUpdate(
+        { postId, username },
+        updatedReactionObject,
+        { upsert: true, new: true }
+      ),
       PostModel.findOneAndUpdate(
         { _id: postId },
         {
           $inc: {
             [`reactions.${previousReaction}`]: -1,
-            [`reactions.${type}`]: 1
+            [`reactions.${type}`]: 1,
           }
         },
         { new: true }
       )
-    ])) as unknown as [IUserDocument, IReactionDocument, IPostDocument];
+    ]) as unknown as [IUserDocument, IReactionDocument, IPostDocument];
 
     if (userTo && userFrom && updatedReaction[0]?.notifications?.reactions && userTo !== userFrom) {
       const reactionDocId = updatedReaction[1]?._id ?? reactionObject?._id ?? new mongoose.Types.ObjectId();
@@ -85,7 +89,7 @@ class ReactionService {
         {
           $inc: {
             [`reactions.${previousReaction}`]: -1
-          }
+          },
         },
         { new: true }
       )
@@ -93,20 +97,23 @@ class ReactionService {
   }
 
   public async getPostReactions(query: IQueryReaction, sort: Record<string, 1 | -1>): Promise<[IReactionDocument[], number]> {
-    const reactions: IReactionDocument[] = await ReactionModel.aggregate([{ $match: query }, { $sort: sort }]);
+    const reactions: IReactionDocument[] = await ReactionModel.aggregate([
+      { $match: query },
+      { $sort: sort }
+    ]);
     return [reactions, reactions.length];
   }
 
   public async getSinglePostReactionByUsername(postId: string, username: string): Promise<[IReactionDocument, number] | []> {
     const reactions: IReactionDocument[] = await ReactionModel.aggregate([
-      { $match: { postId: new mongoose.Types.ObjectId(postId), username: Helpers.firstLetterUppercase(username) } }
+      { $match:  { postId: new mongoose.Types.ObjectId(postId), username: Helpers.firstLetterUppercase(username) } },
     ]);
     return reactions.length ? [reactions[0], 1] : [];
   }
 
   public async getReactionsByUsername(username: string): Promise<IReactionDocument[]> {
     const reactions: IReactionDocument[] = await ReactionModel.aggregate([
-      { $match: { username: Helpers.firstLetterUppercase(username) } }
+      { $match:  { username: Helpers.firstLetterUppercase(username) } },
     ]);
     return reactions;
   }

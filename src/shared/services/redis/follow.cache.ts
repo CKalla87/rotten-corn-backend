@@ -83,37 +83,28 @@ export class FollowerCache extends BaseCache {
       }
 
       const response: string[] = await this.client.LRANGE(key, 0, -1);
-      if (!response || response.length === 0) {
-        return [];
-      }
-
       const list: IFollowerData[] = [];
-      // Batch user cache lookups to avoid sequential blocking
-      const userPromises = response.map(item => userCache.getUserFromCache(item));
-      const users = await Promise.all(userPromises);
 
-      for (const user of users) {
-        if (user) {
-          const data: IFollowerData = {
-            _id: new mongoose.Types.ObjectId(user._id),
-            username: user.username!,
-            avatarColor: user.avatarColor!,
-            postCount: user.postsCount,
-            followersCount: user.followersCount,
-            followingCount: user.followingCount,
-            profilePicture: user.profilePicture,
-            uId: user.uId!,
-            userProfile: user
-          };
-          list.push(data);
-        }
+      for (const item of response) {
+        const user: IUserDocument = (await userCache.getUserFromCache(item)) as IUserDocument;
+        const data: IFollowerData = {
+          _id: new mongoose.Types.ObjectId(user._id),
+          username: user.username!,
+          avatarColor: user.avatarColor!,
+          postCount: user.postsCount,
+          followersCount: user.followersCount,
+          followingCount: user.followingCount,
+          profilePicture: user.profilePicture,
+          uId: user.uId!,
+          userProfile: user
+        };
+        list.push(data);
       }
 
       return list;
     } catch (error) {
       log.error(error);
-      // Return empty array instead of throwing to allow fast fallback to database
-      return [];
+      throw new ServerError('Server error. Try again.');
     }
   }
 }

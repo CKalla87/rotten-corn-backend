@@ -10,7 +10,6 @@ class UserQueue extends BaseQueue {
     this.processJob('updateNotificationSettings', 5, userWorker.updateNotificationSettings);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public addUserJob(name: string, data: any): void {
     this.addJob(name, data);
   }

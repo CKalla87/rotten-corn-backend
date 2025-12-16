@@ -13,8 +13,6 @@ class PostRoutes {
   }
 
   public routes(): Router {
-    // Note: verifyUser is already applied at router level in routes.ts
-    // checkAuthentication just verifies req.currentUser is set (which verifyUser does)
     this.router.get('/post/all/:page', authMiddleware.checkAuthentication, Get.prototype.posts);
     this.router.get('/post/images/:page', authMiddleware.checkAuthentication, Get.prototype.postsWithImages);
     this.router.get('/post/videos/:page', authMiddleware.checkAuthentication, Get.prototype.postsWithVideo);
@@ -31,6 +29,6 @@ class PostRoutes {
 
     return this.router;
   }
-}
+};
 
 export const postRoutes: PostRoutes = new PostRoutes();

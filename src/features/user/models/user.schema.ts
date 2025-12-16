@@ -26,9 +26,7 @@ const userSchema: Schema = new Schema({
   location: { type: String, default: '' },
   quote: { type: String, default: '' },
   bgImageVersion: { type: String, default: '' },
-  bgImageId: { type: String, default: '' },
-  profileImageVersion: { type: String, default: '' },
-  profileImageId: { type: String, default: '' }
+  bgImageId: { type: String, default: '' }
 });
 
 const UserModel: Model<IUserDocument> = model<IUserDocument>('User', userSchema, 'User');

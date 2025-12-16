@@ -3,7 +3,6 @@ import { RottenCornServer } from '@root/setupServer';
 import databaseConnection from '@root/setupDatabase';
 import { config } from '@root/config';
 import Logger from 'bunyan';
-import '@root/shared/config/passport.config';
 
 const log: Logger = config.createLogger('app');
 

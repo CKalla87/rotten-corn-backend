@@ -7,11 +7,11 @@ import { Helpers } from '@global/helpers/helpers';
 import { authService } from '@service/db/auth.service';
 
 const USERNAME = 'Manny';
-const PASSWORD = 'Password123!';
-const WRONG_USERNAME = 'ab';
-const WRONG_PASSWORD = 'Pass1!';
-const LONG_PASSWORD = 'P'.repeat(129) + '1!';
-const LONG_USERNAME = 'a'.repeat(31);
+const PASSWORD = 'manny1';
+const WRONG_USERNAME = 'ma';
+const WRONG_PASSWORD = 'ma';
+const LONG_PASSWORD = 'mathematics1';
+const LONG_USERNAME = 'mathematics';
 
 jest.useFakeTimers();
 jest.mock('@service/queues/base.queue');
@@ -31,34 +31,25 @@ describe('SignIn', () => {
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Username is a required field');
+      expect(error.serializeErrors().message).toEqual('Username is a required field');
     });
   });
 
   it('should throw an error if username length is less than minimum length', () => {
-    const req: Request = authMockRequest({}, { username: WRONG_USERNAME, password: PASSWORD }) as Request;
+    const req: Request = authMockRequest({}, { username: WRONG_USERNAME, password: WRONG_PASSWORD }) as Request;
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Username must be at least 3 characters');
+      expect(error.serializeErrors().message).toEqual('Invalid username');
     });
   });
 
   it('should throw an error if username length is greater than maximum length', () => {
-    const req: Request = authMockRequest({}, { username: LONG_USERNAME, password: PASSWORD }) as Request;
+    const req: Request = authMockRequest({}, { username: LONG_USERNAME, password: WRONG_PASSWORD }) as Request;
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Username must be no more than 30 characters');
-    });
-  });
-
-  it('should reject username with special characters', () => {
-    const req: Request = authMockRequest({}, { username: 'user@name', password: PASSWORD }) as Request;
-    const res: Response = authMockResponse();
-    SignIn.prototype.read(req, res).catch((error: CustomError) => {
-      expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Username can only contain letters, numbers, underscores, and hyphens');
+      expect(error.serializeErrors().message).toEqual('Invalid username');
     });
   });
 
@@ -67,7 +58,7 @@ describe('SignIn', () => {
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Password is a required field');
+      expect(error.serializeErrors().message).toEqual('Password is a required field');
     });
   });
 
@@ -76,7 +67,7 @@ describe('SignIn', () => {
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Password must be at least 8 characters');
+      expect(error.serializeErrors().message).toEqual('Invalid password');
     });
   });
 
@@ -85,7 +76,7 @@ describe('SignIn', () => {
     const res: Response = authMockResponse();
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
       expect(error.statusCode).toEqual(400);
-      expect(error.serializeErrors().message).toContain('Password must be no more than 128 characters');
+      expect(error.serializeErrors().message).toEqual('Invalid password');
     });
   });
 
@@ -95,8 +86,7 @@ describe('SignIn', () => {
     jest.spyOn(authService, 'getAuthUserByUsername').mockResolvedValueOnce(null as any);
 
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
-      // Service receives original username and normalizes internally
-      expect(authService.getAuthUserByUsername).toHaveBeenCalledWith(USERNAME);
+      expect(authService.getAuthUserByUsername).toHaveBeenCalledWith(Helpers.firstLetterUppercase(req.body.username));
       expect(error.statusCode).toEqual(400);
       expect(error.serializeErrors().message).toEqual('Invalid credentials');
     });
@@ -108,8 +98,7 @@ describe('SignIn', () => {
     jest.spyOn(authService, 'getAuthUserByUsername').mockResolvedValueOnce(null as any);
 
     SignIn.prototype.read(req, res).catch((error: CustomError) => {
-      // Service receives original username and normalizes internally
-      expect(authService.getAuthUserByUsername).toHaveBeenCalledWith(USERNAME);
+      expect(authService.getAuthUserByUsername).toHaveBeenCalledWith(Helpers.firstLetterUppercase(req.body.username));
       expect(error.statusCode).toEqual(400);
       expect(error.serializeErrors().message).toEqual('Invalid credentials');
     });

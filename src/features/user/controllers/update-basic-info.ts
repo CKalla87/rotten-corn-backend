@@ -11,11 +11,7 @@ export class Edit {
   @joiValidation(basicInfoSchema)
   public async info(req: Request, res: Response): Promise<void> {
     for (const [key, value] of Object.entries(req.body)) {
-      await userCache.updateSingleUserItemInCache(
-        `${req.currentUser!.userId}`,
-        key,
-        value as string | number | boolean | string[] | Record<string, unknown>
-      );
+      await userCache.updateSingleUserItemInCache(`${req.currentUser!.userId}`, key, value as string | number | boolean | string[] | Record<string, unknown>);
     }
     userQueue.addUserJob('updateBasicInfoInDB', {
       key: `${req.currentUser!.userId}`,
@@ -34,3 +30,4 @@ export class Edit {
     res.status(HTTP_STATUS.OK).json({ message: 'Updated successfully' });
   }
 }
+

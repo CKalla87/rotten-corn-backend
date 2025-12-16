@@ -37,48 +37,47 @@ export class UserCache extends BaseCache {
       quote,
       bgImageId,
       bgImageVersion,
-      profileImageId,
-      profileImageVersion,
       social
     } = createdUser;
     const firstList = {
-      _id: `${_id}`,
-      uId: `${uId}`,
-      username: `${username}`,
-      email: `${email}`,
-      avatarColor: `${avatarColor}`,
-      createdAt: `${createdAt}`,
-      postsCount: `${postsCount}`
+      '_id': `${_id}`,
+      'uId': `${uId}`,
+      'username' : `${username}`,
+      'email' : `${email}`,
+      'avatarColor' : `${avatarColor}`,
+      'createdAt': `${createdAt}`,
+      'postsCount': `${postsCount}`
     };
     const secondList = {
-      blocked: JSON.stringify(blocked),
-      blockedBy: JSON.stringify(blockedBy),
-      profilePicture: JSON.stringify(profilePicture),
-      followersCount: JSON.stringify(followersCount),
-      followingCount: JSON.stringify(followingCount),
-      notifications: JSON.stringify(notifications),
-      social: JSON.stringify(social)
+      'blocked' : JSON.stringify(blocked),
+      'blockedBy' : JSON.stringify(blockedBy),
+      'profilePicture': JSON.stringify(profilePicture),
+      'followersCount' : JSON.stringify(followersCount),
+      'followingCount' : JSON.stringify(followingCount),
+      'notifications': JSON.stringify(notifications),
+      'social' : JSON.stringify(social)
+
     };
     const thirdList = {
-      work: `${work}`,
-      location: `${location}`,
-      school: `${school}`,
-      quote: `${quote}`,
-      bgImageVersion: `${bgImageVersion}`,
-      bgImageId: `${bgImageId}`,
-      profileImageVersion: `${profileImageVersion || ''}`,
-      profileImageId: `${profileImageId || ''}`
+      'work': `${work}`,
+      'location': `${location}`,
+      'school': `${school}`,
+      'quote': `${quote}`,
+      'bgImageVersion': `${bgImageVersion}`,
+      'bgImageId': `${bgImageId}`
+
     };
-    const dataToSave = { ...firstList, ...secondList, ...thirdList };
+    const dataToSave = {...firstList, ...secondList, ...thirdList};
 
     try {
       if (!this.client.isOpen) {
         await this.client.connect();
       }
-      await this.client.ZADD('user', { score: parseInt(userUId, 10), value: `${key}` });
-      for (const [itemKey, value] of Object.entries(dataToSave)) {
+      await this.client.ZADD('user', { score: parseInt(userUId, 10), value: `${key}`});
+      for(const [itemKey, value] of Object.entries(dataToSave)) {
         await this.client.HSET(`users:${key}`, `${itemKey}`, `${value}`);
       }
+
     } catch (error) {
       log.error(error);
       throw new ServerError('Server error.Try again..!');
@@ -91,21 +90,11 @@ export class UserCache extends BaseCache {
         await this.client.connect();
       }
 
-      const response: IUserDocument = (await this.client.HGETALL(`users:${userId}`)) as unknown as IUserDocument;
-
-      // Fast check: if no _id field, cache miss - return null immediately
-      if (!response || !response._id || Object.keys(response).length < 3) {
-        return null;
-      }
-
-      // Parse JSON fields efficiently
+      const response: IUserDocument = await this.client.HGETALL(`users:${userId}`) as unknown as IUserDocument;
       response.createdAt = new Date(Helpers.parseJson(`${response.createdAt}`));
       response.postsCount = Helpers.parseJson(`${response.postsCount}`);
-      // Ensure blocked and blockedBy are always arrays
-      const parsedBlocked = Helpers.parseJson(`${response.blocked}`);
-      response.blocked = Array.isArray(parsedBlocked) ? parsedBlocked : [];
-      const parsedBlockedBy = Helpers.parseJson(`${response.blockedBy}`);
-      response.blockedBy = Array.isArray(parsedBlockedBy) ? parsedBlockedBy : [];
+      response.blocked = Helpers.parseJson(`${response.blocked}`);
+      response.blockedBy = Helpers.parseJson(`${response.blockedBy}`);
       response.notifications = Helpers.parseJson(`${response.notifications}`);
       response.social = Helpers.parseJson(`${response.social}`);
       response.followersCount = Helpers.parseJson(`${response.followersCount}`);
@@ -113,17 +102,12 @@ export class UserCache extends BaseCache {
       response.bgImageId = Helpers.parseJson(`${response.bgImageId}`);
       response.bgImageVersion = Helpers.parseJson(`${response.bgImageVersion}`);
       response.profilePicture = Helpers.parseJson(`${response.profilePicture}`);
-      response.profileImageId = Helpers.parseJson(`${response.profileImageId || ''}`);
-      response.profileImageVersion = Helpers.parseJson(`${response.profileImageVersion || ''}`);
-
-      // Normalize profile picture - replace broken URLs with initials avatar
-      response.profilePicture = Helpers.normalizeProfilePicture(response.profilePicture, response.username, response.avatarColor);
 
       return response;
     } catch (error) {
       log.error(error);
-      // Return null instead of throwing to allow fast fallback to database
-      return null;
+      throw new ServerError('Server error. Try again.');
+
     }
   }
 
@@ -134,7 +118,7 @@ export class UserCache extends BaseCache {
       }
       const dataToSave: string[] = [`${prop}`, JSON.stringify(value)];
       await this.client.HSET(`users:${userId}`, dataToSave);
-      const response: IUserDocument = (await this.getUserFromCache(userId)) as IUserDocument;
+      const response: IUserDocument = await this.getUserFromCache(userId) as IUserDocument;
       return response;
     } catch (error) {
       log.error(error);
@@ -154,16 +138,13 @@ export class UserCache extends BaseCache {
           multi.HGETALL(`users:${key}`);
         }
       }
-      const replies: UserCacheMultiType = (await multi.exec()) as UserCacheMultiType;
+      const replies: UserCacheMultiType = await multi.exec() as UserCacheMultiType;
       const userReplies: IUserDocument[] = [];
       for (const reply of replies as IUserDocument[]) {
         reply.createdAt = new Date(Helpers.parseJson(`${reply.createdAt}`));
         reply.postsCount = Helpers.parseJson(`${reply.postsCount}`);
-        // Ensure blocked and blockedBy are always arrays
-        const parsedBlocked = Helpers.parseJson(`${reply.blocked}`);
-        reply.blocked = Array.isArray(parsedBlocked) ? parsedBlocked : [];
-        const parsedBlockedBy = Helpers.parseJson(`${reply.blockedBy}`);
-        reply.blockedBy = Array.isArray(parsedBlockedBy) ? parsedBlockedBy : [];
+        reply.blocked = Helpers.parseJson(`${reply.blocked}`);
+        reply.blockedBy = Helpers.parseJson(`${reply.blockedBy}`);
         reply.notifications = Helpers.parseJson(`${reply.notifications}`);
         reply.social = Helpers.parseJson(`${reply.social}`);
         reply.followersCount = Helpers.parseJson(`${reply.followersCount}`);
@@ -171,12 +152,6 @@ export class UserCache extends BaseCache {
         reply.bgImageId = Helpers.parseJson(`${reply.bgImageId}`);
         reply.bgImageVersion = Helpers.parseJson(`${reply.bgImageVersion}`);
         reply.profilePicture = Helpers.parseJson(`${reply.profilePicture}`);
-        reply.profileImageId = Helpers.parseJson(`${reply.profileImageId || ''}`);
-        reply.profileImageVersion = Helpers.parseJson(`${reply.profileImageVersion || ''}`);
-
-        // Normalize profile picture - replace broken URLs with initials avatar
-        reply.profilePicture = Helpers.normalizeProfilePicture(reply.profilePicture, reply.username, reply.avatarColor);
-
         userReplies.push(reply);
       }
       return userReplies;
@@ -211,7 +186,7 @@ export class UserCache extends BaseCache {
       for (const key of randomUsers) {
         const followerIndex = followers.indexOf(key);
         if (followerIndex < 0) {
-          const userHash: IUserDocument = (await this.client.HGETALL(`users:${key}`)) as unknown as IUserDocument;
+          const userHash: IUserDocument = await this.client.HGETALL(`users:${key}`) as unknown as IUserDocument;
           replies.push(userHash);
         }
       }
@@ -222,11 +197,8 @@ export class UserCache extends BaseCache {
       for (const reply of replies) {
         reply.createdAt = new Date(Helpers.parseJson(`${reply.createdAt}`));
         reply.postsCount = Helpers.parseJson(`${reply.postsCount}`);
-        // Ensure blocked and blockedBy are always arrays
-        const parsedBlocked = Helpers.parseJson(`${reply.blocked}`);
-        reply.blocked = Array.isArray(parsedBlocked) ? parsedBlocked : [];
-        const parsedBlockedBy = Helpers.parseJson(`${reply.blockedBy}`);
-        reply.blockedBy = Array.isArray(parsedBlockedBy) ? parsedBlockedBy : [];
+        reply.blocked = Helpers.parseJson(`${reply.blocked}`);
+        reply.blockedBy = Helpers.parseJson(`${reply.blockedBy}`);
         reply.notifications = Helpers.parseJson(`${reply.notifications}`);
         reply.social = Helpers.parseJson(`${reply.social}`);
         reply.followersCount = Helpers.parseJson(`${reply.followersCount}`);
@@ -234,9 +206,6 @@ export class UserCache extends BaseCache {
         reply.bgImageId = Helpers.parseJson(`${reply.bgImageId}`);
         reply.bgImageVersion = Helpers.parseJson(`${reply.bgImageVersion}`);
         reply.profilePicture = Helpers.parseJson(`${reply.profilePicture}`);
-
-        // Normalize profile picture - replace broken URLs with initials avatar
-        reply.profilePicture = Helpers.normalizeProfilePicture(reply.profilePicture, reply.username, reply.avatarColor);
       }
       return replies;
     } catch (error) {

@@ -23,8 +23,6 @@ export interface IUserDocument extends Document {
   bgImageVersion: string;
   bgImageId: string;
   profilePicture: string;
-  profileImageVersion: string;
-  profileImageId: string;
   createdAt?: Date;
 }
 

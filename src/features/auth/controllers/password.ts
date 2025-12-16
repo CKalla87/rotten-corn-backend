@@ -27,16 +27,10 @@ export class Password {
     const randomCharacters: string = randomBytes.toString('hex');
     await authService.updatePasswordToken(`${existingUser._id}`, randomCharacters, Date.now() * 60 * 60 * 1000);
 
-    const resetLink = `${config.CLIENT_URL}/reset-password?token=${randomCharacters}`;
+    const resetLink = `${config.CLIENT_URL}/reset-password?tokent=${randomCharacters}`;
     const template: string = forgotPasswordTemplate.passwordResetTemplate(existingUser.username!, resetLink);
-    try {
-      emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: email, subject: 'Reset your password' });
-      res.status(HTTP_STATUS.OK).json({ message: 'Password reset email sent.' });
-    } catch (error) {
-      // Log error but don't expose queue failures to user for security
-      console.error('Failed to queue password reset email:', error);
-      res.status(HTTP_STATUS.OK).json({ message: 'Password reset email sent.' });
-    }
+    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: email, subject: 'Reset your password'});
+    res.status(HTTP_STATUS.OK).json({ message: 'Password reset email sent.'});
   }
 
   @joiValidation(passwordSchema)
@@ -64,7 +58,7 @@ export class Password {
       date: moment().format('DD/MM/YYY HH:mm')
     };
     const template: string = resetPasswordTemplate.passwordResetConfirmationTemplate(templateParams);
-    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: existingUser.email!, subject: 'Password Reset Confirmation' });
-    res.status(HTTP_STATUS.OK).json({ message: 'Password successfully updated.' });
+    emailQueue.addEmailJob('forgotPasswordEmail', { template, receiverEmail: existingUser.email!, subject: 'Password Reset Confirmation'});
+    res.status(HTTP_STATUS.OK).json({ message: 'Password successfully updated.'});
   }
 }

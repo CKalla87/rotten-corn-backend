@@ -11,10 +11,24 @@ export class Remove {
     const { followeeId } = req.params;
     const followerId = `${req.currentUser!.userId}`;
 
-    const removeFollowerFromCache: Promise<void> = followerCache.removeFollowerFromCache(`followers:${followeeId}`, followerId);
-    const removeFolloweeFromCache: Promise<void> = followerCache.removeFollowerFromCache(`following:${followerId}`, `${followeeId}`);
-    const followersCount: Promise<void> = followerCache.updateFollowersCountInCache(`${followeeId}`, 'followersCount', -1);
-    const followeeCount: Promise<void> = followerCache.updateFollowersCountInCache(followerId, 'followingCount', -1);
+    const removeFollowerFromCache: Promise<void> = followerCache.removeFollowerFromCache(
+      `followers:${followeeId}`,
+      followerId
+    );
+    const removeFolloweeFromCache: Promise<void> = followerCache.removeFollowerFromCache(
+      `following:${followerId}`,
+      `${followeeId}`
+    );
+    const followersCount: Promise<void> = followerCache.updateFollowersCountInCache(
+      `${followeeId}`,
+      'followersCount',
+      -1
+    );
+    const followeeCount: Promise<void> = followerCache.updateFollowersCountInCache(
+      followerId,
+      'followingCount',
+      -1
+    );
 
     await Promise.all([removeFollowerFromCache, removeFolloweeFromCache, followersCount, followeeCount]);
 

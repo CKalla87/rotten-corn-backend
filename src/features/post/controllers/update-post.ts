@@ -34,13 +34,13 @@ export class Update {
     const postUpdated: IPostDocument = await postCache.updatePostInCache(postId, updatedPost);
     socketIOPostObject.emit('update post', postUpdated, 'posts');
     postQueue.addPostJob('updatePostInDB', { key: postId, value: postUpdated });
-    res.status(HTTP_STATUS.OK).json({ message: 'Post updated successfully' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Post updated successfully'});
   }
 
   @joiValidation(postWithImageSchema)
   public async postWithImage(req: Request, res: Response): Promise<void> {
     const { imgId, imgVersion } = req.body;
-    if (imgId && imgVersion) {
+    if(imgId && imgVersion) {
       Update.prototype.updatePostWithImage(req);
     } else {
       const result: UploadApiResponse = await Update.prototype.addImageToExistingPost(req);
@@ -48,7 +48,7 @@ export class Update {
         throw new BadRequestError(result.message);
       }
     }
-    res.status(HTTP_STATUS.OK).json({ message: 'Post with image updated successfully' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Post with image updated successfully'});
   }
 
   @joiValidation(postWithVideoSchema)
@@ -62,7 +62,7 @@ export class Update {
         throw new BadRequestError(result.message);
       }
     }
-    res.status(HTTP_STATUS.OK).json({ message: 'Post with video updated successfully' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Post with video updated successfully'});
   }
 
   private async updatePost(req: Request): Promise<void> {

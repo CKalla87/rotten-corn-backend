@@ -33,8 +33,7 @@ export abstract class BaseQueue {
   log: Logger;
 
   constructor(queueName: string) {
-    const redisUrl = config.REDIS_HOST || 'redis://localhost:6379';
-    this.queue = new Queue(queueName, redisUrl);
+    this.queue = new Queue(queueName, `${config.REDIS_HOST}`);
     bullAdapters.push(new BullAdapter(this.queue));
     bullAdapters = [...new Set(bullAdapters)];
     serverAdapter = new ExpressAdapter();
@@ -47,35 +46,21 @@ export abstract class BaseQueue {
 
     this.log = config.createLogger(`${queueName}Queue`);
 
-    // Queue event handlers
-    this.queue.on('error', (error: Error) => {
-      this.log.error(`Queue error: ${error.message}`, error);
-    });
-
-    this.queue.on('waiting', (jobId: string | number) => {
-      this.log.info(`Job ${jobId} is waiting`);
-    });
-
-    this.queue.on('active', (job: Job) => {
-      this.log.info(`Job ${job.id} is now active`);
-    });
-
-    this.queue.on('completed', (job: Job) => {
-      this.log.info(`Job ${job.id} completed`);
+    this.queue.on('global: completed', (job: Job) => {
       job.remove();
     });
 
-    this.queue.on('failed', (job: Job | undefined, error: Error) => {
-      this.log.error(`Job ${job?.id || 'unknown'} failed: ${error.message}`, error);
+    this.queue.on('global: completed', (jobId: Job) => {
+      this.log.info(`Job ${jobId} completed`);
     });
 
-    this.queue.on('stalled', (jobId: string | number) => {
-      this.log.warn(`Job ${jobId} is stalled`);
+    this.queue.on('global: completed', (jobId: Job) => {
+      this.log.info(`Job ${jobId} is stalled`);
     });
   }
 
   protected addJob(name: string, data: IBaseJobData): void {
-    this.queue.add(name, data, { attempts: 3, backoff: { type: 'fixed', delay: 5000 } });
+    this.queue.add(name, data, { attempts: 3, backoff: { type: 'fixed', delay: 5000 }});
   }
 
   protected processJob(name: string, concurrency: number, callback: Queue.ProcessCallbackFunction<void>): void {

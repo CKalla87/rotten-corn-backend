@@ -52,7 +52,7 @@ describe('ChangePassword', () => {
       const res: Response = authMockResponse();
       Update.prototype.password(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
-        expect(error.serializeErrors().message).toEqual('Password is a required field; Confirm password does not match new password.');
+        expect(error.serializeErrors().message).toEqual('Password is a required field');
       });
     });
 
