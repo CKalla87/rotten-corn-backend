@@ -152,6 +152,11 @@ build
 # Terraform variable files (contain secrets)
 *.tfvars
 
+# Terraform directories and state files
+.terraform/
+*.tfstate
+*.tfstate.*
+
 # Cursor files
 .cursor
 /thoughts
