@@ -151,6 +151,11 @@ build
 # Ignore redis binary dump (dump.rdb) files
 *.rdb
 
+# Cookie files (test files)
+cookies.txt
+test-cookies.txt
+*.cookies.txt
+
 # Terraform variable files (contain secrets)
 *.tfvars
 
