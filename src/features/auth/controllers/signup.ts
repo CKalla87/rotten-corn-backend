@@ -23,6 +23,8 @@ export class SignUp {
   @joiValidation(signupSchema)
   public async create(req: Request, res: Response): Promise<void> {
     const { username, email, password, avatarColor, avatarImage } = req.body;
+    // Generate default avatar color if not provided
+    const defaultAvatarColor = avatarColor || `#${Math.floor(Math.random() * 16777215).toString(16)}`;
     const checkIfUserExists: IAuthDocument = await authService.getUserByUsernameOrEmail(username, email);
     if (checkIfUserExists) {
       throw new BadRequestError('Invalid credentials');
@@ -37,7 +39,7 @@ export class SignUp {
       username,
       email,
       password,
-      avatarColor
+      avatarColor: defaultAvatarColor
     });
 
     const result: UploadApiResponse = await uploads(avatarImage, `${userObjectId}`, true, true) as UploadApiResponse;

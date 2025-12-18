@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import HTTP_STATUS from 'http-status-codes';
 import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
-import { UploadApiResponse } from 'cloudinary';
+import { UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
 import { uploads } from '@global/helpers/cloudinary-upload';
 import { BadRequestError } from '@global/helpers/error-handler';
@@ -43,16 +43,46 @@ export class Add {
     const sender: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
 
     if (selectedImage && selectedImage.length) {
-      const result: UploadApiResponse = (await uploads(
+      // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
+      const uniqueImageId = `${messageObjectId}`;
+      const result: UploadApiResponse | UploadApiErrorResponse | undefined = await uploads(
         selectedImage,
-        req.currentUser!.userId,
-        true,
+        uniqueImageId,
+        true, // Allow overwrite in case of retries - messageObjectId should be unique anyway
         true
-      )) as UploadApiResponse;
-      if (!result?.public_id) {
-        throw new BadRequestError(result.message);
+      );
+
+      // Check if upload failed or returned undefined
+      if (!result || (result as UploadApiErrorResponse).error) {
+        const errorResponse = result as UploadApiErrorResponse;
+        const errorMessage = errorResponse?.message || 'Failed to upload image to Cloudinary';
+        console.error('❌ Cloudinary upload error:', {
+          error: errorResponse?.error,
+          message: errorMessage,
+          uniqueImageId,
+          http_code: errorResponse?.http_code
+        });
+        throw new BadRequestError(errorMessage);
       }
-      fileUrl = `https://res.cloudinary.com/dynamr9ym3/image/upload/v${result.version}/${result.public_id}`;
+
+      // Verify we have a valid upload response
+      const uploadResponse = result as UploadApiResponse;
+      if (!uploadResponse.public_id) {
+        console.error('❌ Cloudinary upload response missing public_id:', {
+          result: uploadResponse
+        });
+        throw new BadRequestError('Invalid response from Cloudinary upload: missing public_id');
+      }
+
+      // Use Cloudinary's secure_url if available, otherwise construct the URL manually
+      fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/dynamr9ym3/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
+      console.log('✅ Cloudinary upload successful:', {
+        fileUrl,
+        public_id: uploadResponse.public_id,
+        version: uploadResponse.version,
+        secure_url: uploadResponse.secure_url,
+        url: uploadResponse.url
+      });
     }
 
     const messageData: IMessageData = {

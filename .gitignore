@@ -168,4 +168,8 @@ test-cookies.txt
 .cursor
 /thoughts
 
+# SSH config files (server-specific, user-specific paths)
+deployment/ssh-config
+ssh-config
+
 # End of https://www.toptal.com/developers/gitignore/api/node

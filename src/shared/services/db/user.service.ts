@@ -80,21 +80,30 @@ class UserService {
     return totalCount;
   }
 
-  public async searchUsers(regex: RegExp): Promise<ISearchUser[]> {
-    const users = await AuthModel.aggregate([
-      { $match: { username: regex } },
-      { $lookup: { from: 'User', localField: '_id', foreignField: 'authId', as: 'user' } },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
-      {
-        $project: {
-          _id: '$user._id',
-          username: 1,
-          email: 1,
-          avatarColor: 1,
-          profilePicture: '$user.profilePicture'
-        }
+  public async searchUsers(regex: RegExp, excludedUserId?: string): Promise<ISearchUser[]> {
+    const matchStage = { username: regex };
+    const pipeline: mongoose.PipelineStage[] = [{ $match: matchStage }];
+
+    if (excludedUserId) {
+      pipeline.push({ $lookup: { from: 'User', localField: '_id', foreignField: 'authId', as: 'user' } });
+      pipeline.push({ $unwind: { path: '$user', preserveNullAndEmptyArrays: false } });
+      pipeline.push({ $match: { 'user._id': { $ne: new mongoose.Types.ObjectId(excludedUserId) } } });
+    } else {
+      pipeline.push({ $lookup: { from: 'User', localField: '_id', foreignField: 'authId', as: 'user' } });
+      pipeline.push({ $unwind: { path: '$user', preserveNullAndEmptyArrays: false } });
+    }
+
+    pipeline.push({
+      $project: {
+        _id: '$user._id',
+        username: 1,
+        email: 1,
+        avatarColor: 1,
+        profilePicture: '$user.profilePicture'
       }
-    ]);
+    });
+
+    const users = await AuthModel.aggregate(pipeline);
     return users;
   }
 
