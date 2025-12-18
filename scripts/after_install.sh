@@ -61,23 +61,57 @@ if [ -n "$ARCHIVE_PATH" ] && [ -d "$ARCHIVE_PATH" ]; then
     fi
   done
 
-  # Check if src directory exists and has content - restore entire src directory if needed
-  if [ ! -d "src" ] || [ -z "$(find src -type f -size +0 2>/dev/null | head -1)" ]; then
-    echo "[$(date)] WARNING: src directory is missing or empty, restoring from archive..."
-    if [ -d "$ARCHIVE_PATH/src" ]; then
-      echo "[$(date)] Restoring entire src directory from archive..."
-      cp -r "$ARCHIVE_PATH/src" . 2>&1
+  # Check if src directory has required structure - restore if missing critical parts
+  NEEDS_RESTORE=false
+  REQUIRED_PATHS=("src/config.ts" "src/setupServer.ts" "src/shared" "src/features")
+  for path in "${REQUIRED_PATHS[@]}"; do
+    if [ ! -e "$path" ]; then
+      echo "[$(date)] WARNING: Required path missing: $path"
+      NEEDS_RESTORE=true
+    fi
+  done
+
+  if [ "$NEEDS_RESTORE" = true ] && [ -d "$ARCHIVE_PATH/src" ]; then
+    echo "[$(date)] WARNING: src directory is incomplete, restoring from archive..."
+    echo "[$(date)] Current src directory contents:"
+    find src -type f 2>/dev/null | head -20 || echo "src is empty or missing"
+    echo "[$(date)] Archive src directory contents:"
+    find "$ARCHIVE_PATH/src" -type f 2>/dev/null | head -30 || echo "Cannot list archive src"
+    echo "[$(date)] Archive src directory size: $(du -sh "$ARCHIVE_PATH/src" 2>/dev/null || echo 'unknown')"
+    
+    echo "[$(date)] Restoring entire src directory from archive..."
+    # Remove existing incomplete src and restore from archive
+    rm -rf src
+    if cp -r "$ARCHIVE_PATH/src" . 2>&1; then
       if [ -d "src" ]; then
-        FILE_COUNT=$(find src -type f | wc -l)
+        FILE_COUNT=$(find src -type f 2>/dev/null | wc -l)
         echo "[$(date)] ✓ Restored src directory with $FILE_COUNT files"
+        echo "[$(date)] Restored src structure (first 30 files):"
+        find src -type f 2>/dev/null | head -30
+        echo "[$(date)] Verifying critical files after restore:"
+        for path in "${REQUIRED_PATHS[@]}"; do
+          if [ -e "$path" ]; then
+            echo "[$(date)]   ✓ $path exists"
+          else
+            echo "[$(date)]   ✗ $path still missing!"
+          fi
+        done
       else
-        echo "[$(date)] ERROR: Failed to restore src directory"
+        echo "[$(date)] ERROR: Failed to restore src directory - directory not created"
+        exit 1
       fi
     else
-      echo "[$(date)] ERROR: src directory not found in archive!"
+      echo "[$(date)] ERROR: Failed to copy src directory from archive"
+      exit 1
     fi
+  elif [ "$NEEDS_RESTORE" = true ]; then
+    echo "[$(date)] ERROR: src directory incomplete and archive src not found!"
+    echo "[$(date)] Archive path: $ARCHIVE_PATH"
+    echo "[$(date)] Archive contents:"
+    ls -la "$ARCHIVE_PATH" 2>/dev/null | head -20 || echo "Cannot list archive"
+    exit 1
   else
-    echo "[$(date)] ✓ src directory exists and has content"
+    echo "[$(date)] ✓ src directory exists with required structure"
   fi
 else
   echo "[$(date)] WARNING: Could not find deployment archive to verify files"
