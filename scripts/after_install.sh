@@ -60,6 +60,25 @@ if [ -n "$ARCHIVE_PATH" ] && [ -d "$ARCHIVE_PATH" ]; then
       echo "[$(date)] ✓ $file is valid ($(wc -c < "$file") bytes)"
     fi
   done
+
+  # Check if src directory exists and has content - restore entire src directory if needed
+  if [ ! -d "src" ] || [ -z "$(find src -type f -size +0 2>/dev/null | head -1)" ]; then
+    echo "[$(date)] WARNING: src directory is missing or empty, restoring from archive..."
+    if [ -d "$ARCHIVE_PATH/src" ]; then
+      echo "[$(date)] Restoring entire src directory from archive..."
+      cp -r "$ARCHIVE_PATH/src" . 2>&1
+      if [ -d "src" ]; then
+        FILE_COUNT=$(find src -type f | wc -l)
+        echo "[$(date)] ✓ Restored src directory with $FILE_COUNT files"
+      else
+        echo "[$(date)] ERROR: Failed to restore src directory"
+      fi
+    else
+      echo "[$(date)] ERROR: src directory not found in archive!"
+    fi
+  else
+    echo "[$(date)] ✓ src directory exists and has content"
+  fi
 else
   echo "[$(date)] WARNING: Could not find deployment archive to verify files"
 fi
@@ -370,6 +389,31 @@ if [ ! -f "tsconfig.json" ]; then
   ls -la | head -20
   exit 1
 fi
+
+# Verify critical source files and directories exist before building
+echo "[$(date)] Verifying source directory structure..."
+MISSING_SRC_FILES=""
+for file in "src/app.ts" "src/setupDatabase.ts" "src/config.ts" "src/setupServer.ts"; do
+  if [ ! -f "$file" ] || [ ! -s "$file" ]; then
+    MISSING_SRC_FILES="$MISSING_SRC_FILES $file"
+  fi
+done
+
+for dir in "src/shared" "src/features"; do
+  if [ ! -d "$dir" ]; then
+    MISSING_SRC_FILES="$MISSING_SRC_FILES $dir/"
+  fi
+done
+
+if [ -n "$MISSING_SRC_FILES" ]; then
+  echo "[$(date)] ERROR: Missing critical source files/directories:$MISSING_SRC_FILES"
+  echo "[$(date)] Current directory: $(pwd)"
+  echo "[$(date)] src directory structure:"
+  find src -type f -name "*.ts" | head -20 || echo "src directory is empty or missing"
+  exit 1
+fi
+
+echo "[$(date)] ✓ Source directory structure verified"
 
 echo "[$(date)] Building application (this may take 2-5 minutes)..."
 set +e
