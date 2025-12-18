@@ -40,7 +40,7 @@ if [ -n "$ARCHIVE_PATH" ] && [ -d "$ARCHIVE_PATH" ]; then
   echo "[$(date)] Found deployment archive: $ARCHIVE_PATH"
 
   # Check and fix critical source files if they're 0 bytes or missing
-  CRITICAL_FILES=("src/setupDatabase.ts" "src/app.ts" "package.json")
+  CRITICAL_FILES=("src/setupDatabase.ts" "src/app.ts" "package.json" "tsconfig.json")
   for file in "${CRITICAL_FILES[@]}"; do
     if [ ! -f "$file" ] || [ ! -s "$file" ]; then
       echo "[$(date)] WARNING: $file is missing or 0 bytes, restoring from archive..."
@@ -362,9 +362,31 @@ if ! npm install ttypescript typescript --save-dev --no-save --prefer-offline --
   exit 1
 fi
 
+# Verify tsconfig.json exists before building
+if [ ! -f "tsconfig.json" ]; then
+  echo "[$(date)] ERROR: tsconfig.json not found - cannot build application"
+  echo "[$(date)] Current directory: $(pwd)"
+  echo "[$(date)] Directory contents:"
+  ls -la | head -20
+  exit 1
+fi
+
 echo "[$(date)] Building application (this may take 2-5 minutes)..."
-if ! npm run build 2>&1 | tee /tmp/build.log; then
-  echo "[$(date)] ERROR: Build failed"
+set +e
+npm run build 2>&1 | tee /tmp/build.log
+BUILD_EXIT_CODE=${PIPESTATUS[0]}
+set -e
+
+if [ $BUILD_EXIT_CODE -ne 0 ]; then
+  echo "[$(date)] ERROR: Build failed with exit code $BUILD_EXIT_CODE"
+  echo "[$(date)] Build log (last 100 lines):"
+  tail -100 /tmp/build.log
+  exit 1
+fi
+
+# Check if build actually produced output (even if npm returned 0)
+if [ ! -f "./build/src/app.js" ]; then
+  echo "[$(date)] ERROR: Build command succeeded but output file not found"
   echo "[$(date)] Build log (last 100 lines):"
   tail -100 /tmp/build.log
   exit 1
