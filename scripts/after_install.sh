@@ -330,7 +330,7 @@ echo "[$(date)] npm install completed successfully"
 # Verify critical dependencies are installed
 echo "[$(date)] Verifying dependencies installed..."
 MISSING_DEPS=""
-for dep in express passport dotenv; do
+for dep in express dotenv mongoose; do
   if [ ! -d "node_modules/$dep" ]; then
     MISSING_DEPS="$MISSING_DEPS $dep"
   fi
@@ -346,7 +346,7 @@ if [ -n "$MISSING_DEPS" ]; then
   exit 1
 fi
 
-echo "[$(date)] ✓ Critical dependencies verified: express, passport, dotenv"
+echo "[$(date)] ✓ Critical dependencies verified: express, dotenv, mongoose"
 echo "[$(date)] node_modules size: $(du -sh node_modules 2>/dev/null || echo 'unknown')"
 
 # Always rebuild to ensure latest source code changes are included
