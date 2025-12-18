@@ -45,6 +45,12 @@ if [ -n "$ARCHIVE_PATH" ] && [ -d "$ARCHIVE_PATH" ]; then
     if [ ! -f "$file" ] || [ ! -s "$file" ]; then
       echo "[$(date)] WARNING: $file is missing or 0 bytes, restoring from archive..."
       if [ -f "$ARCHIVE_PATH/$file" ] && [ -s "$ARCHIVE_PATH/$file" ]; then
+        # Create directory if it doesn't exist (for files in subdirectories like src/)
+        file_dir=$(dirname "$file")
+        if [ "$file_dir" != "." ] && [ ! -d "$file_dir" ]; then
+          mkdir -p "$file_dir"
+          echo "[$(date)] Created directory: $file_dir"
+        fi
         cp "$ARCHIVE_PATH/$file" "$file"
         echo "[$(date)] ✓ Restored $file from archive ($(wc -c < "$file") bytes)"
       else
