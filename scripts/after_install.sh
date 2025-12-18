@@ -235,16 +235,53 @@ echo "[$(date)] Removing old node_modules (keeping package-lock.json for faster 
 rm -rf node_modules 2>/dev/null || true
 echo "[$(date)] Cleanup complete"
 
+# Configure npm to use less memory to prevent ENOMEM errors
+echo "[$(date)] Configuring npm for low-memory environments..."
+export NODE_OPTIONS="--max-old-space-size=512"
+npm config set maxsockets 1
+npm config set fetch-retries 3
+npm config set fetch-retry-mintimeout 20000
+npm config set fetch-retry-maxtimeout 120000
+
+# Check available memory
+echo "[$(date)] System memory info:"
+free -h || echo "free command not available"
+echo "[$(date)] Available disk space:"
+df -h . || echo "df command not available"
+
+# Check if swap exists, create if needed to prevent ENOMEM
+if ! swapon --show | grep -q .; then
+  echo "[$(date)] No swap space detected, checking if we can create one..."
+  if [ -f /swapfile ] || [ -b /dev/nvme1n1 ]; then
+    echo "[$(date)] Swap file/device already exists, skipping creation"
+  else
+    # Try to create a 2GB swap file if we have enough disk space
+    AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
+    if [ "$AVAILABLE_SPACE" -gt 2097152 ]; then  # 2GB in KB
+      echo "[$(date)] Creating 2GB swap file to prevent memory issues..."
+      fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1024 count=2097152 2>/dev/null
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo "[$(date)] ✓ Swap file created and activated"
+    else
+      echo "[$(date)] WARNING: Not enough disk space to create swap file"
+    fi
+  fi
+else
+  echo "[$(date)] Swap space already active"
+fi
+
 # Use npm ci if package-lock.json exists (faster, more reliable, deterministic)
 # npm ci is 2-3x faster than npm install and more reliable
 if [ -f "package-lock.json" ]; then
   echo "[$(date)] package-lock.json found - using npm ci (faster and more reliable)..."
-  echo "[$(date)] Running: npm ci --production"
+  echo "[$(date)] Running: npm ci --production (with memory optimizations)"
   echo "[$(date)] npm ci should take 2-5 minutes (much faster than npm install)..."
 
   # Run npm ci - disable set -e temporarily to handle errors gracefully
   set +e
-  npm ci --production 2>&1 | tee /tmp/npm-install.log
+  npm ci --production --prefer-offline --no-audit 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   set -e
 
@@ -252,9 +289,9 @@ if [ -f "package-lock.json" ]; then
     echo "[$(date)] npm ci failed with exit code $NPM_EXIT_CODE"
     echo "[$(date)] This might be due to package-lock.json mismatch, trying npm install as fallback..."
 
-    # Fallback to npm install
+    # Fallback to npm install with memory optimizations
     set +e
-    npm install --production 2>&1 | tee -a /tmp/npm-install.log
+    npm install --production --prefer-offline --no-audit 2>&1 | tee -a /tmp/npm-install.log
     NPM_EXIT_CODE=${PIPESTATUS[0]}
     set -e
 
@@ -269,12 +306,12 @@ if [ -f "package-lock.json" ]; then
   fi
 else
   echo "[$(date)] No package-lock.json found - using npm install..."
-  echo "[$(date)] Running: npm install --production"
+  echo "[$(date)] Running: npm install --production (with memory optimizations)"
   echo "[$(date)] This may take 5-10 minutes depending on network speed..."
 
   # Run npm install - disable set -e temporarily
   set +e
-  npm install --production 2>&1 | tee /tmp/npm-install.log
+  npm install --production --prefer-offline --no-audit 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   set -e
 
@@ -318,7 +355,7 @@ echo "[$(date)] Rebuilding application to ensure latest code is used..."
 echo "[$(date)] (Deployment package may include old build, so we rebuild from source)"
 
 echo "[$(date)] Installing build dependencies (ttypescript and typescript)..."
-if ! npm install ttypescript typescript --save-dev --no-save 2>&1 | tee /tmp/build-deps-install.log; then
+if ! npm install ttypescript typescript --save-dev --no-save --prefer-offline --no-audit 2>&1 | tee /tmp/build-deps-install.log; then
   echo "[$(date)] ERROR: Failed to install build dependencies"
   echo "[$(date)] Build deps install log:"
   cat /tmp/build-deps-install.log
