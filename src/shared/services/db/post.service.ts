@@ -51,11 +51,26 @@ class PostService {
     ]);
     
     // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
+    // Also ensure reactions object is properly initialized
     for (const post of posts) {
       if (!post.videoVersion) post.videoVersion = '';
       if (!post.videoId) post.videoId = '';
       if (!post.imgVersion) post.imgVersion = '';
       if (!post.imgId) post.imgId = '';
+      // Ensure reactions object has the correct structure
+      if (!post.reactions || typeof post.reactions !== 'object') {
+        post.reactions = { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
+      } else {
+        // Ensure all reaction types are present with default 0 if missing
+        post.reactions = {
+          like: post.reactions.like || 0,
+          love: post.reactions.love || 0,
+          happy: post.reactions.happy || 0,
+          wow: post.reactions.wow || 0,
+          sad: post.reactions.sad || 0,
+          angry: post.reactions.angry || 0
+        };
+      }
     }
     return posts;
   }

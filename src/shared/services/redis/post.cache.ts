@@ -103,7 +103,18 @@ export class PostCache extends BaseCache {
       const postReplies: IPostDocument[] = [];
       for(const post of replies as IPostDocument[]) {
         post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
-        post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+        // Parse reactions and ensure it has the correct structure
+        const parsedReactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+        post.reactions = parsedReactions && typeof parsedReactions === 'object' 
+          ? {
+              like: parsedReactions.like || 0,
+              love: parsedReactions.love || 0,
+              happy: parsedReactions.happy || 0,
+              wow: parsedReactions.wow || 0,
+              sad: parsedReactions.sad || 0,
+              angry: parsedReactions.angry || 0
+            }
+          : { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
         post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
         // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
         post.videoVersion = post.videoVersion || '';
@@ -149,7 +160,18 @@ export class PostCache extends BaseCache {
       for(const post of replies as IPostDocument[]) {
         if ((post.imgId && post.imgVersion) || post.gifUrl) {
           post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
-          post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+          // Parse reactions and ensure it has the correct structure
+          const parsedReactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+          post.reactions = parsedReactions && typeof parsedReactions === 'object' 
+            ? {
+                like: parsedReactions.like || 0,
+                love: parsedReactions.love || 0,
+                happy: parsedReactions.happy || 0,
+                wow: parsedReactions.wow || 0,
+                sad: parsedReactions.sad || 0,
+                angry: parsedReactions.angry || 0
+              }
+            : { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
           post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
           // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
           post.videoVersion = post.videoVersion || '';
@@ -181,7 +203,18 @@ export class PostCache extends BaseCache {
       const postReplies: IPostDocument[] = [];
       for(const post of replies as IPostDocument[]) {
         post.commentsCount = Number(Helpers.parseJson(`${post.commentsCount}`));
-        post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+        // Parse reactions and ensure it has the correct structure
+        const parsedReactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+        post.reactions = parsedReactions && typeof parsedReactions === 'object' 
+          ? {
+              like: parsedReactions.like || 0,
+              love: parsedReactions.love || 0,
+              happy: parsedReactions.happy || 0,
+              wow: parsedReactions.wow || 0,
+              sad: parsedReactions.sad || 0,
+              angry: parsedReactions.angry || 0
+            }
+          : { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
         post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
         // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
         post.videoVersion = post.videoVersion || '';
@@ -261,7 +294,18 @@ export class PostCache extends BaseCache {
       const reply: PostCacheMultiType = await multi.exec() as PostCacheMultiType;
       const postReply = reply as IPostDocument[];
       postReply[0].commentsCount = Number(Helpers.parseJson(`${postReply[0].commentsCount}`));
-      postReply[0].reactions = Helpers.parseJson(`${postReply[0].reactions}`) as IReactions;
+      // Parse reactions and ensure it has the correct structure
+      const parsedReactions = Helpers.parseJson(`${postReply[0].reactions}`) as IReactions;
+      postReply[0].reactions = parsedReactions && typeof parsedReactions === 'object' 
+        ? {
+            like: parsedReactions.like || 0,
+            love: parsedReactions.love || 0,
+            happy: parsedReactions.happy || 0,
+            wow: parsedReactions.wow || 0,
+            sad: parsedReactions.sad || 0,
+            angry: parsedReactions.angry || 0
+          }
+        : { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
       postReply[0].createdAt = new Date(Helpers.parseJson(`${postReply[0].createdAt}`)) as Date;
 
       return postReply[0];
@@ -293,7 +337,18 @@ export class PostCache extends BaseCache {
         post.imgId = post.imgId || '';
         if (post.videoId && post.videoVersion) {
           post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
-          post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+          // Parse reactions and ensure it has the correct structure
+          const parsedReactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
+          post.reactions = parsedReactions && typeof parsedReactions === 'object' 
+            ? {
+                like: parsedReactions.like || 0,
+                love: parsedReactions.love || 0,
+                happy: parsedReactions.happy || 0,
+                wow: parsedReactions.wow || 0,
+                sad: parsedReactions.sad || 0,
+                angry: parsedReactions.angry || 0
+              }
+            : { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
           post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
           // Ensure video fields are set (should already be set for video posts, but ensure they're not undefined)
           post.videoVersion = post.videoVersion || '';
