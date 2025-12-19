@@ -43,10 +43,22 @@ export class Add {
     // Normalize username to match how it's stored in the database (first letter uppercase)
     // This ensures reactions can be retrieved correctly when querying
     const normalizedUsername = Helpers.firstLetterUppercase(req.currentUser!.username);
+
+    // Map UI reaction types to database schema types
+    // UI uses "haha" but database schema uses "happy"
+    const normalizeReactionType = (reactionType: string): string => {
+      if (reactionType === 'haha') {
+        return 'happy';
+      }
+      return reactionType;
+    };
+    const normalizedType = normalizeReactionType(type);
+    const normalizedPreviousReaction = previousReaction ? normalizeReactionType(previousReaction) : previousReaction;
+
     const reactionObject: IReactionDocument = {
       _id: new ObjectId(),
       postId: postIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
-      type,
+      type: normalizedType, // Use normalized type (haha -> happy)
       avataColor: req.currentUser!.avatarColor, // Note: schema uses 'avataColor' (typo but must match schema)
       username: normalizedUsername,
       profilePicture: normalizedProfilePicture
@@ -57,8 +69,8 @@ export class Add {
       userTo,
       userFrom: req.currentUser!.userId,
       username: normalizedUsername, // Use normalized username to match what's stored in reactionObject
-      type,
-      previousReaction,
+      type: normalizedType, // Use normalized type (haha -> happy)
+      previousReaction: normalizedPreviousReaction, // Use normalized previous reaction
       reactionObject
     };
 
@@ -76,12 +88,21 @@ export class Add {
       // This is a reaction to a comment - update comment's reaction array
       // Normalize username to match how it's stored in the database
       const normalizedUsername = Helpers.firstLetterUppercase(req.currentUser!.username);
+      // Map UI reaction types to database schema types
+      const normalizeReactionType = (reactionType: string): string => {
+        if (reactionType === 'haha') {
+          return 'happy';
+        }
+        return reactionType;
+      };
+      const normalizedType = normalizeReactionType(type);
+      const normalizedPreviousReaction = previousReaction ? normalizeReactionType(previousReaction) : null;
       try {
         await commentService.addReactionToComment(
           commentId,
           normalizedUsername,
-          type,
-          previousReaction || null
+          normalizedType,
+          normalizedPreviousReaction
         );
         log.info('Comment reaction saved to database successfully', {
           commentId,

@@ -27,6 +27,17 @@ class ReactionService {
     // This matches how usernames are stored in the database (first letter uppercase)
     const normalizedUsername = Helpers.firstLetterUppercase(username);
 
+    // Map UI reaction types to database schema types
+    // UI uses "haha" but database schema uses "happy"
+    const normalizeReactionType = (reactionType: string): string => {
+      if (reactionType === 'haha') {
+        return 'happy';
+      }
+      return reactionType;
+    };
+    const normalizedType = type ? normalizeReactionType(type) : '';
+    const normalizedPreviousReaction = previousReaction ? normalizeReactionType(previousReaction) : previousReaction;
+
     let updatedReactionObject: IReactionDocument = reactionObject as IReactionDocument;
     if (previousReaction) {
       updatedReactionObject = omit(reactionObject, ['_id']);
@@ -42,16 +53,21 @@ class ReactionService {
       updatedReactionObject.username = normalizedUsername;
     }
 
+    // Ensure reaction type is normalized (haha -> happy)
+    if (updatedReactionObject.type) {
+      updatedReactionObject.type = normalizedType;
+    }
+
     // Optimize: Skip cache lookup for user - fetch directly from database if needed
     // Save reaction and update post in parallel for speed
     // Build $inc update object - only include previousReaction decrement if it exists and is valid
     const updateIncrement: Record<string, number> = {
-      [`reactions.${type}`]: 1
+      [`reactions.${normalizedType}`]: 1
     };
 
     // Only decrement previous reaction if it's a valid non-empty string
-    if (previousReaction && previousReaction.trim() && previousReaction !== type) {
-      updateIncrement[`reactions.${previousReaction}`] = -1;
+    if (normalizedPreviousReaction && normalizedPreviousReaction.trim() && normalizedPreviousReaction !== normalizedType) {
+      updateIncrement[`reactions.${normalizedPreviousReaction}`] = -1;
     }
 
     const [reactionDoc, postDoc] = await Promise.all([
@@ -139,19 +155,29 @@ class ReactionService {
     // This matches how usernames are stored in the database (first letter uppercase)
     const normalizedUsername = Helpers.firstLetterUppercase(username);
 
+    // Map UI reaction types to database schema types
+    // UI uses "haha" but database schema uses "happy"
+    const normalizeReactionType = (reactionType: string): string => {
+      if (reactionType === 'haha') {
+        return 'happy';
+      }
+      return reactionType;
+    };
+    const normalizedPreviousReaction = previousReaction ? normalizeReactionType(previousReaction) : previousReaction;
+
     // Build update operations
     const operations: Promise<any>[] = [
-      ReactionModel.deleteOne({ postId: postIdObj, type: previousReaction, username: normalizedUsername }).maxTimeMS(5000).exec()
+      ReactionModel.deleteOne({ postId: postIdObj, type: normalizedPreviousReaction, username: normalizedUsername }).maxTimeMS(5000).exec()
     ];
 
     // Only decrement reaction count if previousReaction is valid
-    if (previousReaction && previousReaction.trim()) {
+    if (normalizedPreviousReaction && normalizedPreviousReaction.trim()) {
       operations.push(
         PostModel.updateOne(
           { _id: postIdObj },
           {
             $inc: {
-              [`reactions.${previousReaction}`]: -1
+              [`reactions.${normalizedPreviousReaction}`]: -1
             }
           },
           { new: true }
@@ -171,6 +197,7 @@ class ReactionService {
       .exec() as IReactionDocument[];
 
     // Normalize profile picture URLs to fix Cloudinary cloud name issues
+    // Also map database reaction types back to UI format (happy -> haha)
     reactions.forEach((reaction) => {
       if (reaction.profilePicture && Helpers.isCloudinaryUrl(reaction.profilePicture)) {
         const urlParts = reaction.profilePicture.split('/');
@@ -180,6 +207,10 @@ class ReactionService {
           const publicId = urlParts[versionIndex + 1];
           reaction.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
         }
+      }
+      // Map database reaction type back to UI format (happy -> haha)
+      if (reaction.type === 'happy') {
+        reaction.type = 'haha';
       }
     });
 
@@ -234,6 +265,11 @@ class ReactionService {
           const publicId = urlParts[versionIndex + 1];
           reaction.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
         }
+      }
+      // Map database reaction type back to UI format (happy -> haha)
+      // This ensures the UI receives the format it expects
+      if (reaction.type === 'happy') {
+        reaction.type = 'haha';
       }
       return [reaction, 1];
     }
