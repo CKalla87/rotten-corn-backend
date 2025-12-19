@@ -33,7 +33,25 @@ export abstract class BaseCache {
 
   private cacheError(): void {
     this.client.on('error', (error: unknown) => {
-      this.log.error(error);
+      this.log.error('Redis client error (non-fatal, app will continue)', error);
+      // Don't throw - just log the error
+    });
+    
+    // Handle connection errors gracefully
+    this.client.on('connect', () => {
+      this.log.info('Redis client connected');
+    });
+    
+    this.client.on('ready', () => {
+      this.log.info('Redis client ready');
+    });
+    
+    this.client.on('reconnecting', () => {
+      this.log.info('Redis client reconnecting...');
+    });
+    
+    this.client.on('end', () => {
+      this.log.warn('Redis client connection ended');
     });
   }
 }

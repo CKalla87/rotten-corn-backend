@@ -23,7 +23,10 @@ export default () => {
       .connect(`${config.DATABASE_URL}`, connectionOptions)
       .then(() => {
         log.info('Successfully connected to database.');
-        redisConnection.connect();
+        // Connect to Redis asynchronously - don't await, allow app to start even if Redis fails
+        redisConnection.connect().catch((error) => {
+          log.error('Redis connection failed in setupDatabase, app will continue', error);
+        });
       })
       .catch((error) => {
         log.error('Error connecting to database', error);

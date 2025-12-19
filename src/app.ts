@@ -27,8 +27,16 @@ class Application {
       Application.shutDownProperly(1);
     });
 
-    process.on('unhandledRejection', (reason: Error) => {
-      log.error(reason);
+    process.on('unhandledRejection', (reason: unknown) => {
+      const errorMessage = reason instanceof Error ? reason.message : String(reason);
+      // Don't crash on Redis connection errors - they're handled gracefully
+      if (errorMessage.includes('Redis') || errorMessage.includes('redis') || 
+          errorMessage.includes('Connection timeout') || errorMessage.includes('connection timeout')) {
+        log.warn('Unhandled Redis-related promise rejection (non-fatal, app will continue)', reason);
+        return; // Don't shut down - allow app to continue
+      }
+      // For other unhandled rejections, log and shut down
+      log.error('Unhandled promise rejection (non-Redis)', reason);
       Application.shutDownProperly(2);
     });
 
