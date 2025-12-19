@@ -32,10 +32,13 @@ export class OAuthController {
   private validateRedirectUri(redirectUri: string): boolean {
     try {
       const url = new URL(redirectUri);
-      // Allow localhost for development
+      
+      // Allow localhost for development (any port)
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+        log.info(`Redirect URI validation passed (localhost): ${redirectUri}`);
         return true;
       }
+      
       // Check against allowed origins from config
       const allowedOrigins = [
         config.CLIENT_URL,
@@ -45,22 +48,48 @@ export class OAuthController {
         'https://staging.chatappserver.space',
         'https://api.staging.chatappserver.space',
         'https://chatappserver.space',
-        'https://api.chatappserver.space'
+        'https://api.chatappserver.space',
+        // Explicitly allow common localhost ports for development
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:8080',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://127.0.0.1:8080'
       ].filter(Boolean);
 
-      return allowedOrigins.some(origin => {
+      const isValid = allowedOrigins.some(origin => {
         if (!origin) return false;
         try {
           const originUrl = new URL(origin);
           // Check if same protocol, hostname, and port
-          return url.protocol === originUrl.protocol &&
+          const matches = url.protocol === originUrl.protocol &&
                  url.hostname === originUrl.hostname &&
                  url.port === originUrl.port;
+          if (matches) {
+            log.info(`Redirect URI validation passed (matched origin): ${redirectUri} matches ${origin}`);
+          }
+          return matches;
         } catch {
           return false;
         }
       });
-    } catch {
+      
+      if (!isValid) {
+        log.warn(`Redirect URI validation failed: ${redirectUri}`, {
+          allowedOrigins: allowedOrigins.filter(Boolean),
+          urlHostname: url.hostname,
+          urlPort: url.port,
+          urlProtocol: url.protocol
+        });
+      }
+      
+      return isValid;
+    } catch (error) {
+      log.error(`Redirect URI validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        redirectUri,
+        error: error instanceof Error ? error.stack : String(error)
+      });
       return false;
     }
   }
@@ -107,25 +136,39 @@ export class OAuthController {
       const { provider } = req.params;
       const redirectUri = req.query.redirect_uri as string;
 
-      log.info(`OAuth initiate request: provider=${provider}, redirect_uri=${redirectUri}`, {
+      log.warn(`OAuth initiate request: provider=${provider}, redirect_uri=${redirectUri}`, {
         origin: req.get('origin'),
         referer: req.get('referer'),
         method: req.method,
-        path: req.path
+        path: req.path,
+        query: req.query,
+        params: req.params
       });
 
       if (!redirectUri) {
+        log.error('OAuth initiate failed: redirect_uri is missing', {
+          provider,
+          query: req.query,
+          allQueryKeys: Object.keys(req.query)
+        });
         throw new BadRequestError('redirect_uri is required');
       }
 
       // Validate redirect URI to prevent open redirects
       if (!this.validateRedirectUri(redirectUri)) {
-        log.error(`Invalid redirect_uri: ${redirectUri}`, {
+        log.error(`OAuth initiate failed: Invalid redirect_uri: ${redirectUri}`, {
           provider,
+          redirectUri,
           origin: req.get('origin'),
-          allowedOrigins: [config.CLIENT_URL, config.EC2_URL].filter(Boolean)
+          allowedOrigins: [
+            config.CLIENT_URL,
+            config.EC2_URL,
+            'http://localhost:8080',
+            'http://localhost:3000',
+            'http://localhost:3001'
+          ].filter(Boolean)
         });
-        throw new BadRequestError('Invalid redirect_uri. The redirect URI must be from an allowed origin.');
+        throw new BadRequestError(`Invalid redirect_uri: ${redirectUri}. The redirect URI must be from an allowed origin (localhost is allowed for development).`);
       }
 
       const validProviders = ['google', 'github', 'facebook'];
