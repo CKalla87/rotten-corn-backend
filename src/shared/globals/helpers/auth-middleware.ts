@@ -3,11 +3,24 @@ import JWT from 'jsonwebtoken';
 import { config } from '@root/config';
 import { Request, Response, NextFunction } from 'express';
 import { NotAuthorizedError } from '@global/helpers/error-handler';
+import Logger from 'bunyan';
+
+const log: Logger = config.createLogger('authMiddleware');
 
 export class AuthMiddleware {
   public verifyUser(req: Request, _res: Response, next: NextFunction): void {
     // Check session first, then fall back to cookie
     let token = req.session?.jwt;
+    
+    // Debug logging
+    log.debug('verifyUser called', {
+      hasSession: !!req.session,
+      hasSessionJwt: !!req.session?.jwt,
+      hasCookies: !!req.cookies,
+      cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
+      url: req.url,
+      method: req.method
+    });
     
     // If no token in session, try to get from cookies
     if (!token) {
@@ -15,9 +28,11 @@ export class AuthMiddleware {
       if (req.cookies) {
         if (typeof req.cookies === 'object' && 'jwt' in req.cookies) {
           token = req.cookies.jwt;
+          log.debug('Found token in req.cookies.jwt');
         } else if (typeof req.cookies.get === 'function') {
           // Some cookie parsers use .get() method
           token = req.cookies.get('jwt');
+          log.debug('Found token via req.cookies.get()');
         }
       }
       
@@ -27,17 +42,27 @@ export class AuthMiddleware {
           (req as any).session = {};
         }
         (req.session as any).jwt = token;
+        log.debug('Set token in session from cookie');
       }
     }
 
     if (!token) {
+      log.warn('No token found in session or cookies', {
+        hasSession: !!req.session,
+        hasCookies: !!req.cookies,
+        cookieKeys: req.cookies ? Object.keys(req.cookies) : []
+      });
       throw new NotAuthorizedError('Token is not available. Please login again');
     }
 
     try {
       const payload: AuthPayload = JWT.verify(token, config.JWT_TOKEN!) as AuthPayload;
       req.currentUser = payload;
+      log.debug('Token verified successfully', { userId: payload.userId });
     } catch (error) {
+      log.warn('Token verification failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
       throw new NotAuthorizedError('Token is invalid, Please login again.');
     }
     next();
