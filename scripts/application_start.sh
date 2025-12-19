@@ -127,6 +127,15 @@ else
   echo "[$(date)] PM2 version: $PM2_VERSION"
 fi
 
+# CRITICAL: Ensure PM2 uses the correct binary path by setting PM2_HOME and updating PATH
+# This prevents PM2 from trying to use old /opt/nodejs paths
+export PM2_HOME=/root/.pm2
+# Ensure the PM2 binary directory is first in PATH
+PM2_BIN_DIR=$(dirname "$PM2_BIN")
+export PATH="$PM2_BIN_DIR:$PATH"
+echo "[$(date)] Updated PATH to prioritize PM2 binary directory: $PM2_BIN_DIR"
+echo "[$(date)] Final PATH: $PATH"
+
 # Build should already be done in AfterInstall hook
 # Verify build directory exists and fail fast if missing
 if [ ! -d "./build" ]; then
@@ -190,11 +199,15 @@ if [ -f ./build/src/app.js ]; then
   # Also try to delete specific known process names
   "$PM2_BIN" delete rotten-corn-backend 2>/dev/null || true
   "$PM2_BIN" delete rotten-corn 2>/dev/null || true
+  "$PM2_BIN" delete chatty-backend 2>/dev/null || true
   # Kill any PM2 daemon and restart it fresh
   "$PM2_BIN" kill 2>/dev/null || true
   sleep 2
-  # Resurrect PM2 daemon
-  "$PM2_BIN" resurrect 2>/dev/null || true
+  # Clear PM2 dump file to prevent resurrecting old processes with wrong paths
+  echo "[$(date)] Clearing PM2 dump file to prevent old process resurrection..."
+  rm -f /root/.pm2/dump.pm2 2>/dev/null || true
+  rm -f ~/.pm2/dump.pm2 2>/dev/null || true
+  # DO NOT resurrect - we want a clean start
   sleep 1
 
   # Start the application (PM2 runs in daemon mode by default)
@@ -584,7 +597,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     if [ $ELAPSED -gt 30 ]; then
       RESTART_LIMIT=5
     fi
-    
+
     # Check if crashes are due to Redis connection issues
     REDIS_CRASH=false
     set +e
@@ -594,7 +607,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       echo "[$(date)] ⚠ App should now handle Redis failures gracefully - waiting for fix to take effect..."
     fi
     set -e
-    
+
     if [ "$RESTARTS" -gt $RESTART_LIMIT ]; then
       if [ "$REDIS_CRASH" = true ] && [ $ELAPSED -lt 60 ]; then
         # If Redis-related crashes and still within first minute, give more time
