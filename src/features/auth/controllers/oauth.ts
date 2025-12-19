@@ -243,7 +243,7 @@ export class OAuthController {
           const isTrulyLocal = config.NODE_ENV === 'development' &&
                               !config.EC2_URL &&
                               !config.CLIENT_URL?.includes('chatappserver.space');
-          
+
           if (isTrulyLocal) {
             // For local development, try to detect the frontend port from the referer or origin
             const referer = req.get('referer');
@@ -271,7 +271,7 @@ export class OAuthController {
             // Fallback for local: use common localhost ports
             return `http://localhost:8080/auth/${provider}/callback`;
           }
-          
+
           // For deployed environments, use CLIENT_URL or default
           const frontendUrl = config.CLIENT_URL || 'https://dev.chatappserver.space';
           // Ensure we redirect to the OAuth callback route, not just the root
