@@ -1,14 +1,13 @@
 import { Request, Response } from 'express';
 import HTTP_STATUS from 'http-status-codes';
 import { IReactionDocument } from '@reaction/interfaces/reaction.interface';
-import { ReactionCache } from '@service/redis/reaction.cache';
 import { reactionService } from '@service/db/reaction.services';
 import mongoose from 'mongoose';
 import { BadRequestError } from '@global/helpers/error-handler';
+import { Helpers } from '@global/helpers/helpers';
 import { config } from '@root/config';
 import Logger from 'bunyan';
 
-const reactionCache: ReactionCache = new ReactionCache();
 const log: Logger = config.createLogger('getReactions');
 
 export class Get {
@@ -68,10 +67,33 @@ export class Get {
       throw new BadRequestError('Username is required');
     }
 
+    // Prefer username from currentUser (from JWT) as it's more reliable and should match what's stored
+    // The username in JWT comes from the database and should already be normalized
+    // But we'll still normalize to be safe and handle edge cases
+    const usernameToQuery = req.currentUser?.username || username;
+    const normalizedUsername = Helpers.firstLetterUppercase(usernameToQuery);
+
+    log.info('Getting single post reaction', {
+      postId,
+      usernameFromParams: username,
+      usernameFromCurrentUser: req.currentUser?.username,
+      usernameToQuery,
+      normalizedUsername,
+      userId: req.currentUser?.userId
+    });
+
     try {
       // Skip cache - go directly to database for faster response
-      // Database query is now optimized with findOne() and compound index
-      const reactions: [IReactionDocument, number] | [] = await reactionService.getSinglePostReactionByUsername(postId, username);
+      // The service will try multiple username formats to handle legacy data
+      const reactions: [IReactionDocument, number] | [] = await reactionService.getSinglePostReactionByUsername(postId, usernameToQuery);
+
+      log.info('Reaction query result', {
+        postId,
+        normalizedUsername,
+        found: reactions.length > 0,
+        reactionType: reactions.length > 0 && reactions[0] ? reactions[0].type : null
+      });
+
       res.status(HTTP_STATUS.OK).json({
         message: 'Single post reaction by username',
         reactions: reactions.length ? reactions[0] : {},
@@ -81,7 +103,9 @@ export class Get {
       log.error('Failed to get single post reaction by username', {
         error: error instanceof Error ? error.message : 'Unknown error',
         postId,
-        username,
+        usernameFromParams: username,
+        usernameFromCurrentUser: req.currentUser?.username,
+        normalizedUsername,
         stack: error instanceof Error ? error.stack : undefined
       });
       throw error;

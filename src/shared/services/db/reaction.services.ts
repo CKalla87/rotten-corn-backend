@@ -187,14 +187,42 @@ class ReactionService {
   }
 
   public async getSinglePostReactionByUsername(postId: string, username: string): Promise<[IReactionDocument, number] | []> {
-    // Use findOne() instead of aggregate - much faster with compound index
-    const reaction: IReactionDocument | null = await ReactionModel.findOne({
-      postId: new mongoose.Types.ObjectId(postId),
-      username: Helpers.firstLetterUppercase(username)
+    // Normalize username for query
+    const normalizedUsername = Helpers.firstLetterUppercase(username);
+    const postIdObj = new mongoose.Types.ObjectId(postId);
+
+    // Try normalized username first (how new reactions are stored)
+    let reaction: IReactionDocument | null = await ReactionModel.findOne({
+      postId: postIdObj,
+      username: normalizedUsername
     })
       .lean()
       .maxTimeMS(5000)
       .exec() as IReactionDocument | null;
+
+    // If not found with normalized username, try original username format
+    // This handles reactions saved before the normalization fix
+    if (!reaction && username !== normalizedUsername) {
+      reaction = await ReactionModel.findOne({
+        postId: postIdObj,
+        username: username
+      })
+        .lean()
+        .maxTimeMS(5000)
+        .exec() as IReactionDocument | null;
+    }
+
+    // Also try case-insensitive search as a fallback
+    if (!reaction) {
+      const escapedUsername = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      reaction = await ReactionModel.findOne({
+        postId: postIdObj,
+        username: { $regex: new RegExp(`^${escapedUsername}$`, 'i') }
+      })
+        .lean()
+        .maxTimeMS(5000)
+        .exec() as IReactionDocument | null;
+    }
 
     if (reaction) {
       // Normalize profile picture URL to fix Cloudinary cloud name issues
