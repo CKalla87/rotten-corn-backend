@@ -506,7 +506,7 @@ export class OAuthController {
               environment: config.NODE_ENV,
               redisHost: config.REDIS_HOST ? 'configured' : 'not configured'
             });
-            
+
             // Try to generate code with Redis (with fast timeout)
             const codePromise = authCodeService.generateCode(`${userDocument._id}`, token);
             const codeTimeoutPromise = new Promise<never>((_, reject) => {
@@ -756,7 +756,7 @@ export class OAuthController {
             setTimeout(() => reject(new Error('Code exchange timeout')), 3000);
           });
           authData = await Promise.race([codePromise, codeTimeoutPromise]);
-          
+
           if (authData) {
             log.info('Code exchanged successfully from Redis', {
               userId: authData.userId,
@@ -834,9 +834,9 @@ export class OAuthController {
 
       // ALSO set a regular cookie with the JWT as a fallback
       // Deployed environments are: 'develop', 'staging', 'production'
-      // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space
+      // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
       const isLocalDev = config.NODE_ENV === 'development' &&
-                         (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                         !config.EC2_URL &&
                          !config.CLIENT_URL?.includes('chatappserver.space');
 
       const cookieOptions: any = {
