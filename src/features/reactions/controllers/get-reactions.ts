@@ -19,7 +19,20 @@ export class Get {
 
   public async singleReactionByUsername(req: Request, res: Response): Promise<void> {
     const { postId, username } = req.params;
-    const cachedReaction: [IReactionDocument, number] | [] = await reactionCache.getSingleReactionByUsernameFromCache(postId, username);
+
+    // Try cache first with timeout to prevent hanging
+    let cachedReaction: [IReactionDocument, number] | [] = [];
+    try {
+      // Set a 5 second timeout for cache lookup to prevent hanging
+      cachedReaction = await Promise.race([
+        reactionCache.getSingleReactionByUsernameFromCache(postId, username),
+        new Promise<[]>((resolve) => setTimeout(() => resolve([]), 5000))
+      ]);
+    } catch (error) {
+      // If cache fails, proceed to database query
+      cachedReaction = [];
+    }
+
     const reactions: [IReactionDocument, number] | [] = cachedReaction.length
       ? cachedReaction
       : await reactionService.getSinglePostReactionByUsername(postId, username);
