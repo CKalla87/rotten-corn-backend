@@ -9,7 +9,7 @@ const log: Logger = config.createLogger('authMiddleware');
 
 export class AuthMiddleware {
   public verifyUser(req: Request, _res: Response, next: NextFunction): void {
-    // Check session first, then fall back to cookie
+    // Check session first, then fall back to cookie, then Authorization header
     let token = req.session?.jwt;
     
     // Debug logging
@@ -18,6 +18,7 @@ export class AuthMiddleware {
       hasSessionJwt: !!req.session?.jwt,
       hasCookies: !!req.cookies,
       cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
+      hasAuthHeader: !!req.headers.authorization,
       url: req.url,
       method: req.method
     });
@@ -46,11 +47,26 @@ export class AuthMiddleware {
       }
     }
 
+    // If still no token, try Authorization header (Bearer token)
+    if (!token && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+        log.debug('Found token in Authorization header');
+        // Also set it in session for consistency
+        if (!req.session) {
+          (req as any).session = {};
+        }
+        (req.session as any).jwt = token;
+      }
+    }
+
     if (!token) {
-      log.warn('No token found in session or cookies', {
+      log.warn('No token found in session, cookies, or Authorization header', {
         hasSession: !!req.session,
         hasCookies: !!req.cookies,
-        cookieKeys: req.cookies ? Object.keys(req.cookies) : []
+        cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
+        hasAuthHeader: !!req.headers.authorization
       });
       throw new NotAuthorizedError('Token is not available. Please login again');
     }
