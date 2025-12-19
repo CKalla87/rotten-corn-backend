@@ -170,35 +170,55 @@ fi
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
   unzip -o env-file.zip
+  
+  # List available env files for debugging
+  echo "[$(date)] Available environment files after extraction:"
+  ls -la .env* 2>/dev/null || echo "No .env files found"
+  
   # Select environment file based on detected environment
-  # Priority: .env.{ENV_PREFIX} > .env.production > .env
+  # Priority: .env.{ENV_PREFIX} > .env.production > .env.staging > .env.develop > .env
   ENV_FILE_COPIED=false
 
   if [ -f ".env.${ENV_PREFIX}" ]; then
     cp ".env.${ENV_PREFIX}" .env
-    echo "[$(date)] Copied .env.${ENV_PREFIX} to .env (${ENV_PREFIX} environment)"
+    echo "[$(date)] ✓ Copied .env.${ENV_PREFIX} to .env (${ENV_PREFIX} environment)"
     ENV_FILE_COPIED=true
   elif [ -f .env.production ] && [ "$ENV_PREFIX" = "production" ]; then
     cp .env.production .env
-    echo "[$(date)] Copied .env.production to .env (production environment)"
+    echo "[$(date)] ✓ Copied .env.production to .env (production environment)"
     ENV_FILE_COPIED=true
   elif [ -f .env.staging ] && [ "$ENV_PREFIX" = "staging" ]; then
     cp .env.staging .env
-    echo "[$(date)] Copied .env.staging to .env (staging environment)"
+    echo "[$(date)] ✓ Copied .env.staging to .env (staging environment)"
     ENV_FILE_COPIED=true
   elif [ -f .env.develop ] && [ "$ENV_PREFIX" = "develop" ]; then
     cp .env.develop .env
-    echo "[$(date)] Copied .env.develop to .env (develop environment)"
+    echo "[$(date)] ✓ Copied .env.develop to .env (develop environment)"
     ENV_FILE_COPIED=true
   elif [ -f .env ]; then
-    echo "[$(date)] Using existing .env file (no environment-specific file found)"
+    echo "[$(date)] ⚠ Using existing .env file (no environment-specific file found for ${ENV_PREFIX})"
     ENV_FILE_COPIED=true
   fi
 
   if [ "$ENV_FILE_COPIED" = false ]; then
     echo "[$(date)] ERROR: No .env file found for environment ${ENV_PREFIX}!"
     echo "[$(date)] Expected one of: .env.${ENV_PREFIX}, .env.production, .env.staging, .env.develop, or .env"
+    echo "[$(date)] Available files:"
+    ls -la .env* 2>/dev/null || echo "No .env files found"
     exit 1
+  fi
+  
+  # Verify the .env file has the expected content for the environment
+  echo "[$(date)] Verifying .env file was set correctly for ${ENV_PREFIX} environment..."
+  if [ -f .env ]; then
+    echo "[$(date)] .env file exists ($(wc -l < .env) lines)"
+    # Check for REDIS_HOST to verify it's the right file
+    if grep -q "REDIS_HOST" .env; then
+      REDIS_HOST_VALUE=$(grep "^REDIS_HOST=" .env | head -1 | cut -d'=' -f2- | sed 's/=.*/=***/')
+      echo "[$(date)] ✓ REDIS_HOST found in .env: ${REDIS_HOST_VALUE}"
+    else
+      echo "[$(date)] ⚠ WARNING: REDIS_HOST not found in .env file"
+    fi
   fi
 else
   echo "[$(date)] ERROR: env-file.zip not found in S3 bucket ${ENV_BUCKET}/${ENV_PREFIX}"
