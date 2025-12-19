@@ -37,6 +37,20 @@ export class RottenCornServer {
   public start(): void {
     this.securityMiddleware(this.app);
     this.standardMiddleware(this.app);
+    
+    // Add request logging middleware to see all incoming requests
+    this.app.use((req, res, next) => {
+      log.error('Incoming request', {
+        method: req.method,
+        url: req.url,
+        originalUrl: req.originalUrl,
+        path: req.path,
+        hasAuthHeader: !!(req.headers.authorization || req.headers.Authorization),
+        authHeader: req.headers.authorization || req.headers.Authorization || 'none'
+      });
+      next();
+    });
+    
     this.routeMiddleware(this.app);
     this.apiMonitoring(this.app);
     this.globalErrorHandler(this.app);
