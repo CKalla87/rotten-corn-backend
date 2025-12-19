@@ -95,6 +95,9 @@ class AuthRoutes {
     // Apply CORS middleware to all routes - this runs first and sets headers
     this.router.use(this.corsMiddleware.bind(this));
 
+    // Define OAuth providers list (used for routes and OPTIONS handlers)
+    const oauthProviders = ['google', 'github', 'facebook'];
+
     // Handle OPTIONS preflight for specific routes first (order matters in Express)
     this.router.options('/signup', (req: Request, res: Response) => {
       this.setCorsHeaders(req, res);
@@ -106,14 +109,16 @@ class AuthRoutes {
       res.status(200).end();
     });
 
-    this.router.options('/:provider/callback', (req: Request, res: Response) => {
-      this.setCorsHeaders(req, res);
-      res.status(200).end();
-    });
-
-    this.router.options('/:provider', (req: Request, res: Response) => {
-      this.setCorsHeaders(req, res);
-      res.status(200).end();
+    // OPTIONS handlers for OAuth routes (specific providers only)
+    oauthProviders.forEach(provider => {
+      this.router.options(`/auth/${provider}`, (req: Request, res: Response) => {
+        this.setCorsHeaders(req, res);
+        res.status(200).end();
+      });
+      this.router.options(`/auth/${provider}/callback`, (req: Request, res: Response) => {
+        this.setCorsHeaders(req, res);
+        res.status(200).end();
+      });
     });
 
     // Handle OPTIONS preflight for all other auth routes (catch-all)
@@ -151,17 +156,14 @@ class AuthRoutes {
       });
     });
 
-    // Handle OPTIONS preflight for OAuth callback endpoints
-    this.router.options('/:provider/callback', (req: Request, res: Response) => {
-      this.setCorsHeaders(req, res);
-      res.status(200).end();
-    });
-
     // OAuth routes - register AFTER specific routes to avoid route conflicts
-    // Note: No /auth prefix here since router is mounted at /api/v1/auth
-    this.router.get('/:provider', this.oauthController.initiate.bind(this.oauthController));
-    this.router.get('/:provider/callback', this.oauthController.callback.bind(this.oauthController));
-    this.router.post('/:provider/callback', this.oauthController.exchangeCode.bind(this.oauthController));
+    // Only match known OAuth providers to prevent conflicts with other routes
+    // Routes will be: /api/v1/auth/google, /api/v1/auth/github, /api/v1/auth/facebook
+    oauthProviders.forEach(provider => {
+      this.router.get(`/auth/${provider}`, this.oauthController.initiate.bind(this.oauthController));
+      this.router.get(`/auth/${provider}/callback`, this.oauthController.callback.bind(this.oauthController));
+      this.router.post(`/auth/${provider}/callback`, this.oauthController.exchangeCode.bind(this.oauthController));
+    });
 
     // OAuth health check endpoint
     this.router.get('/health/oauth', async (req: Request, res: Response) => {
