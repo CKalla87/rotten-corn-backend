@@ -21,6 +21,7 @@ export const authMockResponse = (): Response => {
   res.json = jest.fn().mockReturnValue(res);
   res.cookie = jest.fn().mockReturnValue(res);
   res.clearCookie = jest.fn().mockReturnValue(res);
+  res.header = jest.fn().mockReturnValue(res);
   return res;
 };
 

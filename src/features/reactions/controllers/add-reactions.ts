@@ -38,7 +38,7 @@ export class Add {
       _id: new ObjectId(),
       postId,
       type,
-      avatarColor: req.currentUser!.avatarColor,
+      avataColor: req.currentUser!.avatarColor, // Note: schema uses 'avataColor' (typo but must match schema)
       username: req.currentUser!.username,
       profilePicture: normalizedProfilePicture
     } as unknown as IReactionDocument;
@@ -53,6 +53,15 @@ export class Add {
       reactionObject
     };
 
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      response.header('Access-Control-Allow-Origin', origin);
+      response.header('Access-Control-Allow-Credentials', 'true');
+      response.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      response.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
     // Save to database FIRST for immediate persistence
     // Skip cache to avoid slow Redis operations and ensure data is immediately available
     try {
@@ -63,18 +72,24 @@ export class Add {
         error: error instanceof Error ? error.message : 'Unknown error',
         postId,
         username: req.currentUser!.username,
-        type
+        type,
+        stack: error instanceof Error ? error.stack : undefined
       });
       // Fall back to queue if database save fails
       reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
+      // Still return success since queue will handle it, but log the issue
     }
 
     // Update cache asynchronously (don't wait for it) for better performance
     // Cache is just for optimization, database is the source of truth
-    reactionCache.savePostReactionToCache(postId, reactionObject, postReactions, type, previousReaction).catch((cacheError) => {
+    reactionCache.savePostReactionToCache(postId, reactionObject, postReactions, type, previousReaction || '').catch((cacheError) => {
       log.warn('Failed to update reaction cache (non-critical)', cacheError);
     });
 
-    response.status(HTTP_STATUS.OK).json({ message: 'Reaction added successfully'});
+    // Return the reaction object so the frontend can update immediately
+    response.status(HTTP_STATUS.OK).json({
+      message: 'Reaction added successfully',
+      reaction: reactionObject
+    });
   }
 }

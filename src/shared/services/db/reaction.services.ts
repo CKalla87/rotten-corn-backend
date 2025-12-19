@@ -19,27 +19,41 @@ const userCache: UserCache = new UserCache();
 class ReactionService {
   public async addReactionDataToDB(reactionData: IReactionJob): Promise<void> {
     const { postId, userTo, userFrom, username, type, previousReaction, reactionObject } = reactionData;
+
+    // Ensure postId is converted to ObjectId
+    const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
+
     let updatedReactionObject: IReactionDocument = reactionObject as IReactionDocument;
     if (previousReaction) {
       updatedReactionObject = omit(reactionObject, ['_id']);
     }
 
+    // Ensure postId in reaction object is ObjectId
+    if (updatedReactionObject.postId && typeof updatedReactionObject.postId === 'string') {
+      updatedReactionObject.postId = postIdObj as any;
+    }
+
     // Optimize: Skip cache lookup for user - fetch directly from database if needed
     // Save reaction and update post in parallel for speed
+    // Build $inc update object - only include previousReaction decrement if it exists and is valid
+    const updateIncrement: Record<string, number> = {
+      [`reactions.${type}`]: 1
+    };
+
+    // Only decrement previous reaction if it's a valid non-empty string
+    if (previousReaction && previousReaction.trim() && previousReaction !== type) {
+      updateIncrement[`reactions.${previousReaction}`] = -1;
+    }
+
     const [reactionDoc, postDoc] = await Promise.all([
       ReactionModel.findOneAndUpdate(
-        { postId, username },
+        { postId: postIdObj, username },
         updatedReactionObject,
         { upsert: true, new: true }
       ).maxTimeMS(5000).exec(),
       PostModel.findOneAndUpdate(
-        { _id: postId },
-        {
-          $inc: {
-            [`reactions.${previousReaction}`]: -1,
-            [`reactions.${type}`]: 1,
-          }
-        },
+        { _id: postIdObj },
+        { $inc: updateIncrement },
         { new: true }
       ).maxTimeMS(5000).exec()
     ]);
@@ -108,18 +122,31 @@ class ReactionService {
 
   public async removeReactionDataFromDB(reactionData: IReactionJob): Promise<void> {
     const { postId, previousReaction, username } = reactionData;
-    await Promise.all([
-      ReactionModel.deleteOne({ postId, type: previousReaction, username }),
-      PostModel.updateOne(
-        { _id: postId },
-        {
-          $inc: {
-            [`reactions.${previousReaction}`]: -1
+
+    // Ensure postId is converted to ObjectId
+    const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
+
+    // Build update operations
+    const operations: Promise<any>[] = [
+      ReactionModel.deleteOne({ postId: postIdObj, type: previousReaction, username }).maxTimeMS(5000).exec()
+    ];
+
+    // Only decrement reaction count if previousReaction is valid
+    if (previousReaction && previousReaction.trim()) {
+      operations.push(
+        PostModel.updateOne(
+          { _id: postIdObj },
+          {
+            $inc: {
+              [`reactions.${previousReaction}`]: -1
+            }
           },
-        },
-        { new: true }
-      )
-    ]);
+          { new: true }
+        ).maxTimeMS(5000).exec()
+      );
+    }
+
+    await Promise.all(operations);
   }
 
   public async getPostReactions(query: IQueryReaction, sort: Record<string, 1 | -1>): Promise<[IReactionDocument[], number]> {

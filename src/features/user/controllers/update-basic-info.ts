@@ -14,6 +14,15 @@ const log: Logger = config.createLogger('updateBasicInfo');
 export class Edit {
   @joiValidation(basicInfoSchema)
   public async info(req: Request, res: Response): Promise<void> {
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
     // Save to database FIRST for immediate persistence
     // Skip cache to avoid slow Redis operations and ensure data is immediately available
     try {
@@ -25,7 +34,8 @@ export class Edit {
     } catch (error) {
       log.error('Failed to save basic info to database', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        userId: req.currentUser!.userId
+        userId: req.currentUser!.userId,
+        stack: error instanceof Error ? error.stack : undefined
       });
       // Fall back to queue if database save fails
       userQueue.addUserJob('updateBasicInfoInDB', {
@@ -48,11 +58,21 @@ export class Edit {
       log.warn('Failed to update basic info cache (non-critical)', cacheError);
     });
 
+    // Always send response
     res.status(HTTP_STATUS.OK).json({ message: 'Updated successfully' });
   }
 
   @joiValidation(socialLinksSchema)
   public async social(req: Request, res: Response): Promise<void> {
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
     // Save to database FIRST for immediate persistence
     // Skip cache to avoid slow Redis operations and ensure data is immediately available
     try {
@@ -64,7 +84,8 @@ export class Edit {
     } catch (error) {
       log.error('Failed to save social links to database', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        userId: req.currentUser!.userId
+        userId: req.currentUser!.userId,
+        stack: error instanceof Error ? error.stack : undefined
       });
       // Fall back to queue if database save fails
       userQueue.addUserJob('updateSocialLinksInDB', {
@@ -79,6 +100,7 @@ export class Edit {
       log.warn('Failed to update social links cache (non-critical)', cacheError);
     });
 
+    // Always send response
     res.status(HTTP_STATUS.OK).json({ message: 'Updated successfully' });
   }
 }

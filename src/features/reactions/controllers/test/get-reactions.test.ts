@@ -25,7 +25,7 @@ describe('Get', () => {
     it('should send correct json response from database (cache is skipped)', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: `${postMockData._id}`
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(reactionService, 'getPostReactions').mockResolvedValue([[reactionData], 1]);
 
@@ -45,7 +45,7 @@ describe('Get', () => {
     it('should send correct json response if reactions list is empty', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: `${postMockData._id}`
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(reactionService, 'getPostReactions').mockResolvedValue([[], 0]);
 
@@ -102,7 +102,7 @@ describe('Get', () => {
     it('should send correct json response if reactions exist in database', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         username: postMockData.username
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(reactionService, 'getReactionsByUsername').mockResolvedValue([reactionData]);
 
@@ -118,7 +118,7 @@ describe('Get', () => {
     it('should send correct json response if reactions list is empty', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         username: postMockData.username
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(reactionService, 'getReactionsByUsername').mockResolvedValue([]);
 

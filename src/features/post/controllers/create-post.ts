@@ -20,6 +20,15 @@ const log: Logger = config.createLogger('createPost');
 export class Create {
   @joiValidation(postSchema)
   public async post(req: Request, res: Response): Promise<void> {
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
     const { post, bgColor, privacy, gifUrl, profilePicture, feelings } = req.body;
     const postObjectId: ObjectId = new ObjectId();
     const createdPost: IPostDocument = {
@@ -42,32 +51,60 @@ export class Create {
       createdAt: new Date(),
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;
-    socketIOPostObject.emit('add post', createdPost);
-    await postCache.savePostToCache({
+
+    // Emit socket event (non-blocking)
+    if (socketIOPostObject) {
+      socketIOPostObject.emit('add post', createdPost);
+    }
+
+    // Save to cache asynchronously (non-blocking) - don't await
+    // Cache is just for optimization, database is the source of truth
+    postCache.savePostToCache({
       key: postObjectId,
       currentUserId: `${req.currentUser!.userId}`,
       uId: `${req.currentUser!.uId}`,
       createdPost
+    }).catch((cacheError) => {
+      log.warn('Failed to save post to cache (non-critical)', cacheError);
     });
-    
+
     // Save to database synchronously to ensure persistence
     try {
       await postService.addPostToDB(`${req.currentUser!.userId}`, createdPost);
+      log.info('Post saved to database successfully', { postId: postObjectId, userId: req.currentUser!.userId });
     } catch (error) {
-      log.error('Failed to save post synchronously, falling back to queue', error);
+      log.error('Failed to save post synchronously, falling back to queue', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        postId: postObjectId,
+        userId: req.currentUser!.userId,
+        stack: error instanceof Error ? error.stack : undefined
+      });
       postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
     }
-    
-    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created successfully'});
+
+    // Always send response - don't let cache or other async operations block it
+    res.status(HTTP_STATUS.CREATED).json({
+      message: 'Post created successfully',
+      post: createdPost
+    });
   }
 
   @joiValidation(postWithImageSchema)
   public async postWithImage(req: Request, res: Response): Promise<void> {
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
     const { post, bgColor, privacy, gifUrl, profilePicture, feelings, image } = req.body;
 
     const result: UploadApiResponse = (await uploads(image)) as UploadApiResponse;
     if (!result?.public_id) {
-      throw new BadRequestError(result.message);
+      throw new BadRequestError(result?.message || 'Image upload failed');
     }
 
     const postObjectId: ObjectId = new ObjectId();
@@ -89,29 +126,53 @@ export class Create {
       createdAt: new Date(),
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;
-    socketIOPostObject.emit('add post', createdPost);
-    await postCache.savePostToCache({
+
+    // Emit socket event (non-blocking)
+    if (socketIOPostObject) {
+      socketIOPostObject.emit('add post', createdPost);
+    }
+
+    // Save to cache asynchronously (non-blocking) - don't await
+    postCache.savePostToCache({
       key: postObjectId,
       currentUserId: `${req.currentUser!.userId}`,
       uId: `${req.currentUser!.uId}`,
       createdPost
+    }).catch((cacheError) => {
+      log.warn('Failed to save post to cache (non-critical)', cacheError);
     });
-    
+
     // Save to database synchronously to ensure persistence
     try {
       await postService.addPostToDB(`${req.currentUser!.userId}`, createdPost);
+      log.info('Post with image saved to database successfully', { postId: postObjectId, userId: req.currentUser!.userId });
     } catch (error) {
-      log.error('Failed to save post synchronously, falling back to queue', error);
+      log.error('Failed to save post synchronously, falling back to queue', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        postId: postObjectId,
+        userId: req.currentUser!.userId
+      });
       postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
     }
-    
-    // call image queue to add image to mongodb database
 
-    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with image successfully'});
+    // Always send response
+    res.status(HTTP_STATUS.CREATED).json({
+      message: 'Post created with image successfully',
+      post: createdPost
+    });
   }
 
   @joiValidation(postWithVideoSchema)
   public async postWithVideo(req: Request, res: Response): Promise<void> {
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
     const { post, bgColor, privacy, gifUrl, profilePicture, feelings, video } = req.body;
 
     // Check if video is a base64-encoded URL and decode it, or use as-is if it's already a data URI or URL
@@ -155,22 +216,39 @@ export class Create {
       createdAt: new Date(),
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;
-    socketIOPostObject.emit('add post', createdPost);
-    await postCache.savePostToCache({
+
+    // Emit socket event (non-blocking)
+    if (socketIOPostObject) {
+      socketIOPostObject.emit('add post', createdPost);
+    }
+
+    // Save to cache asynchronously (non-blocking) - don't await
+    postCache.savePostToCache({
       key: postObjectId,
       currentUserId: `${req.currentUser!.userId}`,
       uId: `${req.currentUser!.uId}`,
       createdPost
+    }).catch((cacheError) => {
+      log.warn('Failed to save post to cache (non-critical)', cacheError);
     });
-    
+
     // Save to database synchronously to ensure persistence
     try {
       await postService.addPostToDB(`${req.currentUser!.userId}`, createdPost);
+      log.info('Post with video saved to database successfully', { postId: postObjectId, userId: req.currentUser!.userId });
     } catch (error) {
-      log.error('Failed to save post synchronously, falling back to queue', error);
+      log.error('Failed to save post synchronously, falling back to queue', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        postId: postObjectId,
+        userId: req.currentUser!.userId
+      });
       postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
     }
 
-    res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with video successfully'});
+    // Always send response
+    res.status(HTTP_STATUS.CREATED).json({
+      message: 'Post created with video successfully',
+      post: createdPost
+    });
   }
 }

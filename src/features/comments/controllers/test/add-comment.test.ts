@@ -32,7 +32,7 @@ describe('Add', () => {
         userTo: `${existingUser._id}`
       },
       authUserPayload
-    ) as Request;
+    ) as unknown as Request;
     const res: Response = reactionMockResponse();
     jest.spyOn(commentService, 'addCommentToDB').mockResolvedValue();
     jest.spyOn(CommentCache.prototype, 'savePostCommentToCache').mockResolvedValue();
@@ -41,7 +41,12 @@ describe('Add', () => {
     expect(commentService.addCommentToDB).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      message: 'Comment created successfully'
+      message: 'Comment created successfully',
+      comment: expect.objectContaining({
+        username: authUserPayload.username,
+        postId: '6027f77087c9d9ccb1555268',
+        comment: 'This is a comment'
+      })
     });
   });
 
@@ -55,7 +60,7 @@ describe('Add', () => {
         userTo: `${existingUser._id}`
       },
       authUserPayload
-    ) as Request;
+    ) as unknown as Request;
     const res: Response = reactionMockResponse();
     jest.spyOn(commentService, 'addCommentToDB').mockRejectedValue(new Error('Database error'));
     jest.spyOn(commentQueue, 'addCommentJob');
@@ -65,7 +70,12 @@ describe('Add', () => {
     expect(commentQueue.addCommentJob).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      message: 'Comment created successfully'
+      message: 'Comment created successfully',
+      comment: expect.objectContaining({
+        username: authUserPayload.username,
+        postId: '6027f77087c9d9ccb1555268',
+        comment: 'This is a comment'
+      })
     });
   });
 
@@ -79,13 +89,20 @@ describe('Add', () => {
         userTo: `${existingUser._id}`
       },
       authUserPayload
-    ) as Request;
+    ) as unknown as Request;
     const res: Response = reactionMockResponse();
+    jest.spyOn(commentService, 'addCommentToDB').mockResolvedValue();
+    jest.spyOn(CommentCache.prototype, 'savePostCommentToCache').mockResolvedValue();
 
     await Add.prototype.comment(req, res);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      message: 'Comment created successfully'
+      message: 'Comment created successfully',
+      comment: expect.objectContaining({
+        username: authUserPayload.username,
+        postId: '6027f77087c9d9ccb1555268',
+        comment: 'This is a comment'
+      })
     });
   });
 });

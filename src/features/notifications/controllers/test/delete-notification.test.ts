@@ -27,7 +27,7 @@ describe('Delete', () => {
   });
 
   it('should send correct json response', async () => {
-    const req: Request = notificationMockRequest({}, authUserPayload, { notificationId: '12345' }) as Request;
+    const req: Request = notificationMockRequest({}, authUserPayload, { notificationId: '12345' }) as unknown as Request;
     const res: Response = notificationMockResponse();
     jest.spyOn(notificationServer.socketIONotificationObject, 'emit');
     jest.spyOn(notificationQueue, 'addNotificationJob');

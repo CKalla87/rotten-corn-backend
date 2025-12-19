@@ -8,13 +8,20 @@ export const reactionMockRequest = (sessionData: IJWT, body: IBody, currentUser?
   session: sessionData,
   body,
   params,
-  currentUser
+  currentUser,
+  get: jest.fn((header: string) => {
+    if (header === 'origin') {
+      return undefined;
+    }
+    return undefined;
+  })
 });
 
 export const reactionMockResponse = (): Response => {
   const res: Response = {} as Response;
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.header = jest.fn().mockReturnValue(res);
   return res;
 };
 

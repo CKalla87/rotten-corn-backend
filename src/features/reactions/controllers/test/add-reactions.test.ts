@@ -51,9 +51,9 @@ describe('AddReaction', () => {
         }
       },
       authUserPayload
-    ) as Request;
+    ) as unknown as Request;
     const res: Response = reactionMockResponse();
-    jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache').mockResolvedValue(undefined);
+    jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache').mockResolvedValue();
     jest.spyOn(reactionService, 'addReactionDataToDB').mockResolvedValue();
     jest.spyOn(reactionQueue, 'addReactionJob');
 
@@ -70,7 +70,12 @@ describe('AddReaction', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      message: 'Reaction added successfully'
+      message: 'Reaction added successfully',
+      reaction: expect.objectContaining({
+        username: authUserPayload.username,
+        postId: '6027f77087c9d9ccb1555268',
+        type: 'like'
+      })
     });
   });
 
@@ -96,7 +101,7 @@ describe('AddReaction', () => {
       authUserPayload
     ) as unknown as Request;
     const res: Response = reactionMockResponse();
-    const cacheSpy = jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache').mockResolvedValue(undefined);
+    const cacheSpy = jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache').mockResolvedValue();
     const dbSpy = jest.spyOn(reactionService, 'addReactionDataToDB').mockResolvedValue();
 
     await Add.prototype.reaction(req, res);

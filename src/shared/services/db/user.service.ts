@@ -234,8 +234,11 @@ class UserService {
   }
 
   public async updateSocialLinks(userId: string, links: ISocialLinks): Promise<void> {
+    // Ensure userId is converted to ObjectId
+    const userIdObj = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
     await UserModel.updateOne(
-      { _id: userId },
+      { _id: userIdObj },
       {
         $set: { social: links }
       }
@@ -245,12 +248,17 @@ class UserService {
   }
 
   public async updateNotificationSettings(userId: string, settings: INotificationSettings): Promise<void> {
+    // Ensure userId is converted to ObjectId
+    const userIdObj = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
     await UserModel.updateOne(
-      { _id: userId },
+      { _id: userIdObj },
       {
         $set: { notifications: settings }
       }
-    ).exec();
+    )
+      .maxTimeMS(5000)
+      .exec();
   }
 
   private aggregateProject() {

@@ -24,7 +24,7 @@ describe('Get', () => {
     it('should send correct json response if comments exist in database', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: '6027f77087c9d9ccb1555268'
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       // Implementation always fetches from database (no cache)
       // Mock returns a mongoose-like document with toObject method
@@ -52,7 +52,7 @@ describe('Get', () => {
     it('should send correct json response from database (cache is skipped)', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: '6027f77087c9d9ccb1555268'
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(commentService, 'getPostCommentNames').mockResolvedValue([commentNames]);
 
@@ -71,7 +71,7 @@ describe('Get', () => {
     it('should send correct json response with empty comments if data does not exist', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: '6027f77087c9d9ccb1555268'
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(commentService, 'getPostCommentNames').mockResolvedValue([]);
 
@@ -90,7 +90,7 @@ describe('Get', () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         commentId: '6064861bc25eaa5a5d2f9bf4',
         postId: '6027f77087c9d9ccb1555268'
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
       jest.spyOn(commentService, 'getPostComments').mockResolvedValue([commentsData]);
 

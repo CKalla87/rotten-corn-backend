@@ -8,8 +8,20 @@ import { config } from '@root/config';
 
 class PostService {
   public async addPostToDB(userId: string, createdPost: IPostDocument): Promise<void> {
-    const post: Promise<IPostDocument> = PostModel.create(createdPost);
-    const user: UpdateQuery<IUserDocument> = UserModel.updateOne({ _id: userId }, { $inc: { postCount: 1 }});
+    // Ensure userId is converted to ObjectId for database operations
+    const userIdObj = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
+    // Create a copy of createdPost to avoid mutating the original
+    // Mongoose will handle ObjectId conversion automatically, but ensure _id is proper type
+    const postToCreate = { ...createdPost };
+
+    // Ensure _id is ObjectId if it exists and is a string
+    if (postToCreate._id && typeof postToCreate._id === 'string') {
+      (postToCreate as any)._id = new mongoose.Types.ObjectId(postToCreate._id);
+    }
+
+    const post: Promise<IPostDocument> = PostModel.create(postToCreate);
+    const user: Promise<any> = UserModel.updateOne({ _id: userIdObj }, { $inc: { postCount: 1 } }).maxTimeMS(5000).exec();
     await Promise.all([post, user]);
   }
 

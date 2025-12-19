@@ -19,11 +19,22 @@ class CommentService {
   public async addCommentToDB(commentData: ICommentJob): Promise<void> {
     const { postId, userTo, userFrom, username, comment } = commentData;
 
+    // Ensure postId is converted to ObjectId
+    const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
+
+    // Ensure comment.postId is ObjectId
+    const commentToCreate = { ...comment };
+    if (commentToCreate.postId && typeof commentToCreate.postId === 'string') {
+      (commentToCreate as any).postId = postIdObj;
+    } else if (!commentToCreate.postId) {
+      (commentToCreate as any).postId = postIdObj;
+    }
+
     // Save comment and update post in parallel for speed
     const [commentDoc, postDoc] = await Promise.all([
-      CommentsModel.create(comment),
+      CommentsModel.create(commentToCreate),
       PostModel.findOneAndUpdate(
-        { _id: postId },
+        { _id: postIdObj },
         { $inc: { commentsCount: 1 } },
         { new: true }
       ).maxTimeMS(5000).exec()

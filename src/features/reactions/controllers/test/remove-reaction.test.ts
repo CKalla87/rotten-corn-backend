@@ -33,9 +33,9 @@ describe('Remove', () => {
         sad: 0,
         angry: 0
       })
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = reactionMockResponse();
-    jest.spyOn(ReactionCache.prototype, 'removePostReactionFromCache');
+    jest.spyOn(ReactionCache.prototype, 'removePostReactionFromCache').mockResolvedValue();
     jest.spyOn(reactionService, 'removeReactionDataFromDB').mockResolvedValue();
     const spy = jest.spyOn(reactionQueue, 'addReactionJob');
 

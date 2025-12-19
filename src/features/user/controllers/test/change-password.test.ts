@@ -12,6 +12,12 @@ jest.useFakeTimers();
 jest.mock('@service/queues/base.queue');
 jest.mock('@service/queues/email.queue');
 jest.mock('@service/db/user.service');
+jest.mock('ip', () => ({
+  __esModule: true,
+  default: {
+    address: jest.fn(() => '127.0.0.1')
+  }
+}));
 
 describe('ChangePassword', () => {
   beforeEach(() => {

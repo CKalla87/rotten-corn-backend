@@ -39,7 +39,7 @@ describe('Create', () => {
       const req: Request = postMockRequest(newPost, authUserPayload) as unknown as Request;
       const res: Response = postMockResponse();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
-      const spy = jest.spyOn(PostCache.prototype, 'savePostToCache');
+      const spy = jest.spyOn(PostCache.prototype, 'savePostToCache').mockResolvedValue();
       jest.spyOn(postService, 'addPostToDB').mockResolvedValue();
       jest.spyOn(postQueue, 'addPostJob');
 
@@ -65,7 +65,8 @@ describe('Create', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({
-        message: 'Post created successfully'
+        message: 'Post created successfully',
+        post: createdPost
       });
     });
   });
@@ -101,7 +102,7 @@ describe('Create', () => {
       const req: Request = postMockRequest(newPost, authUserPayload) as unknown as Request;
       const res: Response = postMockResponse();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
-      const spy = jest.spyOn(PostCache.prototype, 'savePostToCache');
+      const spy = jest.spyOn(PostCache.prototype, 'savePostToCache').mockResolvedValue();
       jest.spyOn(postService, 'addPostToDB').mockResolvedValue();
       jest.spyOn(postQueue, 'addPostJob');
       jest.spyOn(cloudinaryUploads, 'uploads').mockImplementation((): any => Promise.resolve({ version: '1234', public_id: '123456' }));
@@ -128,7 +129,8 @@ describe('Create', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({
-        message: 'Post created with image successfully'
+        message: 'Post created with image successfully',
+        post: createdPost
       });
     });
   });

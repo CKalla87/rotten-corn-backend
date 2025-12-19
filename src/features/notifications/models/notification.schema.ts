@@ -35,21 +35,36 @@ notificationSchema.methods.insertNotification = async function(body: INotificati
     gifUrl
   } = body;
 
-  await NotificationModel.create({
+  // Check if a duplicate notification already exists to prevent duplicates
+  // Look for notifications with the same userTo, userFrom, notificationType, and entityId created in the last 5 seconds
+  // This prevents race conditions where multiple requests create the same notification
+  const fiveSecondsAgo = new Date(Date.now() - 5000);
+  const existingNotification = await NotificationModel.findOne({
     userTo,
     userFrom,
-    message,
     notificationType,
     entityId,
-    createdItemId,
-    createdAt,
-    comment,
-    reaction,
-    post,
-    imgId,
-    imgVersion,
-    gifUrl
-  });
+    createdAt: { $gte: fiveSecondsAgo }
+  }).maxTimeMS(2000);
+
+  // Only create if no duplicate exists within the last 5 seconds
+  if (!existingNotification) {
+    await NotificationModel.create({
+      userTo,
+      userFrom,
+      message,
+      notificationType,
+      entityId,
+      createdItemId,
+      createdAt,
+      comment,
+      reaction,
+      post,
+      imgId,
+      imgVersion,
+      gifUrl
+    });
+  }
 
   try {
     const { notificationService } = await import('@service/db/notification.service');
