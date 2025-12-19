@@ -115,15 +115,23 @@ export class Add {
       });
     }
 
+    // Convert senderId and receiverId to ObjectId for Mongoose schema compatibility
+    const senderIdObjectId = typeof req.currentUser!.userId === 'string'
+      ? new mongoose.Types.ObjectId(req.currentUser!.userId)
+      : req.currentUser!.userId;
+    const receiverIdObjectId = typeof receiverId === 'string'
+      ? new mongoose.Types.ObjectId(receiverId)
+      : receiverId;
+
     const messageData: IMessageData = {
       _id: `${messageObjectId}`,
       conversationId: conversationObjectId,
-      receiverId,
+      receiverId: receiverIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       receiverAvatarColor,
       receiverProfilePicture,
       receiverUsername,
       senderUsername: `${req.currentUser!.username}`,
-      senderId: `${req.currentUser!.userId}`,
+      senderId: senderIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       senderAvatarColor: `${req.currentUser!.avatarColor}`,
       senderProfilePicture: sender.profilePicture || req.currentUser!.avatarColor || '',
       body,

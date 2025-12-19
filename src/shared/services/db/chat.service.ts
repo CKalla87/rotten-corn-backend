@@ -12,15 +12,29 @@ class ChatService {
       _id: data.conversationId
     }).exec();
 
+    // Convert senderId and receiverId to ObjectId if they're strings
+    const senderIdObjectId = typeof data.senderId === 'string'
+      ? new mongoose.Types.ObjectId(data.senderId)
+      : data.senderId;
+    const receiverIdObjectId = typeof data.receiverId === 'string'
+      ? new mongoose.Types.ObjectId(data.receiverId)
+      : data.receiverId;
+
     if (!conversation.length) {
       await ConversationModel.create({
         _id: data.conversationId,
-        senderId: data.senderId,
-        receiverId: data.receiverId
+        senderId: senderIdObjectId,
+        receiverId: receiverIdObjectId
       });
     }
 
-    await MessageModel.create(data);
+    // Create message with ObjectId fields
+    const messageData = {
+      ...data,
+      senderId: senderIdObjectId,
+      receiverId: receiverIdObjectId
+    };
+    await MessageModel.create(messageData);
   }
 
   public async getUserConversationList(userId: mongoose.Types.ObjectId): Promise<IMessageData[]> {

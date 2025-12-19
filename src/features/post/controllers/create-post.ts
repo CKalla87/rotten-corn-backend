@@ -7,6 +7,7 @@ import HTTP_STATUS from 'http-status-codes';
 import { IPostDocument } from '@post/interfaces/post.interface';
 import { PostCache } from '@service/redis/post.cache';
 import { socketIOPostObject } from '@socket/post';
+import { connectedUsersMap } from '@socket/user';
 import { postQueue } from '@service/queues/post.queue';
 import { postService } from '@service/db/post.service';
 import { UploadApiResponse } from 'cloudinary';
@@ -57,9 +58,17 @@ export class Create {
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;
 
-    // Emit socket event (non-blocking)
+    // Emit socket event to all users EXCEPT the sender (non-blocking)
+    // The sender already receives the post in the HTTP response, so emitting to them would cause duplicates
     if (socketIOPostObject) {
-      socketIOPostObject.emit('add post', createdPost);
+      const senderSocketId = connectedUsersMap.get(`${req.currentUser!.userId}`);
+      if (senderSocketId) {
+        // Emit to all users except the sender
+        socketIOPostObject.except(senderSocketId).emit('add post', createdPost);
+      } else {
+        // If sender not in map, emit to all (fallback)
+        socketIOPostObject.emit('add post', createdPost);
+      }
     }
 
     // Save to cache asynchronously (non-blocking) - don't await
@@ -136,9 +145,17 @@ export class Create {
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;
 
-    // Emit socket event (non-blocking)
+    // Emit socket event to all users EXCEPT the sender (non-blocking)
+    // The sender already receives the post in the HTTP response, so emitting to them would cause duplicates
     if (socketIOPostObject) {
-      socketIOPostObject.emit('add post', createdPost);
+      const senderSocketId = connectedUsersMap.get(`${req.currentUser!.userId}`);
+      if (senderSocketId) {
+        // Emit to all users except the sender
+        socketIOPostObject.except(senderSocketId).emit('add post', createdPost);
+      } else {
+        // If sender not in map, emit to all (fallback)
+        socketIOPostObject.emit('add post', createdPost);
+      }
     }
 
     // Save to cache asynchronously (non-blocking) - don't await
@@ -230,9 +247,17 @@ export class Create {
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;
 
-    // Emit socket event (non-blocking)
+    // Emit socket event to all users EXCEPT the sender (non-blocking)
+    // The sender already receives the post in the HTTP response, so emitting to them would cause duplicates
     if (socketIOPostObject) {
-      socketIOPostObject.emit('add post', createdPost);
+      const senderSocketId = connectedUsersMap.get(`${req.currentUser!.userId}`);
+      if (senderSocketId) {
+        // Emit to all users except the sender
+        socketIOPostObject.except(senderSocketId).emit('add post', createdPost);
+      } else {
+        // If sender not in map, emit to all (fallback)
+        socketIOPostObject.emit('add post', createdPost);
+      }
     }
 
     // Save to cache asynchronously (non-blocking) - don't await
