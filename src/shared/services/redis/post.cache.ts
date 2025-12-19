@@ -108,7 +108,7 @@ export class PostCache extends BaseCache {
         postReplies.push(post);
       }
 
-      return [];
+      return postReplies;
     } catch (error) {
       log.error(error);
       throw new ServerError('Server error. Try again.');
