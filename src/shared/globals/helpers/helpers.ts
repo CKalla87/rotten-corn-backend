@@ -73,6 +73,10 @@ export class Helpers {
 
   /**
    * Generate a data URI for an initials avatar
+   * @param initials - User initials to display
+   * @param backgroundColor - Background color for the avatar
+   * @param textColor - Text color (default: white)
+   * @returns Data URI string for avatar image
    */
   static generateInitialsAvatar(initials: string, backgroundColor: string, textColor = '#FFFFFF'): string {
     const size = 200;
