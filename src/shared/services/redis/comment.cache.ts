@@ -31,8 +31,10 @@ export class CommentCache extends BaseCache {
         await this.client.EXPIRE(`comments:${postId}`, 120); // 2 minutes TTL
       }
     } catch (error) {
-      log.error(error);
-      throw new ServerError('Server error. Try again.');
+      // Log error but don't throw - cache failures shouldn't block comment creation
+      // The comment will still be saved to DB via the queue, and cache will be refreshed on next read
+      log.error('Failed to save comment to cache (non-fatal):', error);
+      // Don't throw - allow request to continue
     }
   }
 
