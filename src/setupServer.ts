@@ -46,22 +46,27 @@ export class RottenCornServer {
   private securityMiddleware(app: Application): void {
     // Parse cookies first (needed for JWT cookie fallback)
     app.use(cookieParser());
+    
+    // Determine if we're in local development
+    const isLocalDev = config.NODE_ENV === 'development' &&
+                       !config.EC2_URL &&
+                       !config.CLIENT_URL?.includes('chatappserver.space');
+    
     app.use(
       cookieSession({
         name: 'session',
         keys: [config.SECRET_KEY_ONE!, config.SECRET_KEY_TWO!],
-        maxAge: 24 * 7 * 360000,
-        secure: config.NODE_ENV !== 'development'
+        maxAge: 24 * 7 * 3600000, // 7 days in milliseconds (was missing a zero)
+        secure: !isLocalDev, // false for localhost, true for deployed
+        sameSite: isLocalDev ? 'lax' : 'none', // lax for localhost, none for cross-site
+        httpOnly: true
       })
     );
     // Initialize Passport middleware (required for OAuth)
     app.use(passport.initialize());
     app.use(hpp());
     app.use(helmet());
-    // CORS configuration - allow localhost for local development
-    const isLocalDev = config.NODE_ENV === 'development' &&
-                       !config.EC2_URL &&
-                       !config.CLIENT_URL?.includes('chatappserver.space');
+    // CORS configuration - allow localhost for local development (reuse isLocalDev)
     
     const corsOptions = {
       origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {

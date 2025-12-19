@@ -37,7 +37,12 @@ export class SignIn {
       config.JWT_TOKEN!
     );
 
-    req.session = { jwt: userJwt };
+    // Set session - cookie-session middleware will handle persisting this
+    // We need to modify the existing session object, not replace it
+    if (!req.session) {
+      (req as any).session = {};
+    }
+    (req.session as any).jwt = userJwt;
     
     // ALSO set a regular cookie with the JWT as a fallback
     // Deployed environments are: 'develop', 'staging', 'production'

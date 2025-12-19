@@ -9,12 +9,20 @@ export class AuthMiddleware {
     // Check session first, then fall back to cookie
     let token = req.session?.jwt;
     
-    // Debug: log what we have
+    // If no token in session, try to get from cookies
     if (!token) {
-      // Try to get from cookies
-      if (req.cookies && typeof req.cookies === 'object' && 'jwt' in req.cookies) {
-        token = req.cookies.jwt;
-        // Also set it in session for consistency
+      // Try to get from cookies - handle both req.cookies (cookie-parser) and direct access
+      if (req.cookies) {
+        if (typeof req.cookies === 'object' && 'jwt' in req.cookies) {
+          token = req.cookies.jwt;
+        } else if (typeof req.cookies.get === 'function') {
+          // Some cookie parsers use .get() method
+          token = req.cookies.get('jwt');
+        }
+      }
+      
+      // If we found token in cookie, set it in session for consistency
+      if (token) {
         if (!req.session) {
           (req as any).session = {};
         }
