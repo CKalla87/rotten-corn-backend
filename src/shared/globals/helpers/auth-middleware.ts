@@ -12,8 +12,8 @@ export class AuthMiddleware {
     // Check session first, then fall back to cookie, then Authorization header
     let token = req.session?.jwt;
 
-    // Debug logging - use info level so it shows up in logs
-    log.info('verifyUser called', {
+    // Debug logging - use error level so it shows up in logs (logger is set to 'warn' in development)
+    log.error('verifyUser called', {
       hasSession: !!req.session,
       hasSessionJwt: !!req.session?.jwt,
       hasCookies: !!req.cookies,
@@ -31,11 +31,11 @@ export class AuthMiddleware {
       if (req.cookies) {
         if (typeof req.cookies === 'object' && 'jwt' in req.cookies) {
           token = req.cookies.jwt;
-          log.debug('Found token in req.cookies.jwt');
+          log.warn('Found token in req.cookies.jwt');
         } else if (typeof req.cookies.get === 'function') {
           // Some cookie parsers use .get() method
           token = req.cookies.get('jwt');
-          log.debug('Found token via req.cookies.get()');
+          log.warn('Found token via req.cookies.get()');
         }
       }
 
@@ -45,7 +45,7 @@ export class AuthMiddleware {
           (req as any).session = {};
         }
         (req.session as any).jwt = token;
-        log.debug('Set token in session from cookie');
+        log.warn('Set token in session from cookie');
       }
     }
 
@@ -57,7 +57,7 @@ export class AuthMiddleware {
         const headerValue = typeof authHeader === 'string' ? authHeader : authHeader[0];
         if (headerValue && headerValue.startsWith('Bearer ')) {
           token = headerValue.substring(7).trim();
-          log.debug('Found token in Authorization header', { tokenLength: token.length });
+          log.warn('Found token in Authorization header', { tokenLength: token.length });
           // Also set it in session for consistency
           if (!req.session) {
             (req as any).session = {};
@@ -66,7 +66,7 @@ export class AuthMiddleware {
         } else if (headerValue && !headerValue.startsWith('Bearer ')) {
           // Token might be sent without "Bearer " prefix
           token = headerValue.trim();
-          log.debug('Found token in Authorization header without Bearer prefix', { tokenLength: token.length });
+          log.warn('Found token in Authorization header without Bearer prefix', { tokenLength: token.length });
           if (!req.session) {
             (req as any).session = {};
           }
@@ -76,11 +76,14 @@ export class AuthMiddleware {
     }
 
     if (!token) {
-      log.warn('No token found in session, cookies, or Authorization header', {
+      log.error('No token found in session, cookies, or Authorization header', {
         hasSession: !!req.session,
         hasCookies: !!req.cookies,
         cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
-        hasAuthHeader: !!req.headers.authorization
+        hasAuthHeader: !!(req.headers.authorization || req.headers.Authorization),
+        authHeaderValue: req.headers.authorization || req.headers.Authorization || 'none',
+        url: req.url,
+        method: req.method
       });
       throw new NotAuthorizedError('Token is not available. Please login again');
     }
@@ -88,10 +91,12 @@ export class AuthMiddleware {
     try {
       const payload: AuthPayload = JWT.verify(token, config.JWT_TOKEN!) as AuthPayload;
       req.currentUser = payload;
-      log.debug('Token verified successfully', { userId: payload.userId });
+      log.warn('Token verified successfully', { userId: payload.userId });
     } catch (error) {
-      log.warn('Token verification failed', {
-        error: error instanceof Error ? error.message : 'Unknown error'
+      log.error('Token verification failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        tokenLength: token.length,
+        tokenPrefix: token.substring(0, 20)
       });
       throw new NotAuthorizedError('Token is invalid, Please login again.');
     }
