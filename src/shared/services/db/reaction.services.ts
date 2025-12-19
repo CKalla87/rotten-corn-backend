@@ -12,6 +12,7 @@ import { notificationTemplate } from '@service/emails/templates/notifications/no
 import { emailQueue } from '@service/queues/email.queue';
 import { omit } from 'lodash';
 import mongoose from 'mongoose';
+import { config } from '@root/config';
 
 const userCache: UserCache = new UserCache();
 
@@ -97,24 +98,63 @@ class ReactionService {
   }
 
   public async getPostReactions(query: IQueryReaction, sort: Record<string, 1 | -1>): Promise<[IReactionDocument[], number]> {
-    const reactions: IReactionDocument[] = await ReactionModel.aggregate([
-      { $match: query },
-      { $sort: sort }
-    ]);
+    // Use find() instead of aggregate - much faster with indexes
+    const reactions: IReactionDocument[] = await ReactionModel.find(query)
+      .sort(sort)
+      .lean()
+      .maxTimeMS(5000)
+      .exec() as IReactionDocument[];
+
+    // Normalize profile picture URLs to fix Cloudinary cloud name issues
+    reactions.forEach((reaction) => {
+      if (reaction.profilePicture && Helpers.isCloudinaryUrl(reaction.profilePicture)) {
+        const urlParts = reaction.profilePicture.split('/');
+        const versionIndex = urlParts.findIndex((part: string) => part.startsWith('v'));
+        if (versionIndex !== -1 && versionIndex < urlParts.length - 1) {
+          const version = urlParts[versionIndex];
+          const publicId = urlParts[versionIndex + 1];
+          reaction.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
+        }
+      }
+    });
+
     return [reactions, reactions.length];
   }
 
   public async getSinglePostReactionByUsername(postId: string, username: string): Promise<[IReactionDocument, number] | []> {
-    const reactions: IReactionDocument[] = await ReactionModel.aggregate([
-      { $match:  { postId: new mongoose.Types.ObjectId(postId), username: Helpers.firstLetterUppercase(username) } },
-    ]);
-    return reactions.length ? [reactions[0], 1] : [];
+    // Use findOne() instead of aggregate - much faster with compound index
+    const reaction: IReactionDocument | null = await ReactionModel.findOne({
+      postId: new mongoose.Types.ObjectId(postId),
+      username: Helpers.firstLetterUppercase(username)
+    })
+      .lean()
+      .maxTimeMS(5000)
+      .exec() as IReactionDocument | null;
+
+    if (reaction) {
+      // Normalize profile picture URL to fix Cloudinary cloud name issues
+      if (reaction.profilePicture && Helpers.isCloudinaryUrl(reaction.profilePicture)) {
+        const urlParts = reaction.profilePicture.split('/');
+        const versionIndex = urlParts.findIndex((part: string) => part.startsWith('v'));
+        if (versionIndex !== -1 && versionIndex < urlParts.length - 1) {
+          const version = urlParts[versionIndex];
+          const publicId = urlParts[versionIndex + 1];
+          reaction.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
+        }
+      }
+      return [reaction, 1];
+    }
+    return [];
   }
 
   public async getReactionsByUsername(username: string): Promise<IReactionDocument[]> {
-    const reactions: IReactionDocument[] = await ReactionModel.aggregate([
-      { $match:  { username: Helpers.firstLetterUppercase(username) } },
-    ]);
+    // Use find() instead of aggregate - much faster with index
+    const reactions: IReactionDocument[] = await ReactionModel.find({
+      username: Helpers.firstLetterUppercase(username)
+    })
+      .lean()
+      .maxTimeMS(5000)
+      .exec() as IReactionDocument[];
     return reactions;
   }
 }

@@ -79,34 +79,12 @@ describe('Get', () => {
   });
 
   describe('singleReactionByUsername', () => {
-    it('should send correct json response if reactions exist in cache', async () => {
-      const req: Request = reactionMockRequest({}, {}, authUserPayload, {
-        postId: `${postMockData._id}`,
-        username: postMockData.username
-      }) as Request;
-      const res: Response = reactionMockResponse();
-      jest.spyOn(ReactionCache.prototype, 'getSingleReactionByUsernameFromCache').mockResolvedValue([reactionData, 1]);
-
-      await Get.prototype.singleReactionByUsername(req, res);
-      expect(ReactionCache.prototype.getSingleReactionByUsernameFromCache).toHaveBeenCalledWith(
-        `${postMockData._id}`,
-        postMockData.username
-      );
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Single post reaction by username',
-        reactions: reactionData,
-        count: 1
-      });
-    });
-
     it('should send correct json response if reactions exist in database', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: `${postMockData._id}`,
         username: postMockData.username
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
-      jest.spyOn(ReactionCache.prototype, 'getSingleReactionByUsernameFromCache').mockResolvedValue([]);
       jest.spyOn(reactionService, 'getSinglePostReactionByUsername').mockResolvedValue([reactionData, 1]);
 
       await Get.prototype.singleReactionByUsername(req, res);
@@ -123,12 +101,12 @@ describe('Get', () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: `${postMockData._id}`,
         username: postMockData.username
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = reactionMockResponse();
-      jest.spyOn(ReactionCache.prototype, 'getSingleReactionByUsernameFromCache').mockResolvedValue([]);
       jest.spyOn(reactionService, 'getSinglePostReactionByUsername').mockResolvedValue([]);
 
       await Get.prototype.singleReactionByUsername(req, res);
+      expect(reactionService.getSinglePostReactionByUsername).toHaveBeenCalledWith(`${postMockData._id}`, postMockData.username);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Single post reaction by username',

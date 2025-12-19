@@ -8,6 +8,7 @@ import { ReactionCache } from '@service/redis/reaction.cache';
 import { reactionQueue } from '@service/queues/reaction.queue';
 import { reactionService } from '@service/db/reaction.services';
 import { config } from '@root/config';
+import { Helpers } from '@global/helpers/helpers';
 import Logger from 'bunyan';
 
 const log: Logger = config.createLogger('addReaction');
@@ -18,13 +19,28 @@ export class Add {
   @joiValidation(addReactionSchema)
   public async reaction(req: Request, response: Response): Promise<void> {
     const { userTo, postId, type, previousReaction, postReactions, profilePicture } = req.body;
+
+    // Normalize profile picture URL to ensure correct Cloudinary cloud name
+    let normalizedProfilePicture = profilePicture;
+    if (profilePicture && Helpers.isCloudinaryUrl(profilePicture)) {
+      // Extract version and public_id from URL
+      const urlParts = profilePicture.split('/');
+      const versionIndex = urlParts.findIndex((part: string) => part.startsWith('v'));
+      if (versionIndex !== -1 && versionIndex < urlParts.length - 1) {
+        const version = urlParts[versionIndex];
+        const publicId = urlParts[versionIndex + 1];
+        // Rebuild URL with correct cloud name
+        normalizedProfilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
+      }
+    }
+
     const reactionObject: IReactionDocument = {
       _id: new ObjectId(),
       postId,
       type,
       avatarColor: req.currentUser!.avatarColor,
       username: req.currentUser!.username,
-      profilePicture
+      profilePicture: normalizedProfilePicture
     } as unknown as IReactionDocument;
 
     await reactionCache.savePostReactionToCache(postId, reactionObject, postReactions, type, previousReaction);
@@ -38,7 +54,7 @@ export class Add {
       previousReaction,
       reactionObject
     };
-    
+
     // Save to database synchronously to ensure persistence
     // This ensures reactions are immediately available after refresh, even if Redis cache is cleared
     try {
@@ -48,7 +64,7 @@ export class Add {
       log.error('Failed to save reaction synchronously, falling back to queue', error);
     reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
     }
-    
+
     response.status(HTTP_STATUS.OK).json({ message: 'Reaction added successfully'});
   }
 }
