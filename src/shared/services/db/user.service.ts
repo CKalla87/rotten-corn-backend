@@ -10,40 +10,46 @@ class UserService {
   }
 
   public async getUserById(userId: string): Promise<IUserDocument> {
+    // Optimize single user lookup - use lean() for faster queries when possible
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(userId)}},
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
       { $unwind: '$authId'},
-      { $project: this.aggregateProject()}
+      { $project: this.aggregateProject()},
+      { $limit: 1 } // Limit to 1 since we're getting a single user
     ]);
     return users[0];
   }
 
   public async getUserByAuthId(authId: string): Promise<IUserDocument> {
+    // Optimize single user lookup
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { authId: new mongoose.Types.ObjectId(authId)}},
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
       { $unwind: '$authId'},
-      { $project: this.aggregateProject()}
+      { $project: this.aggregateProject()},
+      { $limit: 1 } // Limit to 1 since we're getting a single user
     ]);
     return users[0];
   }
 
   public async getAllUsers(userId: string, skip: number, limit: number): Promise<IUserDocument[]> {
+    // Optimize aggregation with allowDiskUse for large datasets
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
+      { $sort: { createdAt: -1 } }, // Sort before skip/limit for better performance
       { $skip: skip },
       { $limit: limit },
-      { $sort: { createdAt: -1 } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
-    ]);
+    ]).allowDiskUse(true);
     return users;
   }
 
   public async getRandomUsers(userId: string): Promise<IUserDocument[]> {
     const randomUsers: IUserDocument[] = [];
+    // Optimize with allowDiskUse for large user collections
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
@@ -64,7 +70,7 @@ class UserService {
           __v: 0
         }
       }
-    ]);
+    ]).allowDiskUse(true);
     const followers: string[] = await followerService.getFolloweesIds(`${userId}`);
     for (const user of users) {
       const followerIndex = followers.indexOf(user._id.toString());
@@ -103,7 +109,8 @@ class UserService {
       }
     });
 
-    const users = await AuthModel.aggregate(pipeline);
+    // Optimize with allowDiskUse for performance
+    const users = await AuthModel.aggregate(pipeline).allowDiskUse(true);
     return users;
   }
 

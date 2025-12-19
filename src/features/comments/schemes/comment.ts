@@ -11,6 +11,7 @@ const addCommentSchema: ObjectSchema = Joi.object().keys({
     'any.required': 'comment is a required property'
   }),
   profilePicture: Joi.string().optional().allow(null, ''),
+  gifUrl: Joi.string().optional().allow(null, ''),
   commentsCount: Joi.number().optional().allow(null, '')
 });
 

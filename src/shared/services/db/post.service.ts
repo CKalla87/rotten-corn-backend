@@ -20,11 +20,34 @@ class PostService {
     } else {
       postQuery = query;
     }
+    // Optimize aggregation with indexes and limit fields for faster queries
     const posts: IPostDocument[] = await PostModel.aggregate([
       { $match: postQuery },
       { $sort: sort },
       { $skip: skip },
-      { $limit: limit }
+      { $limit: limit },
+      // Add projection to only fetch needed fields (reduces data transfer)
+      {
+        $project: {
+          userId: 1,
+          username: 1,
+          email: 1,
+          avatarColor: 1,
+          profilePicture: 1,
+          post: 1,
+          bgColor: 1,
+          imgVersion: 1,
+          imgId: 1,
+          videoVersion: 1,
+          videoId: 1,
+          feelings: 1,
+          gifUrl: 1,
+          privacy: 1,
+          commentsCount: 1,
+          reactions: 1,
+          createdAt: 1
+        }
+      }
     ]);
     return posts;
   }

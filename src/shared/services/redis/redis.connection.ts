@@ -13,7 +13,11 @@ class RedisConnection extends BaseCache {
     try {
       await this.client.connect();
       const res = await this.client.ping();
-      console.log(res, 'redis');
+      // Only log in local development (not in hosted environments for performance)
+      const isLocal = config.NODE_ENV === 'local' || !config.NODE_ENV;
+      if (isLocal) {
+        log.info(res, 'redis');
+      }
     } catch (error) {
       log.error(error);
     }

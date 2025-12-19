@@ -8,8 +8,19 @@ const log: Logger = config.createLogger('setupDatabase');
 export default () => {
   const connect = () => {
     mongoose.set('strictQuery', false);
+
+    // Optimize MongoDB connection for hosted environments
+    const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+    const connectionOptions = isHostedEnv ? {
+      maxPoolSize: 10, // Maximum number of connections in the pool
+      minPoolSize: 5, // Minimum number of connections to maintain
+      serverSelectionTimeoutMS: 5000, // Timeout for server selection (5 seconds)
+      socketTimeoutMS: 45000, // Socket timeout (45 seconds)
+      connectTimeoutMS: 10000, // Connection timeout (10 seconds)
+    } : {};
+
     mongoose
-      .connect(`${config.DATABASE_URL}`)
+      .connect(`${config.DATABASE_URL}`, connectionOptions)
       .then(() => {
         log.info('Successfully connected to database.');
         redisConnection.connect();
