@@ -24,7 +24,7 @@ class ChatService {
   }
 
   public async getUserConversationList(userId: mongoose.Types.ObjectId): Promise<IMessageData[]> {
-    // Optimized aggregation with proper indexes and projection
+    // Optimized aggregation with proper indexes, projection, and timeout
     const messages: IMessageData[] = await MessageModel.aggregate([
       {
         $match: {
@@ -60,7 +60,7 @@ class ChatService {
         }
       },
       { $sort: { createdAt: -1 } }
-    ]).allowDiskUse(true); // Allow disk use for large result sets
+    ], { allowDiskUse: true, maxTimeMS: 5000 }); // Add timeout to prevent hanging
 
     return messages;
   }
@@ -72,7 +72,7 @@ class ChatService {
         { senderId: receiverId, receiverId: senderId }
       ]
     };
-    // Optimize with projection and allowDiskUse for large conversations
+    // Optimize with projection, allowDiskUse, and timeout for large conversations
     const messages: IMessageData[] = await MessageModel.aggregate([
       { $match: query },
       { $sort: { createdAt: 1 } },
@@ -97,7 +97,7 @@ class ChatService {
           deleteForEveryone: 1
         }
       }
-    ]).allowDiskUse(true);
+    ], { allowDiskUse: true, maxTimeMS: 5000 }); // Add timeout to prevent hanging
     return messages;
   }
 

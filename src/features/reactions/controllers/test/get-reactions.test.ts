@@ -22,29 +22,11 @@ describe('Get', () => {
   });
 
   describe('reactions', () => {
-    it('should send correct json response if reactions exist in cache', async () => {
+    it('should send correct json response from database (cache is skipped)', async () => {
       const req: Request = reactionMockRequest({}, {}, authUserPayload, {
         postId: `${postMockData._id}`
       }) as Request;
       const res: Response = reactionMockResponse();
-      jest.spyOn(ReactionCache.prototype, 'getReactionsFromCache').mockResolvedValue([[reactionData], 1]);
-
-      await Get.prototype.reactions(req, res);
-      expect(ReactionCache.prototype.getReactionsFromCache).toHaveBeenCalledWith(`${postMockData._id}`);
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Post reactions',
-        reactions: [reactionData],
-        count: 1
-      });
-    });
-
-    it('should send correct json response if reactions exist in database', async () => {
-      const req: Request = reactionMockRequest({}, {}, authUserPayload, {
-        postId: `${postMockData._id}`
-      }) as Request;
-      const res: Response = reactionMockResponse();
-      jest.spyOn(ReactionCache.prototype, 'getReactionsFromCache').mockResolvedValue([[], 0]);
       jest.spyOn(reactionService, 'getPostReactions').mockResolvedValue([[reactionData], 1]);
 
       await Get.prototype.reactions(req, res);
@@ -65,10 +47,10 @@ describe('Get', () => {
         postId: `${postMockData._id}`
       }) as Request;
       const res: Response = reactionMockResponse();
-      jest.spyOn(ReactionCache.prototype, 'getReactionsFromCache').mockResolvedValue([[], 0]);
       jest.spyOn(reactionService, 'getPostReactions').mockResolvedValue([[], 0]);
 
       await Get.prototype.reactions(req, res);
+      expect(reactionService.getPostReactions).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Post reactions',

@@ -84,7 +84,12 @@ describe('Get', () => {
 
       await Get.prototype.profileAndPosts(req, res);
       expect(userService.getUserById).toHaveBeenCalledWith(existingUser._id);
-      expect(postService.getPosts).toHaveBeenCalledWith({ username: userName }, 0, 100, { createdAt: -1 });
+      expect(postService.getPosts).toHaveBeenCalledWith(
+        { userId: new mongoose.Types.ObjectId(existingUser._id) },
+        0,
+        100,
+        { createdAt: -1 }
+      );
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Get user profile and posts',

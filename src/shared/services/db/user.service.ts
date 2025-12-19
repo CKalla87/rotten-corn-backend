@@ -228,7 +228,9 @@ class UserService {
           location: info['location']
         }
       }
-    ).exec();
+    )
+      .maxTimeMS(5000)
+      .exec();
   }
 
   public async updateSocialLinks(userId: string, links: ISocialLinks): Promise<void> {
@@ -237,7 +239,9 @@ class UserService {
       {
         $set: { social: links }
       }
-    ).exec();
+    )
+      .maxTimeMS(5000)
+      .exec();
   }
 
   public async updateNotificationSettings(userId: string, settings: INotificationSettings): Promise<void> {

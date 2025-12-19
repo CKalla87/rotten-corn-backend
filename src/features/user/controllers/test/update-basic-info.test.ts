@@ -5,11 +5,13 @@ import * as userServer from '@socket/user';
 import { Edit } from '@user/controllers/update-basic-info';
 import { UserCache } from '@service/redis/user.cache';
 import { userQueue } from '@service/queues/user.queue';
+import { userService } from '@service/db/user.service';
 
 jest.useFakeTimers();
 jest.mock('@service/queues/base.queue');
 jest.mock('@socket/user');
 jest.mock('@service/redis/user.cache');
+jest.mock('@service/db/user.service');
 
 Object.defineProperties(userServer, {
   socketIOUserObject: {
@@ -29,7 +31,7 @@ describe('EditBasicInfo', () => {
   });
 
   describe('info', () => {
-    it('should call updateSingleUserItemInCache', async () => {
+    it('should call updateUserInfo to save to database first', async () => {
       const basicInfo = {
         quote: 'This is cool',
         work: 'KickChat Inc.',
@@ -38,19 +40,18 @@ describe('EditBasicInfo', () => {
       };
       const req: Request = authMockRequest({}, basicInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
-      jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache');
+      jest.spyOn(userService, 'updateUserInfo').mockResolvedValue();
+      jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache').mockResolvedValue(null);
 
       await Edit.prototype.info(req, res);
-      for (const [key, value] of Object.entries(req.body)) {
-        expect(UserCache.prototype.updateSingleUserItemInCache).toHaveBeenCalledWith(`${req.currentUser?.userId}`, key, `${value}`);
-      }
+      expect(userService.updateUserInfo).toHaveBeenCalledWith(`${req.currentUser?.userId}`, req.body);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Updated successfully'
       });
     });
 
-    it('should call updateBasicInfoInDB', async () => {
+    it('should fallback to queue if database save fails', async () => {
       const basicInfo = {
         quote: 'This is cool',
         work: 'KickChat Inc.',
@@ -59,9 +60,11 @@ describe('EditBasicInfo', () => {
       };
       const req: Request = authMockRequest({}, basicInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
+      jest.spyOn(userService, 'updateUserInfo').mockRejectedValue(new Error('Database error'));
       jest.spyOn(userQueue, 'addUserJob');
 
       await Edit.prototype.info(req, res);
+      expect(userService.updateUserInfo).toHaveBeenCalledWith(`${req.currentUser?.userId}`, req.body);
       expect(userQueue.addUserJob).toHaveBeenCalledWith('updateBasicInfoInDB', {
         key: `${req.currentUser?.userId}`,
         value: req.body
@@ -74,7 +77,7 @@ describe('EditBasicInfo', () => {
   });
 
   describe('social', () => {
-    it('should call updateSingleUserItemInCache', async () => {
+    it('should call updateSocialLinks to save to database first', async () => {
       const socialInfo = {
         facebook: 'https://facebook.com/tester',
         instagram: 'https://instagram.com',
@@ -83,17 +86,18 @@ describe('EditBasicInfo', () => {
       };
       const req: Request = authMockRequest({}, socialInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
-      jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache');
+      jest.spyOn(userService, 'updateSocialLinks').mockResolvedValue();
+      jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache').mockResolvedValue(null);
 
       await Edit.prototype.social(req, res);
-      expect(UserCache.prototype.updateSingleUserItemInCache).toHaveBeenCalledWith(`${req.currentUser?.userId}`, 'social', req.body);
+      expect(userService.updateSocialLinks).toHaveBeenCalledWith(`${req.currentUser?.userId}`, req.body);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Updated successfully'
       });
     });
 
-    it('should call updateSocialLinksInDB', async () => {
+    it('should fallback to queue if database save fails', async () => {
       const socialInfo = {
         facebook: 'https://facebook.com/tester',
         instagram: 'https://instagram.com',
@@ -102,9 +106,11 @@ describe('EditBasicInfo', () => {
       };
       const req: Request = authMockRequest({}, socialInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
+      jest.spyOn(userService, 'updateSocialLinks').mockRejectedValue(new Error('Database error'));
       jest.spyOn(userQueue, 'addUserJob');
 
       await Edit.prototype.social(req, res);
+      expect(userService.updateSocialLinks).toHaveBeenCalledWith(`${req.currentUser?.userId}`, req.body);
       expect(userQueue.addUserJob).toHaveBeenCalledWith('updateSocialLinksInDB', {
         key: `${req.currentUser?.userId}`,
         value: req.body

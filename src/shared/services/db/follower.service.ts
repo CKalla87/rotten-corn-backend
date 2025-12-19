@@ -16,31 +16,44 @@ class FollowerService {
     const followeeObjectId: ObjectId = new mongoose.Types.ObjectId(followeeId);
     const followerObjectId: ObjectId = new mongoose.Types.ObjectId(userId);
 
-    await FollowerModel.create({
-      _id: followerDocumentId,
-      followeeId: followeeObjectId,
-      followerId: followerObjectId
-    });
+    // Create follower relationship and update user counts in parallel for speed
+    const [followerDoc, usersResult] = await Promise.all([
+      FollowerModel.create({
+        _id: followerDocumentId,
+        followeeId: followeeObjectId,
+        followerId: followerObjectId
+      }),
+      UserModel.bulkWrite([
+        {
+          updateOne: {
+            filter: { _id: followerObjectId },
+            update: { $inc: { followingCount: 1 } }
+          }
+        },
+        {
+          updateOne: {
+            filter: { _id: followeeObjectId },
+            update: { $inc: { followersCount: 1 } }
+          }
+        }
+      ], { maxTimeMS: 5000 })
+    ]);
 
-    const users: Promise<BulkWriteResult> = UserModel.bulkWrite([
-      {
-        updateOne: {
-          filter: { _id: followerObjectId },
-          update: { $inc: { followingCount: 1 } }
-        }
-      },
-      {
-        updateOne: {
-          filter: { _id: followeeObjectId },
-          update: { $inc: { followersCount: 1 } }
-        }
+    // Get followee user data only if needed for notifications (with timeout)
+    let followeeUser: IUserDocument | null = null;
+    if (userId !== followeeId) {
+      try {
+        followeeUser = await UserModel.findOne({ _id: followeeObjectId })
+          .maxTimeMS(3000)
+          .lean()
+          .exec() as IUserDocument | null;
+      } catch (error) {
+        // If user lookup fails, continue without notification
+        followeeUser = null;
       }
-    ]);
+    }
 
-    const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([
-      users,
-      UserModel.findOne({ _id: followeeObjectId })
-    ]);
+    const response: [BulkWriteResult, IUserDocument | null] = [usersResult, followeeUser];
 
     if (response[1]?.notifications?.follows && userId !== followeeId) {
       const notificationModel: INotificationDocument = new NotificationModel();
@@ -81,27 +94,27 @@ class FollowerService {
     const followeeObjectId: ObjectId = new mongoose.Types.ObjectId(followeeId);
     const followerObjectId: ObjectId = new mongoose.Types.ObjectId(followerId);
 
-    await FollowerModel.deleteOne({
-      followeeId: followeeObjectId,
-      followerId: followerObjectId
-    });
-
-    const users: Promise<BulkWriteResult> = UserModel.bulkWrite([
-      {
-        updateOne: {
-          filter: { _id: followeeObjectId },
-          update: { $inc: { followersCount: -1 } }
+    // Delete follower relationship and update user counts in parallel for speed
+    await Promise.all([
+      FollowerModel.deleteOne({
+        followeeId: followeeObjectId,
+        followerId: followerObjectId
+      }).maxTimeMS(5000).exec(),
+      UserModel.bulkWrite([
+        {
+          updateOne: {
+            filter: { _id: followeeObjectId },
+            update: { $inc: { followersCount: -1 } }
+          }
+        },
+        {
+          updateOne: {
+            filter: { _id: followerObjectId },
+            update: { $inc: { followingCount: -1 } }
+          }
         }
-      },
-      {
-        updateOne: {
-          filter: { _id: followerObjectId },
-          update: { $inc: { followingCount: -1 } }
-        }
-      }
+      ], { maxTimeMS: 5000 })
     ]);
-
-    await Promise.all([users, UserModel.findOne({ _id: followeeObjectId })]);
   }
 
   public async getFolloweeData(userObjectId: ObjectId): Promise<IFollowerData[]> {
@@ -121,7 +134,9 @@ class FollowerService {
         return [];
       }
 
-      const followeeIds = followers.map((f: any) => f.followeeId);
+      // Remove duplicates by converting to Set (using string IDs for comparison)
+      const uniqueFolloweeIds = Array.from(new Set(followers.map((f: any) => f.followeeId.toString())));
+      const followeeIds = uniqueFolloweeIds.map(id => new mongoose.Types.ObjectId(id));
 
       // Step 2: Get users (with authId reference)
       // _id queries are automatically indexed, no hint needed
@@ -151,10 +166,10 @@ class FollowerService {
       const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
       const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
 
-      // Step 5: Combine data
-      return followeeIds
-        .map((followeeId: any) => {
-          const user = userMap.get(followeeId.toString());
+      // Step 5: Combine data - iterate over unique followeeIds to prevent duplicates
+      const followeeDataList = uniqueFolloweeIds
+        .map((followeeIdStr: string) => {
+          const user = userMap.get(followeeIdStr);
           if (!user) return null;
 
           const auth = authMap.get(user.authId?.toString() || '');
@@ -173,6 +188,17 @@ class FollowerService {
           } as IFollowerData;
         })
         .filter((f): f is IFollowerData => f !== null);
+
+      // Additional deduplication by _id as a safety measure
+      const uniqueFollowees = new Map<string, IFollowerData>();
+      followeeDataList.forEach((followee: IFollowerData) => {
+        const id = followee._id?.toString() || '';
+        if (id && !uniqueFollowees.has(id)) {
+          uniqueFollowees.set(id, followee);
+        }
+      });
+
+      return Array.from(uniqueFollowees.values());
     } catch (error) {
       // If parallel approach fails, return empty array to prevent 503
       return [];
@@ -196,7 +222,9 @@ class FollowerService {
         return [];
       }
 
-      const followerIds = followers.map((f: any) => f.followerId);
+      // Remove duplicates by converting to Set (using string IDs for comparison)
+      const uniqueFollowerIds = Array.from(new Set(followers.map((f: any) => f.followerId.toString())));
+      const followerIds = uniqueFollowerIds.map(id => new mongoose.Types.ObjectId(id));
 
       // Step 2: Get users (with authId reference)
       // _id queries are automatically indexed
@@ -226,10 +254,10 @@ class FollowerService {
       const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
       const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
 
-      // Step 5: Combine data
-      return followerIds
-        .map((followerId: any) => {
-          const user = userMap.get(followerId.toString());
+      // Step 5: Combine data - iterate over unique followerIds to prevent duplicates
+      const followerDataList = uniqueFollowerIds
+        .map((followerIdStr: string) => {
+          const user = userMap.get(followerIdStr);
           if (!user) return null;
 
           const auth = authMap.get(user.authId?.toString() || '');
@@ -248,6 +276,17 @@ class FollowerService {
           } as IFollowerData;
         })
         .filter((f): f is IFollowerData => f !== null);
+
+      // Additional deduplication by _id as a safety measure
+      const uniqueFollowers = new Map<string, IFollowerData>();
+      followerDataList.forEach((follower: IFollowerData) => {
+        const id = follower._id?.toString() || '';
+        if (id && !uniqueFollowers.has(id)) {
+          uniqueFollowers.set(id, follower);
+        }
+      });
+
+      return Array.from(uniqueFollowers.values());
     } catch (error) {
       // If parallel approach fails, return empty array to prevent 503
       return [];

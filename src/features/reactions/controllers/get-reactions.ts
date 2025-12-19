@@ -10,10 +10,12 @@ const reactionCache: ReactionCache = new ReactionCache();
 export class Get {
   public async reactions(req: Request, res: Response): Promise<void> {
     const { postId } = req.params;
-    const cachedReactions: [IReactionDocument[], number] = await reactionCache.getReactionsFromCache(postId);
-    const reactions: [IReactionDocument[], number] = cachedReactions[0].length
-      ? cachedReactions
-      : await reactionService.getPostReactions({ postId: new mongoose.Types.ObjectId(postId) }, { createdAt: -1 });
+    // Skip cache - go directly to database for immediate consistency
+    // Database query is now optimized with find() and indexes
+    const reactions: [IReactionDocument[], number] = await reactionService.getPostReactions(
+      { postId: new mongoose.Types.ObjectId(postId) },
+      { createdAt: -1 }
+    );
     res.status(HTTP_STATUS.OK).json({ message: 'Post reactions', reactions: reactions[0], count: reactions[1] });
   }
 

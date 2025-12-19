@@ -53,23 +53,17 @@ describe('AddReaction', () => {
       authUserPayload
     ) as Request;
     const res: Response = reactionMockResponse();
-    const spy = jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache');
+    jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache').mockResolvedValue(undefined);
     jest.spyOn(reactionService, 'addReactionDataToDB').mockResolvedValue();
-    const reactionSpy = jest.spyOn(reactionQueue, 'addReactionJob');
+    jest.spyOn(reactionQueue, 'addReactionJob');
 
     await Add.prototype.reaction(req, res);
 
-    // Verify cache was updated
-    expect(ReactionCache.prototype.savePostReactionToCache).toHaveBeenCalledWith(
-      spy.mock.calls[0][0],
-      spy.mock.calls[0][1],
-      spy.mock.calls[0][2],
-      spy.mock.calls[0][3],
-      spy.mock.calls[0][4]
-    );
-
-    // Verify database was updated synchronously
+    // Verify database was updated synchronously first
     expect(reactionService.addReactionDataToDB).toHaveBeenCalled();
+
+    // Verify cache was updated asynchronously (fire-and-forget)
+    expect(ReactionCache.prototype.savePostReactionToCache).toHaveBeenCalled();
 
     // Verify queue was NOT called (since addReactionDataToDB succeeded)
     expect(reactionQueue.addReactionJob).not.toHaveBeenCalled();
@@ -102,15 +96,23 @@ describe('AddReaction', () => {
       authUserPayload
     ) as unknown as Request;
     const res: Response = reactionMockResponse();
-    const spy = jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache');
-    jest.spyOn(reactionService, 'addReactionDataToDB').mockResolvedValue();
+    const cacheSpy = jest.spyOn(ReactionCache.prototype, 'savePostReactionToCache').mockResolvedValue(undefined);
+    const dbSpy = jest.spyOn(reactionService, 'addReactionDataToDB').mockResolvedValue();
 
     await Add.prototype.reaction(req, res);
 
-    // Verify the profile picture URL was normalized to use correct cloud name
-    const savedReaction = spy.mock.calls[0][1];
-    expect(savedReaction.profilePicture).toBe(`https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v1764047003/6925389b8984fb7dda7158a0`);
-    expect(savedReaction.profilePicture).not.toContain('dyamr9ym3');
-    expect(savedReaction.profilePicture).toContain('dajmo61zu');
+    // Verify database was called with normalized URL
+    expect(reactionService.addReactionDataToDB).toHaveBeenCalled();
+    const dbCall = dbSpy.mock.calls[0][0] as any;
+    expect(dbCall.reactionObject.profilePicture).toBe(`https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v1764047003/6925389b8984fb7dda7158a0`);
+    expect(dbCall.reactionObject.profilePicture).not.toContain('dyamr9ym3');
+    expect(dbCall.reactionObject.profilePicture).toContain('dajmo61zu');
+
+    // Verify cache was also called with normalized URL
+    expect(ReactionCache.prototype.savePostReactionToCache).toHaveBeenCalled();
+    const cacheCall = cacheSpy.mock.calls[0][1] as any;
+    expect(cacheCall.profilePicture).toBe(`https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v1764047003/6925389b8984fb7dda7158a0`);
+    expect(cacheCall.profilePicture).not.toContain('dyamr9ym3');
+    expect(cacheCall.profilePicture).toContain('dajmo61zu');
   });
 });

@@ -43,8 +43,6 @@ export class Add {
       profilePicture: normalizedProfilePicture
     } as unknown as IReactionDocument;
 
-    await reactionCache.savePostReactionToCache(postId, reactionObject, postReactions, type, previousReaction);
-
     const databaseReactionData: IReactionJob = {
       postId,
       userTo,
@@ -55,15 +53,27 @@ export class Add {
       reactionObject
     };
 
-    // Save to database synchronously to ensure persistence
-    // This ensures reactions are immediately available after refresh, even if Redis cache is cleared
+    // Save to database FIRST for immediate persistence
+    // Skip cache to avoid slow Redis operations and ensure data is immediately available
     try {
       await reactionService.addReactionDataToDB(databaseReactionData);
+      log.info('Reaction saved to database successfully', { postId, username: req.currentUser!.username, type });
     } catch (error) {
-      // If synchronous save fails, fall back to queue (but log the error)
-      log.error('Failed to save reaction synchronously, falling back to queue', error);
-    reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
+      log.error('Failed to save reaction to database', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        postId,
+        username: req.currentUser!.username,
+        type
+      });
+      // Fall back to queue if database save fails
+      reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
     }
+
+    // Update cache asynchronously (don't wait for it) for better performance
+    // Cache is just for optimization, database is the source of truth
+    reactionCache.savePostReactionToCache(postId, reactionObject, postReactions, type, previousReaction).catch((cacheError) => {
+      log.warn('Failed to update reaction cache (non-critical)', cacheError);
+    });
 
     response.status(HTTP_STATUS.OK).json({ message: 'Reaction added successfully'});
   }

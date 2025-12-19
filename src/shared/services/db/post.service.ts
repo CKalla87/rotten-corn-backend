@@ -2,7 +2,9 @@ import { IGetPostsQuery, IPostDocument, IQueryComplete, IQueryDeleted } from '@p
 import { PostModel } from '@post/models/post.schema';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserModel } from '@user/models/user.schema';
-import { Query, UpdateQuery } from 'mongoose';
+import mongoose, { Query, UpdateQuery } from 'mongoose';
+import { Helpers } from '@global/helpers/helpers';
+import { config } from '@root/config';
 
 class PostService {
   public async addPostToDB(userId: string, createdPost: IPostDocument): Promise<void> {
@@ -18,29 +20,48 @@ class PostService {
     } else if (query?.videoId) {
       postQuery = { $or: [{ videoId: { $ne: ''} }] };
     } else {
-      postQuery = query;
+      postQuery = { ...query };
+      // Convert userId to ObjectId if it's a string
+      if (postQuery.userId && typeof postQuery.userId === 'string') {
+        postQuery.userId = new mongoose.Types.ObjectId(postQuery.userId);
+      }
     }
     // Ensure limit is set (max 100 to prevent slow queries)
     const safeLimit = limit > 0 ? Math.min(limit, 100) : 10;
 
     // Use find() with lean() for much faster queries - no Mongoose overhead
     // Use hint to ensure index is used for sorting
+    // If querying by userId, use the compound index { userId: 1, createdAt: -1 }
+    const hint = postQuery.userId ? { userId: 1, createdAt: -1 } : { createdAt: -1 };
     const posts: IPostDocument[] = await PostModel.find(postQuery)
       .sort(sort)
       .skip(skip)
       .limit(safeLimit)
       .lean()
-      .hint({ createdAt: -1 }) // Force use of createdAt index
+      .hint(hint) // Use appropriate index based on query
       .maxTimeMS(10000)
       .exec() as IPostDocument[];
 
     // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
     // Also ensure reactions object is properly initialized
+    // Normalize Cloudinary URLs to fix wrong cloud name issues
     for (const post of posts) {
       if (!post.videoVersion) post.videoVersion = '';
       if (!post.videoId) post.videoId = '';
       if (!post.imgVersion) post.imgVersion = '';
       if (!post.imgId) post.imgId = '';
+
+      // Normalize profile picture URL to fix Cloudinary cloud name issues
+      if (post.profilePicture && Helpers.isCloudinaryUrl(post.profilePicture)) {
+        const urlParts = post.profilePicture.split('/');
+        const versionIndex = urlParts.findIndex((part: string) => part.startsWith('v'));
+        if (versionIndex !== -1 && versionIndex < urlParts.length - 1) {
+          const version = urlParts[versionIndex];
+          const publicId = urlParts[versionIndex + 1];
+          post.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
+        }
+      }
+
       // Ensure reactions object has the correct structure
       if (!post.reactions || typeof post.reactions !== 'object') {
         post.reactions = { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };

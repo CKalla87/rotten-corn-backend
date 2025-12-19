@@ -34,9 +34,12 @@ export class Get {
 
     try {
       const { page } = req.params;
-      const skip: number = (parseInt(page, 10) - 1) * PAGE_SIZE;
-      const limit: number = PAGE_SIZE * parseInt(page, 10);
-      const newSkip: number = skip ? skip + 1 : skip;
+      // Ensure page is at least 1 (treat 0 as 1)
+      const pageNumber = Math.max(1, parseInt(page, 10));
+      // Calculate skip and limit correctly for pagination
+      const skip: number = (pageNumber - 1) * PAGE_SIZE;
+      const limit: number = PAGE_SIZE; // Always use PAGE_SIZE, not PAGE_SIZE * page
+      const newSkip: number = skip > 0 ? skip + 1 : skip;
 
       // Run queries in parallel for maximum speed
       const [allUsers, followers] = await Promise.all([
@@ -103,11 +106,12 @@ export class Get {
       throw error;
     }
 
-    // Get user posts from cache or database
+    // Get user posts from database - query by userId for better performance and accuracy
     try {
       // Skip cache - go directly to database for instant response
-      userPosts = await postService.getPosts({ username: userName }, 0, 100, { createdAt: -1 });
-      log.info(`Database returned ${userPosts.length} posts for user`);
+      // Use userId instead of username for more reliable querying (username can have case/format issues)
+      userPosts = await postService.getPosts({ userId: new mongoose.Types.ObjectId(userId) }, 0, 100, { createdAt: -1 });
+      log.info(`Database returned ${userPosts.length} posts for user ${userId}`);
     } catch (error) {
       log.error('Failed to get user posts from database', error);
       userPosts = [];

@@ -23,14 +23,15 @@ class ReactionService {
     if (previousReaction) {
       updatedReactionObject = omit(reactionObject, ['_id']);
     }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const updatedReaction: [IUserDocument, IReactionDocument, IPostDocument] = await Promise.all([
-      userCache.getUserFromCache(`${userTo}`),
+
+    // Optimize: Skip cache lookup for user - fetch directly from database if needed
+    // Save reaction and update post in parallel for speed
+    const [reactionDoc, postDoc] = await Promise.all([
       ReactionModel.findOneAndUpdate(
         { postId, username },
         updatedReactionObject,
         { upsert: true, new: true }
-      ),
+      ).maxTimeMS(5000).exec(),
       PostModel.findOneAndUpdate(
         { _id: postId },
         {
@@ -40,14 +41,38 @@ class ReactionService {
           }
         },
         { new: true }
-      )
-    ]) as unknown as [IUserDocument, IReactionDocument, IPostDocument];
+      ).maxTimeMS(5000).exec()
+    ]);
 
-    if (userTo && userFrom && updatedReaction[0]?.notifications?.reactions && userTo !== userFrom) {
-      const reactionDocId = updatedReaction[1]?._id ?? reactionObject?._id ?? new mongoose.Types.ObjectId();
+    // Get user data only if needed for notifications (skip cache to avoid slow Redis)
+    let userDoc: IUserDocument | null = null;
+    if (userTo && userFrom && userTo !== userFrom) {
+      try {
+        // Try cache first with timeout, fallback to database
+        const cachePromise = userCache.getUserFromCache(`${userTo}`);
+        const timeoutPromise = new Promise<IUserDocument | null>((resolve) => {
+          setTimeout(() => resolve(null), 2000);
+        });
+        userDoc = await Promise.race([cachePromise, timeoutPromise]) as IUserDocument | null;
+
+        // If cache failed or timed out, get from database
+        if (!userDoc) {
+          const { userService } = await import('@service/db/user.service');
+          userDoc = await userService.getUserById(userTo);
+        }
+      } catch (error) {
+        // If user lookup fails, continue without notification
+        userDoc = null;
+      }
+    }
+
+    // Only create notification if we have user data
+    if (userTo && userFrom && userDoc && userDoc.notifications?.reactions && userTo !== userFrom) {
+      const reactionDocId = (reactionDoc as IReactionDocument)?._id ?? reactionObject?._id ?? new mongoose.Types.ObjectId();
       const createdItemId: mongoose.Types.ObjectId =
         reactionDocId instanceof mongoose.Types.ObjectId ? reactionDocId : new mongoose.Types.ObjectId(reactionDocId);
       const notificationModel: INotificationDocument = new NotificationModel();
+      const postDocTyped = postDoc as IPostDocument;
       const notifications: INotificationDocument[] = await notificationModel.insertNotification({
         userFrom,
         userTo,
@@ -57,19 +82,19 @@ class ReactionService {
         createdItemId,
         createdAt: new Date(),
         comment: '',
-        post: updatedReaction[2]?.post ?? '',
-        imgId: updatedReaction[2]?.imgId ?? '',
-        imgVersion: updatedReaction[2]?.imgVersion ?? '',
-        gifUrl: updatedReaction[2]?.gifUrl ?? '',
+        post: postDocTyped?.post ?? '',
+        imgId: postDocTyped?.imgId ?? '',
+        imgVersion: postDocTyped?.imgVersion ?? '',
+        gifUrl: postDocTyped?.gifUrl ?? '',
         reaction: type ?? ''
       });
       socketIONotificationObject?.emit('insert notification', notifications, { userTo });
       const templateParams: INotificationTemplate = {
-        username: updatedReaction[0]?.username ?? 'User',
+        username: userDoc.username ?? 'User',
         message: `${username} reacted to your post.`,
         header: 'Post reaction notification'
       };
-      const recipientEmail = updatedReaction[0]?.email;
+      const recipientEmail = userDoc.email;
       if (recipientEmail) {
         const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
         emailQueue.addEmailJob('reactionsEmail', {

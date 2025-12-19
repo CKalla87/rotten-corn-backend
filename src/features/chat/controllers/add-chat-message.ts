@@ -104,8 +104,8 @@ export class Add {
         throw new BadRequestError('Invalid response from Cloudinary upload: missing public_id');
       }
 
-      // Use Cloudinary's secure_url if available, otherwise construct the URL manually
-      fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/dynamr9ym3/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
+      // Use Cloudinary's secure_url if available, otherwise construct the URL manually with correct cloud name
+      fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
       console.log('✅ Cloudinary upload successful:', {
         fileUrl,
         public_id: uploadResponse.public_id,
@@ -181,14 +181,52 @@ export class Add {
   }
 
   public async addChatUsers(req: Request, res: Response): Promise<void> {
-    const chatUsers: IChatUsers[] = await messageCache.addChatUsersToCache(req.body);
-    socketIOChatObject.emit('add chat users', chatUsers);
+    // Add timeout to prevent hanging if Redis is slow/unavailable
+    let chatUsers: IChatUsers[] = [];
+    try {
+      chatUsers = await Promise.race([
+        messageCache.addChatUsersToCache(req.body),
+        new Promise<IChatUsers[]>((resolve) => {
+          setTimeout(() => {
+            log.warn('addChatUsersToCache timed out, returning empty array');
+            resolve([]);
+          }, 3000);
+        })
+      ]);
+    } catch (error) {
+      log.error('Failed to add chat users to cache:', error);
+      // Continue with empty array - cache failure is non-fatal
+      chatUsers = [];
+    }
+
+    if (socketIOChatObject) {
+      socketIOChatObject.emit('add chat users', chatUsers);
+    }
     res.status(HTTP_STATUS.OK).json({ message: 'Users added', chatUsers });
   }
 
   public async removeChatUsers(req: Request, res: Response): Promise<void> {
-    const chatUsers: IChatUsers[] = await messageCache.removeChatUsersFromCache(req.body);
-    socketIOChatObject.emit('remove chat users', chatUsers);
+    // Add timeout to prevent hanging if Redis is slow/unavailable
+    let chatUsers: IChatUsers[] = [];
+    try {
+      chatUsers = await Promise.race([
+        messageCache.removeChatUsersFromCache(req.body),
+        new Promise<IChatUsers[]>((resolve) => {
+          setTimeout(() => {
+            log.warn('removeChatUsersFromCache timed out, returning empty array');
+            resolve([]);
+          }, 3000);
+        })
+      ]);
+    } catch (error) {
+      log.error('Failed to remove chat users from cache:', error);
+      // Continue with empty array - cache failure is non-fatal
+      chatUsers = [];
+    }
+
+    if (socketIOChatObject) {
+      socketIOChatObject.emit('remove chat users', chatUsers);
+    }
     res.status(HTTP_STATUS.OK).json({ message: 'Users removed', chatUsers });
   }
 
@@ -227,7 +265,29 @@ export class Add {
   }
 
   private async messageNotification({ currentUser, message, receiverName, receiverId }: IMessageNotification): Promise<void> {
-    const cachedUser: IUserDocument = (await userCache.getUserFromCache(`${receiverId}`)) as IUserDocument;
+    // Get user data with timeout to prevent hanging
+    let cachedUser: IUserDocument | null = null;
+    try {
+      cachedUser = await Promise.race([
+        userCache.getUserFromCache(`${receiverId}`) as Promise<IUserDocument>,
+        new Promise<IUserDocument | null>((resolve) => {
+          setTimeout(() => {
+            log.warn(`getUserFromCache timed out for ${receiverId}, trying database`);
+            resolve(null);
+          }, 2000);
+        })
+      ]);
+
+      // If cache failed or timed out, get from database
+      if (!cachedUser) {
+        cachedUser = await userService.getUserById(`${receiverId}`);
+      }
+    } catch (error) {
+      log.warn('Failed to get user for notification:', error);
+      // Continue without notification if user lookup fails
+      return;
+    }
+
     if (cachedUser?.notifications?.messages) {
       const templateParams: INotificationTemplate = {
         username: receiverName,

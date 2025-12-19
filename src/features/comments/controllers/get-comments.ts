@@ -38,16 +38,23 @@ export class Get {
 
   public async commentsNamesFromCache(req: Request, res: Response): Promise<void> {
     const { postId } = req.params;
-    const cachedCommentsNames: ICommentNameList[] = await commentCache.getCommentsNamesFromCache(postId);
-    const commentsNames: ICommentNameList[] = cachedCommentsNames.length ? cachedCommentsNames : await commentService.getPostCommentNames({ postId: new mongoose.Types.ObjectId(postId) }, { createdAt: -1 });
+    // Skip cache - go directly to database for faster response
+    // Database query is now optimized with timeout
+    const commentsNames: ICommentNameList[] = await commentService.getPostCommentNames(
+      { postId: new mongoose.Types.ObjectId(postId) },
+      { createdAt: -1 }
+    );
 
     res.status(HTTP_STATUS.OK).json({ message: 'Post comments names', comments: commentsNames });
   }
 
   public async singleComment(req: Request, res: Response): Promise<void> {
     const { postId, commentId } = req.params;
-    const cachedComments: ICommentDocument[] = await commentCache.getSingleCommentFromCache(postId, commentId);
-    const comments: ICommentDocument[] = cachedComments.length ? cachedComments : await commentService.getPostComments({ _id: new mongoose.Types.ObjectId(commentId) }, { createdAt: -1 });
+    // Skip cache - go directly to database for faster response
+    const comments: ICommentDocument[] = await commentService.getPostComments(
+      { _id: new mongoose.Types.ObjectId(commentId) },
+      { createdAt: -1 }
+    );
 
     res.status(HTTP_STATUS.OK).json({ message: 'Single comment', comments: comments[0] });
   }

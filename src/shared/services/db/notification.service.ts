@@ -6,10 +6,19 @@ class NotificationService {
   public async getNotifications(userId: string): Promise<INotificationDocument[]> {
     const notifications: INotificationDocument[] = await NotificationModel.aggregate([
       { $match: { userTo: new mongoose.Types.ObjectId(userId) } },
+      { $sort: { createdAt: -1 } }, // Sort by newest first
+      // Group by _id to remove duplicates before lookups
+      {
+        $group: {
+          _id: '$_id',
+          doc: { $first: '$$ROOT' }
+        }
+      },
+      { $replaceRoot: { newRoot: '$doc' } },
       { $lookup: { from: 'User', localField: 'userFrom', foreignField: '_id', as: 'userFrom' } },
-      { $unwind: '$userFrom' },
+      { $unwind: { path: '$userFrom', preserveNullAndEmptyArrays: true } },
       { $lookup: { from: 'Auth', localField: 'userFrom.authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
+      { $unwind: { path: '$authId', preserveNullAndEmptyArrays: true } },
       {
         $project: {
           _id: 1,
@@ -33,9 +42,20 @@ class NotificationService {
             uId: '$authId.uId'
           }
         }
+      },
+      { $sort: { createdAt: -1 } } // Sort again after projection
+    ], { allowDiskUse: true, maxTimeMS: 5000 });
+
+    // Additional deduplication by _id as a safety measure
+    const uniqueNotifications = new Map<string, INotificationDocument>();
+    notifications.forEach((notification: any) => {
+      const id = notification._id?.toString() || '';
+      if (id && !uniqueNotifications.has(id)) {
+        uniqueNotifications.set(id, notification);
       }
-    ]);
-    return notifications;
+    });
+
+    return Array.from(uniqueNotifications.values());
   }
 
   public async updateNotification(notificationId: string): Promise<void> {
