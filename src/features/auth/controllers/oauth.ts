@@ -32,13 +32,13 @@ export class OAuthController {
   private validateRedirectUri(redirectUri: string): boolean {
     try {
       const url = new URL(redirectUri);
-      
+
       // Allow localhost for development (any port)
       if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         log.info(`Redirect URI validation passed (localhost): ${redirectUri}`);
         return true;
       }
-      
+
       // Check against allowed origins from config
       const allowedOrigins = [
         config.CLIENT_URL,
@@ -74,7 +74,7 @@ export class OAuthController {
           return false;
         }
       });
-      
+
       if (!isValid) {
         log.warn(`Redirect URI validation failed: ${redirectUri}`, {
           allowedOrigins: allowedOrigins.filter(Boolean),
@@ -83,7 +83,7 @@ export class OAuthController {
           urlProtocol: url.protocol
         });
       }
-      
+
       return isValid;
     } catch (error) {
       log.error(`Redirect URI validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, {

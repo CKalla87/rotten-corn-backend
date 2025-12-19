@@ -109,16 +109,14 @@ class AuthRoutes {
       res.status(200).end();
     });
 
-    // OPTIONS handlers for OAuth routes (specific providers only)
-    oauthProviders.forEach(provider => {
-      this.router.options(`/auth/${provider}`, (req: Request, res: Response) => {
-        this.setCorsHeaders(req, res);
-        res.status(200).end();
-      });
-      this.router.options(`/auth/${provider}/callback`, (req: Request, res: Response) => {
-        this.setCorsHeaders(req, res);
-        res.status(200).end();
-      });
+    // OPTIONS handlers for OAuth routes (parameterized to match actual routes)
+    this.router.options('/auth/:provider', (req: Request, res: Response) => {
+      this.setCorsHeaders(req, res);
+      res.status(200).end();
+    });
+    this.router.options('/auth/:provider/callback', (req: Request, res: Response) => {
+      this.setCorsHeaders(req, res);
+      res.status(200).end();
     });
 
     // Handle OPTIONS preflight for all other auth routes (catch-all)
@@ -157,13 +155,11 @@ class AuthRoutes {
     });
 
     // OAuth routes - register AFTER specific routes to avoid route conflicts
-    // Only match known OAuth providers to prevent conflicts with other routes
+    // Use parameterized routes and validate provider in controller
     // Routes will be: /api/v1/auth/google, /api/v1/auth/github, /api/v1/auth/facebook
-    oauthProviders.forEach(provider => {
-      this.router.get(`/auth/${provider}`, this.oauthController.initiate.bind(this.oauthController));
-      this.router.get(`/auth/${provider}/callback`, this.oauthController.callback.bind(this.oauthController));
-      this.router.post(`/auth/${provider}/callback`, this.oauthController.exchangeCode.bind(this.oauthController));
-    });
+    this.router.get('/auth/:provider', this.oauthController.initiate.bind(this.oauthController));
+    this.router.get('/auth/:provider/callback', this.oauthController.callback.bind(this.oauthController));
+    this.router.post('/auth/:provider/callback', this.oauthController.exchangeCode.bind(this.oauthController));
 
     // OAuth health check endpoint
     this.router.get('/health/oauth', async (req: Request, res: Response) => {
