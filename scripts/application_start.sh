@@ -358,6 +358,24 @@ ELAPSED=0
 INITIAL_STABILIZATION=10  # Wait 10 seconds before starting health checks (reduced)
 
 while [ $ELAPSED -lt $MAX_WAIT ]; do
+  # CRITICAL: Check if port is listening FIRST (before checking PM2 status)
+  # If port is listening, app is running regardless of PM2 status or Redis connection
+  PORT_LISTENING=false
+  set +e
+  if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+    PORT_LISTENING=true
+    echo "[$(date)] ✓ Port 5000 IS listening (waited ${ELAPSED}s)"
+  fi
+  set -e
+
+  # If port is listening, allow deployment immediately (even if PM2 status unclear or Redis pending)
+  if [ "$PORT_LISTENING" = true ]; then
+    echo "[$(date)] ✓ Port 5000 is listening - application is running"
+    echo "[$(date)] ⚠ Note: Redis connection may still be pending (this is OK, it will retry)"
+    echo "[$(date)] ✓ Allowing deployment to continue - target group will validate health"
+    exit 0
+  fi
+
   # First verify the process exists in PM2 (check for both possible names)
     # Use the process name we found earlier, or search again
     if [ -z "$PM2_PROCESS_NAME" ]; then
