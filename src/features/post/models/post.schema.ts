@@ -3,7 +3,7 @@ import { IPostDocument } from '@post/interfaces/post.interface';
 
 const postSchema: Schema = new Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
-  username: { type: String },
+  username: { type: String, index: true },
   email: { type: String },
   avatarColor: { type: String },
   profilePicture: { type: String },
@@ -25,8 +25,12 @@ const postSchema: Schema = new Schema({
     sad: { type: Number, default: 0 },
     angry: { type: Number, default: 0 }
   },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now, index: true }
 });
+
+// Compound indexes for common query patterns
+postSchema.index({ userId: 1, createdAt: -1 }); // For user's posts sorted by date
+postSchema.index({ createdAt: -1 }); // For all posts sorted by date
 
 const PostModel: Model<IPostDocument> = model<IPostDocument>('Post', postSchema, 'Post');
 

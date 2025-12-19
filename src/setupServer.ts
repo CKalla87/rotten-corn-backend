@@ -63,7 +63,19 @@ export class RottenCornServer {
   }
 
   private standardMiddleware(app: Application): void {
-    app.use(compression());
+    // Optimize compression for hosted environments - use higher compression level
+    const isProduction = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+    app.use(compression({
+      level: isProduction ? 6 : 1, // Higher compression in hosted envs (6), lower in local (1) for speed
+      threshold: 1024, // Only compress responses > 1KB
+      filter: (req, res) => {
+        // Compress JSON and text responses
+        if (req.headers['x-no-compression']) {
+          return false;
+        }
+        return compression.filter(req, res);
+      }
+    }));
     app.use(json({ limit: '50mb' }));
     app.use(urlencoded({ extended: true, limit: '50mb' }));
   }

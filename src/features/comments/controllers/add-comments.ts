@@ -13,7 +13,7 @@ const commentCache: CommentCache = new CommentCache();
 export class Add {
   @joiValidation(addCommentSchema)
   public async comment(req: Request, res: Response): Promise<void> {
-    const { userTo, postId, comment, profilePicture } = req.body;
+    const { userTo, postId, comment, profilePicture, gifUrl } = req.body;
     const commentObject: ICommentDocument = {
       _id: new ObjectId(),
       username: req.currentUser!.username,
@@ -21,6 +21,7 @@ export class Add {
       postId,
       profilePicture: profilePicture || '',
       comment,
+      gifUrl: gifUrl || '',
       createdAt: new Date()
     } as unknown as ICommentDocument;
 

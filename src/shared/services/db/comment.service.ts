@@ -58,9 +58,22 @@ class CommentService {
   }
 
   public async getPostComments(query: IQueryComment, sort: Record<string, 1 | -1>): Promise<ICommentDocument[]> {
+    // Optimize query with projection to only fetch needed fields
     const comments: ICommentDocument[] = await CommentsModel.aggregate([
-      { $match: { query } },
+      { $match: query },
       { $sort: sort },
+      {
+        $project: {
+          postId: 1,
+          comment: 1,
+          username: 1,
+          avataColor: 1,
+          profilePicture: 1,
+          gifUrl: 1,
+          reaction: 1,
+          createdAt: 1
+        }
+      }
     ]);
     return comments;
   }

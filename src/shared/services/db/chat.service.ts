@@ -24,6 +24,7 @@ class ChatService {
   }
 
   public async getUserConversationList(userId: mongoose.Types.ObjectId): Promise<IMessageData[]> {
+    // Optimized aggregation with proper indexes and projection
     const messages: IMessageData[] = await MessageModel.aggregate([
       {
         $match: {
@@ -59,7 +60,7 @@ class ChatService {
         }
       },
       { $sort: { createdAt: -1 } }
-    ]);
+    ]).allowDiskUse(true); // Allow disk use for large result sets
 
     return messages;
   }
@@ -71,7 +72,32 @@ class ChatService {
         { senderId: receiverId, receiverId: senderId }
       ]
     };
-    const messages: IMessageData[] = await MessageModel.aggregate([{ $match: query }, { $sort: { createdAt: 1 } }]);
+    // Optimize with projection and allowDiskUse for large conversations
+    const messages: IMessageData[] = await MessageModel.aggregate([
+      { $match: query },
+      { $sort: { createdAt: 1 } },
+      {
+        $project: {
+          conversationId: 1,
+          senderId: 1,
+          receiverId: 1,
+          senderUsername: 1,
+          senderAvatarColor: 1,
+          senderProfilePicture: 1,
+          receiverUsername: 1,
+          receiverAvatarColor: 1,
+          receiverProfilePicture: 1,
+          body: 1,
+          gifUrl: 1,
+          isRead: 1,
+          selectedImage: 1,
+          reaction: 1,
+          createdAt: 1,
+          deleteForMe: 1,
+          deleteForEveryone: 1
+        }
+      }
+    ]).allowDiskUse(true);
     return messages;
   }
 
@@ -103,17 +129,36 @@ class ChatService {
     type: string
   ): Promise<void> {
     const message = await MessageModel.findOne({ _id: messageId }).exec();
-    if (!message) {
-      return;
-    }
 
-    const reactions: IReaction[] = Array.isArray(message.reaction) ? message.reaction : [];
-    remove(reactions, (reactionData: IReaction) => reactionData.senderName === senderName);
-    if (type === 'add') {
-      reactions.push({ senderName, type: reaction });
+    // If message found, update it (for chat messages)
+    if (message) {
+      const reactions: IReaction[] = Array.isArray(message.reaction) ? message.reaction : [];
+      remove(reactions, (reactionData: IReaction) => reactionData.senderName === senderName);
+      if (type === 'add') {
+        reactions.push({ senderName, type: reaction });
+      }
+      message.reaction = reactions;
+      await message.save();
+    } else {
+      // If message not found, it might be a comment - try to update comment instead
+      const { CommentsModel } = await import('@comment/models/comment.schema');
+      const comment = await CommentsModel.findOne({ _id: messageId }).exec();
+
+      if (comment) {
+        const reactions: IReaction[] = Array.isArray(comment.reaction)
+          ? (comment.reaction as unknown as IReaction[])
+          : [];
+        remove(reactions, (reactionData: IReaction) => reactionData.senderName === senderName);
+        if (type === 'add') {
+          reactions.push({ senderName, type: reaction });
+        }
+        (comment as { reaction?: IReaction[] }).reaction = reactions;
+        await comment.save();
+        console.log(`✅ Comment reaction saved: commentId=${messageId}, senderName=${senderName}, reaction=${reaction}, type=${type}, totalReactions=${reactions.length}`);
+      } else {
+        console.log(`⚠️ Neither message nor comment found for ID: ${messageId}`);
+      }
     }
-    message.reaction = reactions;
-    await message.save();
   }
 }
 

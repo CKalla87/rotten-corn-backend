@@ -24,6 +24,12 @@ export class CommentCache extends BaseCache {
       let count: number = Helpers.parseJson(commentsCount[0]) as number;
       count += 1;
       await this.client.HSET(`posts:${postId}`, 'commentsCount', `${count}`);
+      // Add TTL for comment cache entries (2 minutes for comments in hosted environments)
+      // Comments are frequently updated, so shorter TTL ensures freshness
+      const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+      if (isHostedEnv) {
+        await this.client.EXPIRE(`comments:${postId}`, 120); // 2 minutes TTL
+      }
     } catch (error) {
       log.error(error);
       throw new ServerError('Server error. Try again.');

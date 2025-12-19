@@ -104,6 +104,7 @@ class FollowerService {
   }
 
   public async getFolloweeData(userObjectId: ObjectId): Promise<IFollowerData[]> {
+    // Optimize aggregation with allowDiskUse
     const followee: IFollowerData[] = await FollowerModel.aggregate([
       { $match: { followerId: userObjectId } },
       { $lookup: { from: 'User', localField: 'followeeId', foreignField: '_id', as: 'followeeId' } },
@@ -132,11 +133,12 @@ class FollowerService {
           __v: 0
         }
       }
-    ]);
+    ]).allowDiskUse(true);
     return followee;
   }
 
   public async getFollowerData(userObjectId: ObjectId): Promise<IFollowerData[]> {
+    // Optimize aggregation with allowDiskUse
     const follower: IFollowerData[] = await FollowerModel.aggregate([
       { $match: { followeeId: userObjectId } },
       { $lookup: { from: 'User', localField: 'followerId', foreignField: '_id', as: 'followerId' } },
@@ -165,7 +167,7 @@ class FollowerService {
           __v: 0
         }
       }
-    ]);
+    ]).allowDiskUse(true);
     return follower;
   }
 

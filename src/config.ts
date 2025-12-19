@@ -42,7 +42,11 @@ class Config {
   }
 
   public createLogger(name: string): bunyan {
-    return bunyan.createLogger({ name, level: 'debug' });
+    // Reduce logging in hosted environments for better performance
+    // Only log errors and warnings in production/staging/development hosted envs
+    const isHostedEnv = this.NODE_ENV === 'production' || this.NODE_ENV === 'staging' || this.NODE_ENV === 'development';
+    const logLevel = isHostedEnv ? 'warn' : 'debug'; // 'warn' in hosted, 'debug' in local
+    return bunyan.createLogger({ name, level: logLevel });
   }
 
   public validateConfig(): void {
