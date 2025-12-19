@@ -10,7 +10,9 @@ class CurrentUserRoutes {
   }
 
   public routes(): Router {
+    // Support both /currentUser and /currentuser for compatibility
     this.router.get('/currentUser', authMiddleware.checkAuthentication, CurrentUser.prototype.read);
+    this.router.get('/currentuser', authMiddleware.checkAuthentication, CurrentUser.prototype.read);
 
     return this.router;
   }

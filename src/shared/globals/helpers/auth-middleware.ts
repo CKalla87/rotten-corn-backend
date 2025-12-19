@@ -8,13 +8,18 @@ export class AuthMiddleware {
   public verifyUser(req: Request, _res: Response, next: NextFunction): void {
     // Check session first, then fall back to cookie
     let token = req.session?.jwt;
-    if (!token && req.cookies?.jwt) {
-      token = req.cookies.jwt;
-      // Also set it in session for consistency
-      if (!req.session) {
-        (req as any).session = {};
+    
+    // Debug: log what we have
+    if (!token) {
+      // Try to get from cookies
+      if (req.cookies && typeof req.cookies === 'object' && 'jwt' in req.cookies) {
+        token = req.cookies.jwt;
+        // Also set it in session for consistency
+        if (!req.session) {
+          (req as any).session = {};
+        }
+        (req.session as any).jwt = token;
       }
-      (req.session as any).jwt = token;
     }
 
     if (!token) {

@@ -58,14 +58,43 @@ export class RottenCornServer {
     app.use(passport.initialize());
     app.use(hpp());
     app.use(helmet());
-    app.use(
-      cors({
-        origin: config.CLIENT_URL,
-        credentials: true,
-        optionsSuccessStatus: 200,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-      })
-    );
+    // CORS configuration - allow localhost for local development
+    const isLocalDev = config.NODE_ENV === 'development' &&
+                       !config.EC2_URL &&
+                       !config.CLIENT_URL?.includes('chatappserver.space');
+    
+    const corsOptions = {
+      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) {
+          return callback(null, true);
+        }
+        
+        // Allow localhost for local development
+        if (isLocalDev && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+          return callback(null, true);
+        }
+        
+        // Allow configured CLIENT_URL and common deployed URLs
+        const allowedOrigins = [
+          config.CLIENT_URL,
+          'https://dev.chatappserver.space',
+          'https://staging.chatappserver.space',
+          'https://chatappserver.space'
+        ].filter(Boolean);
+        
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        
+        callback(new Error('Not allowed by CORS'));
+      },
+      credentials: true,
+      optionsSuccessStatus: 200,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
+    };
+    
+    app.use(cors(corsOptions));
   }
 
   private standardMiddleware(app: Application): void {
