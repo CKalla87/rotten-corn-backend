@@ -31,16 +31,28 @@ export class Get {
 
       // Skip cache entirely - go directly to database for instant response
       // Cache can be slow, database is faster and more reliable
+      // Run queries in parallel for maximum speed
       try {
-        posts = await postService.getPosts({}, skip, limit, { createdAt: -1 });
-        totalPosts = await postService.postsCount();
+        const [postsResult, totalPostsResult] = await Promise.all([
+          postService.getPosts({}, skip, limit, { createdAt: -1 }),
+          postService.postsCount()
+        ]);
+        posts = postsResult;
+        totalPosts = totalPostsResult;
         log.info('Posts retrieved from database', { page, count: posts.length });
       } catch (dbError) {
+        const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown error';
+        const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('maxTimeMS');
+
         log.error('Database operation failed', {
-          error: dbError instanceof Error ? dbError.message : 'Unknown error',
-          page
+          error: errorMessage,
+          page,
+          isTimeout,
+          errorType: isTimeout ? 'Query timeout' : 'Database error'
         });
+
         // Return empty results rather than failing completely
+        // This allows the frontend to still render (just with no data) instead of showing an error
         posts = [];
         totalPosts = 0;
       }
@@ -61,24 +73,62 @@ export class Get {
   }
 
   public async postsWithImages(req: Request, res: Response): Promise<void> {
-    const { page } = req.params;
-    const skip: number = (parseInt(page) - 1) * PAGE_SIZE;
-    const limit: number = PAGE_SIZE * parseInt(page);
-    const newSkip: number = skip === 0 ? skip : skip + 1;
-    let posts: IPostDocument[] = [];
-    const cachedPosts: IPostDocument[] = await postCache.getPostsWithImagesFromCache('post', newSkip, limit);
-    posts = cachedPosts.length ? cachedPosts : await postService.getPosts({ imgId: '$ne', gifUrl: '$ne'}, skip, limit, { createdAt: -1 });
-    res.status(HTTP_STATUS.OK).json({ message: 'All posts with images', posts });
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
+    try {
+      const { page } = req.params;
+      const skip: number = (parseInt(page) - 1) * PAGE_SIZE;
+      const limit: number = PAGE_SIZE * parseInt(page);
+
+      // Skip cache - go directly to database for instant response
+      const posts: IPostDocument[] = await postService.getPosts({ imgId: '$ne', gifUrl: '$ne'}, skip, limit, { createdAt: -1 });
+      res.status(HTTP_STATUS.OK).json({ message: 'All posts with images', posts });
+    } catch (error) {
+      log.error('Unexpected error in postsWithImages endpoint', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: 'Error fetching posts with images',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    }
   }
 
   public async postsWithVideo(req: Request, res: Response): Promise<void> {
-    const { page } = req.params;
-    const skip: number = (parseInt(page) - 1) * PAGE_SIZE;
-    const limit: number = PAGE_SIZE * parseInt(page);
-    const newSkip: number = skip === 0 ? skip : skip + 1;
-    let posts: IPostDocument[] = [];
-    const cachedPosts: IPostDocument[] = await postCache.getPostsWithVideoFromCache('post', newSkip, limit);
-    posts = cachedPosts.length ? cachedPosts : await postService.getPosts({ videoId: '$ne' }, skip, limit, { createdAt: -1 });
-    res.status(HTTP_STATUS.OK).json({ message: 'All posts with videos', posts });
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
+    try {
+      const { page } = req.params;
+      const skip: number = (parseInt(page) - 1) * PAGE_SIZE;
+      const limit: number = PAGE_SIZE * parseInt(page);
+
+      // Skip cache - go directly to database for instant response
+      const posts: IPostDocument[] = await postService.getPosts({ videoId: '$ne' }, skip, limit, { createdAt: -1 });
+      res.status(HTTP_STATUS.OK).json({ message: 'All posts with videos', posts });
+    } catch (error) {
+      log.error('Unexpected error in postsWithVideo endpoint', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: 'Error fetching posts with videos',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    }
   }
 }

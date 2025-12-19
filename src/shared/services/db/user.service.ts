@@ -10,14 +10,14 @@ class UserService {
   }
 
   public async getUserById(userId: string): Promise<IUserDocument> {
-    // Optimize single user lookup - use lean() for faster queries when possible
+    // Optimize single user lookup with timeout
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(userId)}},
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
       { $unwind: '$authId'},
       { $project: this.aggregateProject()},
       { $limit: 1 } // Limit to 1 since we're getting a single user
-    ]);
+    ], { allowDiskUse: true, maxTimeMS: 10000 }); // 10 second timeout - prevents hanging while allowing legitimate slow queries
     return users[0];
   }
 
@@ -34,7 +34,7 @@ class UserService {
   }
 
   public async getAllUsers(userId: string, skip: number, limit: number): Promise<IUserDocument[]> {
-    // Optimize aggregation with allowDiskUse for large datasets
+    // Optimize aggregation with allowDiskUse for large datasets and timeout
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
       { $sort: { createdAt: -1 } }, // Sort before skip/limit for better performance
@@ -43,35 +43,39 @@ class UserService {
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
-    ]).allowDiskUse(true);
+    ], { allowDiskUse: true, maxTimeMS: 10000 }); // 10 second timeout - prevents hanging while allowing legitimate slow queries
     return users;
   }
 
   public async getRandomUsers(userId: string): Promise<IUserDocument[]> {
     const randomUsers: IUserDocument[] = [];
-    // Optimize with allowDiskUse for large user collections
-    const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      { $sample: { size: 10 } },
-      {
-        $addFields: {
-          username: '$authId.username',
-          email: '$authId.email',
-          avatarColor: '$authId.avatarColor',
-          uId: '$authId.uId',
-          createdAt: '$authId.createdAt'
+    // Optimize with allowDiskUse for large user collections and timeout
+    // Run user query and followers query in parallel for speed
+    const [users, followers] = await Promise.all([
+      UserModel.aggregate([
+        { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
+        { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
+        { $unwind: '$authId' },
+        { $sample: { size: 10 } },
+        {
+          $addFields: {
+            username: '$authId.username',
+            email: '$authId.email',
+            avatarColor: '$authId.avatarColor',
+            uId: '$authId.uId',
+            createdAt: '$authId.createdAt'
+          }
+        },
+        {
+          $project: {
+            authId: 0,
+            __v: 0
+          }
         }
-      },
-      {
-        $project: {
-          authId: 0,
-          __v: 0
-        }
-      }
-    ]).allowDiskUse(true);
-    const followers: string[] = await followerService.getFolloweesIds(`${userId}`);
+      ], { allowDiskUse: true, maxTimeMS: 5000 }), // 5 second timeout
+      followerService.getFolloweesIds(`${userId}`)
+    ]);
+
     for (const user of users) {
       const followerIndex = followers.indexOf(user._id.toString());
       if (followerIndex < 0) {
@@ -82,8 +86,16 @@ class UserService {
   }
 
   public async getTotalUsersInDB(): Promise<number> {
-    const totalCount: number = await UserModel.find({}).countDocuments();
-    return totalCount;
+    // Use estimatedDocumentCount for much faster count (uses collection metadata)
+    // This is approximate but much faster than countDocuments()
+    try {
+      const totalCount: number = await UserModel.estimatedDocumentCount();
+      return totalCount;
+    } catch (error) {
+      // Fallback to countDocuments if estimatedDocumentCount fails
+      const totalCount: number = await UserModel.find({}).countDocuments();
+      return totalCount;
+    }
   }
 
   public async searchUsers(regex: RegExp, excludedUserId?: string): Promise<ISearchUser[]> {

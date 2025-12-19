@@ -23,20 +23,53 @@ const log: Logger = config.createLogger('getProfile');
 
 export class Get {
   public async all(req: Request, res: Response): Promise<void> {
-    const { page } = req.params;
-    const skip: number = (parseInt(page, 10) - 1) * PAGE_SIZE;
-    const limit: number = PAGE_SIZE * parseInt(page, 10);
-    const newSkip: number = skip ? skip + 1 : skip;
-    const allUsers: IAllUsers = await Get.prototype.allUsers({
-      newSkip,
-      limit,
-      skip,
-      userId: `${req.currentUser!.userId}`
-    });
-    const followers: IFollowerData[] = await Get.prototype.followers(`${req.currentUser!.userId}`);
-    res
-      .status(HTTP_STATUS.OK)
-      .json({ message: 'Get users', users: allUsers.users, totalUsers: allUsers.totalUsers, followers });
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
+
+    try {
+      const { page } = req.params;
+      const skip: number = (parseInt(page, 10) - 1) * PAGE_SIZE;
+      const limit: number = PAGE_SIZE * parseInt(page, 10);
+      const newSkip: number = skip ? skip + 1 : skip;
+
+      // Run queries in parallel for maximum speed
+      const [allUsers, followers] = await Promise.all([
+        Get.prototype.allUsers({
+          newSkip,
+          limit,
+          skip,
+          userId: `${req.currentUser!.userId}`
+        }),
+        Get.prototype.followers(`${req.currentUser!.userId}`)
+      ]);
+
+      res.status(HTTP_STATUS.OK).json({ message: 'Get users', users: allUsers.users, totalUsers: allUsers.totalUsers, followers });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('maxTimeMS');
+
+      log.error('Unexpected error in all users endpoint', {
+        error: errorMessage,
+        isTimeout,
+        errorType: isTimeout ? 'Query timeout' : 'Database error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      // Return empty results on timeout/error rather than failing completely
+      // This allows the frontend to still render (just with no data) instead of showing an error
+      res.status(HTTP_STATUS.OK).json({
+        message: 'Get users',
+        users: [],
+        totalUsers: 0,
+        followers: []
+      });
+    }
   }
 
   public async profile(req: Request, res: Response): Promise<void> {

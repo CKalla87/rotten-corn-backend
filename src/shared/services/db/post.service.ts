@@ -21,6 +21,7 @@ class PostService {
       postQuery = query;
     }
     // Optimize aggregation with indexes and limit fields for faster queries
+    // Use allowDiskUse for large collections and add timeout
     const posts: IPostDocument[] = await PostModel.aggregate([
       { $match: postQuery },
       { $sort: sort },
@@ -48,7 +49,7 @@ class PostService {
           createdAt: 1
         }
       }
-    ]);
+    ], { allowDiskUse: true, maxTimeMS: 10000 }); // 10 second timeout - prevents hanging while allowing legitimate slow queries
 
     // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
     // Also ensure reactions object is properly initialized
@@ -76,8 +77,16 @@ class PostService {
   }
 
   public async postsCount(): Promise<number> {
-    const count: number = await PostModel.find({}).countDocuments();
-    return count;
+    // Use estimatedDocumentCount for much faster count (uses collection metadata)
+    // This is approximate but much faster than countDocuments()
+    try {
+      const count: number = await PostModel.estimatedDocumentCount();
+      return count;
+    } catch (error) {
+      // Fallback to countDocuments if estimatedDocumentCount fails
+      const count: number = await PostModel.find({}).countDocuments();
+      return count;
+    }
   }
 
   public async deletePost(postId: string, userId: string): Promise<void> {
