@@ -11,18 +11,20 @@ export class AuthMiddleware {
   public verifyUser(req: Request, _res: Response, next: NextFunction): void {
     // Check session first, then fall back to cookie, then Authorization header
     let token = req.session?.jwt;
-    
-    // Debug logging
-    log.debug('verifyUser called', {
+
+    // Debug logging - use info level so it shows up in logs
+    log.info('verifyUser called', {
       hasSession: !!req.session,
       hasSessionJwt: !!req.session?.jwt,
       hasCookies: !!req.cookies,
       cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
-      hasAuthHeader: !!req.headers.authorization,
+      hasAuthHeader: !!(req.headers.authorization || req.headers.Authorization),
+      authHeaderValue: req.headers.authorization || req.headers.Authorization || 'none',
       url: req.url,
-      method: req.method
+      method: req.method,
+      allHeaders: Object.keys(req.headers)
     });
-    
+
     // If no token in session, try to get from cookies
     if (!token) {
       // Try to get from cookies - handle both req.cookies (cookie-parser) and direct access
@@ -36,7 +38,7 @@ export class AuthMiddleware {
           log.debug('Found token via req.cookies.get()');
         }
       }
-      
+
       // If we found token in cookie, set it in session for consistency
       if (token) {
         if (!req.session) {
@@ -48,16 +50,28 @@ export class AuthMiddleware {
     }
 
     // If still no token, try Authorization header (Bearer token)
-    if (!token && req.headers.authorization) {
-      const authHeader = req.headers.authorization;
-      if (authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-        log.debug('Found token in Authorization header');
-        // Also set it in session for consistency
-        if (!req.session) {
-          (req as any).session = {};
+    // Check both 'authorization' and 'Authorization' (case-insensitive)
+    if (!token) {
+      const authHeader = req.headers.authorization || req.headers.Authorization;
+      if (authHeader) {
+        const headerValue = typeof authHeader === 'string' ? authHeader : authHeader[0];
+        if (headerValue && headerValue.startsWith('Bearer ')) {
+          token = headerValue.substring(7).trim();
+          log.debug('Found token in Authorization header', { tokenLength: token.length });
+          // Also set it in session for consistency
+          if (!req.session) {
+            (req as any).session = {};
+          }
+          (req.session as any).jwt = token;
+        } else if (headerValue && !headerValue.startsWith('Bearer ')) {
+          // Token might be sent without "Bearer " prefix
+          token = headerValue.trim();
+          log.debug('Found token in Authorization header without Bearer prefix', { tokenLength: token.length });
+          if (!req.session) {
+            (req as any).session = {};
+          }
+          (req.session as any).jwt = token;
         }
-        (req.session as any).jwt = token;
       }
     }
 
