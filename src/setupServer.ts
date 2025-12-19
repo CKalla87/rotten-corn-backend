@@ -40,13 +40,12 @@ export class RottenCornServer {
 
     // Add request logging middleware to see all incoming requests
     this.app.use((req, res, next) => {
-      log.error('Incoming request', {
+      log.info('Incoming request', {
         method: req.method,
         url: req.url,
         originalUrl: req.originalUrl,
         path: req.path,
-        hasAuthHeader: !!(req.headers.authorization || req.headers.Authorization),
-        authHeader: req.headers.authorization || req.headers.Authorization || 'none'
+        hasAuthHeader: !!(req.headers.authorization || req.headers.Authorization)
       });
       next();
     });
@@ -62,6 +61,7 @@ export class RottenCornServer {
     app.use(cookieParser());
 
     // Determine if we're in local development
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
     const isLocalDev = config.NODE_ENV === 'development' &&
                        (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
                        !config.CLIENT_URL?.includes('chatappserver.space');
@@ -118,7 +118,8 @@ export class RottenCornServer {
 
   private standardMiddleware(app: Application): void {
     // Optimize compression for hosted environments - use higher compression level
-    const isProduction = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
+    const isProduction = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'develop';
     app.use(compression({
       level: isProduction ? 6 : 1, // Higher compression in hosted envs (6), lower in local (1) for speed
       threshold: 1024, // Only compress responses > 1KB
@@ -174,8 +175,8 @@ export class RottenCornServer {
       res.status(HTTP_STATUS.NOT_FOUND).json({ message: `${req.originalUrl} not found` });
     });
 
-    app.use((error: IErrorResponse, req: Request, res: Response, next: NextFunction) => {
-      log.error(error);
+    app.use((error: IErrorResponse, req: Request, res: Response, _next: NextFunction) => {
+      log.error('Error handler caught:', error);
 
       // Set CORS headers for error responses
       const origin = req.get('origin');
@@ -189,7 +190,16 @@ export class RottenCornServer {
       if (error instanceof CustomError) {
         return res.status(error.statusCode).json(error.serializeErrors());
       }
-      next();
+
+      // Always send a response - don't call next() without a response
+      // This prevents requests from hanging when non-CustomError errors occur
+      const statusCode = error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      const message = error.message || 'An unexpected error occurred';
+      return res.status(statusCode).json({
+        message,
+        status: 'error',
+        statusCode
+      });
     });
   }
 

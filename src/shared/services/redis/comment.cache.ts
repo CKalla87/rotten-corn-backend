@@ -26,7 +26,8 @@ export class CommentCache extends BaseCache {
       await this.client.HSET(`posts:${postId}`, 'commentsCount', `${count}`);
       // Add TTL for comment cache entries (2 minutes for comments in hosted environments)
       // Comments are frequently updated, so shorter TTL ensures freshness
-      const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+      // 'development' = local, 'develop'/'staging'/'production' = hosted
+      const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'develop';
       if (isHostedEnv) {
         await this.client.EXPIRE(`comments:${postId}`, 120); // 2 minutes TTL
       }

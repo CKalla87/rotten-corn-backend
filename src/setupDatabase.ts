@@ -10,7 +10,8 @@ export default () => {
     mongoose.set('strictQuery', false);
 
     // Optimize MongoDB connection for hosted environments
-    const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
+    const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'develop';
     const connectionOptions = isHostedEnv ? {
       maxPoolSize: 10, // Maximum number of connections in the pool
       minPoolSize: 5, // Minimum number of connections to maintain

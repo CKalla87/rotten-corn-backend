@@ -77,7 +77,8 @@ export class PostCache extends BaseCache {
       const count: number = parseInt(postCount[0], 10) + 1;
       multi.HSET(`users:${currentUserId}`, 'postsCount', count);
       // Add TTL for cache entries (5 minutes for posts in hosted environments)
-      const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'development';
+      // 'development' = local, 'develop'/'staging'/'production' = hosted
+      const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'develop';
       if (isHostedEnv) {
         multi.EXPIRE(`posts:${key}`, 300); // 5 minutes TTL
       }
