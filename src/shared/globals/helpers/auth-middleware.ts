@@ -36,7 +36,7 @@ export class AuthMiddleware {
           cookieType: typeof req.cookies,
           allCookies: req.cookies
         });
-        
+
         if (typeof req.cookies === 'object' && 'jwt' in req.cookies) {
           token = req.cookies.jwt;
           log.warn('Found token in req.cookies.jwt', { tokenLength: token?.length });
@@ -46,7 +46,7 @@ export class AuthMiddleware {
           log.warn('Found token via req.cookies.get()', { tokenLength: token?.length });
         }
       }
-      
+
       // Also check the Cookie header directly as a fallback
       if (!token && req.headers.cookie) {
         const cookieHeader = req.headers.cookie;

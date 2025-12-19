@@ -22,9 +22,9 @@ const userCache: UserCache = new UserCache();
 // NOTE: Callback URL must point to the BACKEND server, not the frontend CLIENT_URL
 const getCallbackURL = (provider: string): string => {
   // Check if we're truly in local development (not deployed)
-  // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
+  // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space
   const isTrulyLocal = config.NODE_ENV === 'development' &&
-                      !config.EC2_URL &&
+                      (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
                       !config.CLIENT_URL?.includes('chatappserver.space');
 
   if (isTrulyLocal) {
