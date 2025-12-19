@@ -6,7 +6,13 @@ export const authMockRequest = (sessionData: IJWT, body: IAuthMock, currentUser?
   session: sessionData,
   body,
   params,
-  currentUser
+  currentUser,
+  get: jest.fn((header: string) => {
+    if (header === 'origin') {
+      return undefined;
+    }
+    return undefined;
+  })
 });
 
 export const authMockResponse = (): Response => {

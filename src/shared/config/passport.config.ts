@@ -117,10 +117,14 @@ if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
             authUser.oauth = {};
           }
           if (!authUser.oauth.google) {
-            authUser.oauth.google = {};
+            authUser.oauth.google = {
+              id: profile.id,
+              email: email
+            };
+          } else {
+            authUser.oauth.google.id = profile.id;
+            authUser.oauth.google.email = email;
           }
-          authUser.oauth.google.id = profile.id;
-          authUser.oauth.google.email = email;
           await authUser.save();
         } else {
           // Create new user
@@ -235,10 +239,14 @@ if (config.GITHUB_CLIENT_ID && config.GITHUB_CLIENT_SECRET) {
             authUser.oauth = {};
           }
           if (!authUser.oauth.github) {
-            authUser.oauth.github = {};
+            authUser.oauth.github = {
+              id: profile.id,
+              username: profile.username
+            };
+          } else {
+            authUser.oauth.github.id = profile.id;
+            authUser.oauth.github.username = profile.username;
           }
-          authUser.oauth.github.id = profile.id;
-          authUser.oauth.github.username = profile.username;
           await authUser.save();
         } else {
           // Create new user
@@ -356,10 +364,14 @@ if (config.FACEBOOK_APP_ID && config.FACEBOOK_APP_SECRET) {
             authUser.oauth = {};
           }
           if (!authUser.oauth.facebook) {
-            authUser.oauth.facebook = {};
+            authUser.oauth.facebook = {
+              id: profile.id,
+              email: email
+            };
+          } else {
+            authUser.oauth.facebook.id = profile.id;
+            authUser.oauth.facebook.email = email;
           }
-          authUser.oauth.facebook.id = profile.id;
-          authUser.oauth.facebook.email = email;
           await authUser.save();
         } else {
           // Create new user

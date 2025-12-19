@@ -51,4 +51,50 @@ export class Helpers {
   static escapeRegex(text: string): string {
     return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
   }
+
+  static generateUserInitials(username: string | undefined): string {
+    if (!username || username.trim().length === 0) {
+      return '?';
+    }
+
+    const parts = username.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      // First letter of first word + first letter of last word
+      return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    } else {
+      // Single word - take first letter, or first two if very short
+      const word = parts[0];
+      if (word.length >= 2) {
+        return word.substring(0, 2).toUpperCase();
+      }
+      return word.charAt(0).toUpperCase();
+    }
+  }
+
+  /**
+   * Generate a data URI for an initials avatar
+   */
+  static generateInitialsAvatar(initials: string, backgroundColor: string, textColor = '#FFFFFF'): string {
+    const size = 200;
+    const fontSize = size * 0.4;
+
+    const svg = `
+      <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+        <rect width="${size}" height="${size}" fill="${backgroundColor}"/>
+        <text
+          x="50%"
+          y="50%"
+          font-family="Arial, sans-serif"
+          font-size="${fontSize}"
+          font-weight="bold"
+          fill="${textColor}"
+          text-anchor="middle"
+          dominant-baseline="central"
+        >${initials}</text>
+      </svg>
+    `.trim();
+
+    // Convert SVG to data URI
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  }
 }

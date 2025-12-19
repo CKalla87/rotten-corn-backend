@@ -12,7 +12,7 @@ const log: Logger = config.createLogger('currentUser');
 export class CurrentUser {
   public async read(req: Request, res: Response): Promise<void> {
     // Set CORS headers immediately
-    const origin = req.get('origin');
+    const origin = req.get ? req.get('origin') : undefined;
     if (origin) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Credentials', 'true');
@@ -28,7 +28,7 @@ export class CurrentUser {
       if (!req.currentUser?.userId) {
         log.warn('CurrentUser endpoint called without userId', {
           hasCurrentUser: !!req.currentUser,
-          origin: req.get('origin')
+          origin: req.get ? req.get('origin') : undefined
         });
         res.status(HTTP_STATUS.UNAUTHORIZED).json({
           message: 'User not authenticated',
