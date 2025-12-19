@@ -66,13 +66,13 @@ const getCallbackURL = (provider: string): string => {
   const url = `https://api.dev.chatappserver.space/api/v1/auth/${provider}/callback`;
   log.warn(`${provider} OAuth callback URL (final fallback): ${url} - Make sure this matches your OAuth provider settings!`);
   log.warn(`Current environment: NODE_ENV=${config.NODE_ENV}, EC2_URL=${config.EC2_URL}, CLIENT_URL=${config.CLIENT_URL}`);
-  
+
   // Final validation: ensure URL is correct format
   if (!url.includes('/api/v1/auth/') || (!url.includes('api.') && !url.includes('localhost'))) {
     log.error(`CRITICAL ERROR: Generated invalid callback URL: ${url} - This should NEVER happen!`);
     throw new Error(`Invalid OAuth callback URL generated: ${url}. This indicates a configuration error.`);
   }
-  
+
   return url;
 };
 

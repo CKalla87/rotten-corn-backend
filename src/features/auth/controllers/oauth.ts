@@ -216,8 +216,20 @@ export class OAuthController {
       // CRITICAL: The callbackURL in the strategy config is what Google will redirect to
       // This must ALWAYS be the backend API URL, never the frontend URL
       log.warn(`About to call passport.authenticate('${provider}') - callback URL should be: ${expectedCallbackUrl}`);
+
+      // Google OAuth requires scope as a space-separated string for the authorization URL
+      // Other providers (GitHub, Facebook) can use arrays
+      // passport-google-oauth20 accepts both string and array formats, but using string ensures proper URL encoding
+      const scope = provider === 'google'
+        ? 'profile email'  // Space-separated string for Google OAuth 2.0
+        : provider === 'github'
+          ? ['user:email']
+          : ['email'];
+
+      log.info(`OAuth scope for ${provider}:`, { scope, scopeType: typeof scope });
+
       passport.authenticate(provider, {
-        scope: provider === 'google' ? ['profile', 'email'] : provider === 'github' ? ['user:email'] : ['email'],
+        scope: scope,
         state
         // Note: We cannot override callbackURL here - it's set in the strategy config
         // If Google redirects to the wrong URL, check the strategy configuration in passport.config.ts
