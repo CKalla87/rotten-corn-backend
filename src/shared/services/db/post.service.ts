@@ -12,7 +12,7 @@ class PostService {
   }
 
   public async getPosts(query: IGetPostsQuery, skip = 0, limit = 0, sort: Record<string, 1 | -1>): Promise<IPostDocument[]> {
-    let postQuery = {};
+    let postQuery: any = {};
     if (query?.imgId && query?.gifUrl) {
       postQuery = { $or: [{ imgId: { $ne: ''} }, { gifUrl: { $ne: '' }}] };
     } else if (query?.videoId) {
@@ -20,36 +20,18 @@ class PostService {
     } else {
       postQuery = query;
     }
-    // Optimize aggregation with indexes and limit fields for faster queries
-    // Use allowDiskUse for large collections and add timeout
-    const posts: IPostDocument[] = await PostModel.aggregate([
-      { $match: postQuery },
-      { $sort: sort },
-      { $skip: skip },
-      { $limit: limit },
-      // Add projection to only fetch needed fields (reduces data transfer)
-      {
-        $project: {
-          userId: 1,
-          username: 1,
-          email: 1,
-          avatarColor: 1,
-          profilePicture: 1,
-          post: 1,
-          bgColor: 1,
-          imgVersion: 1,
-          imgId: 1,
-          videoVersion: 1,
-          videoId: 1,
-          feelings: 1,
-          gifUrl: 1,
-          privacy: 1,
-          commentsCount: 1,
-          reactions: 1,
-          createdAt: 1
-        }
-      }
-    ], { allowDiskUse: true, maxTimeMS: 10000 }); // 10 second timeout - prevents hanging while allowing legitimate slow queries
+    // Ensure limit is set (max 100 to prevent slow queries)
+    const safeLimit = limit > 0 ? Math.min(limit, 100) : 10;
+
+    // Use find() with lean() for much faster queries - no Mongoose overhead
+    // This is significantly faster than aggregate for simple queries
+    const posts: IPostDocument[] = await PostModel.find(postQuery)
+      .sort(sort)
+      .skip(skip)
+      .limit(safeLimit)
+      .lean()
+      .maxTimeMS(10000)
+      .exec() as IPostDocument[];
 
     // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
     // Also ensure reactions object is properly initialized

@@ -10,15 +10,44 @@ class UserService {
   }
 
   public async getUserById(userId: string): Promise<IUserDocument> {
-    // Optimize single user lookup with timeout
-    const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(userId)}},
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
-      { $unwind: '$authId'},
-      { $project: this.aggregateProject()},
-      { $limit: 1 } // Limit to 1 since we're getting a single user
-    ], { allowDiskUse: true, maxTimeMS: 10000 }); // 10 second timeout - prevents hanging while allowing legitimate slow queries
-    return users[0];
+    // Use simpler query - find with populate is faster than aggregate for single document
+    // Only use aggregate if we need complex transformations
+    try {
+      const user = await UserModel.findOne({ _id: new mongoose.Types.ObjectId(userId) })
+        .populate('authId')
+        .lean()
+        .maxTimeMS(10000)
+        .exec() as IUserDocument;
+
+      if (!user) {
+        return null as unknown as IUserDocument;
+      }
+
+      // If populate worked, merge auth data into user object
+      if (user.authId && typeof user.authId === 'object') {
+        const authData = user.authId as any;
+        return {
+          ...user,
+          username: authData.username,
+          email: authData.email,
+          avatarColor: authData.avatarColor,
+          uId: authData.uId,
+          createdAt: authData.createdAt || user.createdAt
+        } as IUserDocument;
+      }
+
+      return user;
+    } catch (error) {
+      // Fallback to aggregate if populate fails
+      const users: IUserDocument[] = await UserModel.aggregate([
+        { $match: { _id: new mongoose.Types.ObjectId(userId)}},
+        { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId'}},
+        { $unwind: '$authId'},
+        { $project: this.aggregateProject()},
+        { $limit: 1 }
+      ], { allowDiskUse: true, maxTimeMS: 10000 });
+      return users[0];
+    }
   }
 
   public async getUserByAuthId(authId: string): Promise<IUserDocument> {
@@ -34,17 +63,46 @@ class UserService {
   }
 
   public async getAllUsers(userId: string, skip: number, limit: number): Promise<IUserDocument[]> {
-    // Optimize aggregation with allowDiskUse for large datasets and timeout
-    const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
-      { $sort: { createdAt: -1 } }, // Sort before skip/limit for better performance
-      { $skip: skip },
-      { $limit: limit },
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      { $project: this.aggregateProject() }
-    ], { allowDiskUse: true, maxTimeMS: 10000 }); // 10 second timeout - prevents hanging while allowing legitimate slow queries
-    return users;
+    // Use find() with populate - much faster than aggregate for simple queries
+    // Only use aggregate if we need complex transformations
+    try {
+      const users = await UserModel.find({ _id: { $ne: new mongoose.Types.ObjectId(userId) } })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('authId')
+        .lean()
+        .maxTimeMS(10000)
+        .exec();
+
+      // Transform the populated results to match expected format
+      return users.map((user: any) => {
+        const authData = user.authId;
+        if (authData && typeof authData === 'object') {
+          return {
+            ...user,
+            username: authData.username,
+            email: authData.email,
+            avatarColor: authData.avatarColor,
+            uId: authData.uId,
+            createdAt: authData.createdAt || user.createdAt
+          } as IUserDocument;
+        }
+        return user as IUserDocument;
+      });
+    } catch (error) {
+      // Fallback to aggregate if populate fails
+      const users: IUserDocument[] = await UserModel.aggregate([
+        { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
+        { $unwind: '$authId' },
+        { $project: this.aggregateProject() }
+      ], { allowDiskUse: true, maxTimeMS: 10000 });
+      return users;
+    }
   }
 
   public async getRandomUsers(userId: string): Promise<IUserDocument[]> {
@@ -72,7 +130,7 @@ class UserService {
             __v: 0
           }
         }
-      ], { allowDiskUse: true, maxTimeMS: 5000 }), // 5 second timeout
+      ], { allowDiskUse: true, maxTimeMS: 10000 }), // 10 second timeout - prevents hanging while allowing legitimate slow queries
       followerService.getFolloweesIds(`${userId}`)
     ]);
 
