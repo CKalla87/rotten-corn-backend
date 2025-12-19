@@ -12,6 +12,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Logger from 'bunyan';
 import statusMonitor from 'express-status-monitor';
 import 'express-async-errors';
+import passport from 'passport';
 import { config } from '@root/config';
 import applicationRoutes from '@root/routes';
 import { CustomError, IErrorResponse } from '@global/helpers/error-handler';
@@ -50,6 +51,8 @@ export class RottenCornServer {
         secure: config.NODE_ENV !== 'development'
       })
     );
+    // Initialize Passport middleware (required for OAuth)
+    app.use(passport.initialize());
     app.use(hpp());
     app.use(helmet());
     app.use(
