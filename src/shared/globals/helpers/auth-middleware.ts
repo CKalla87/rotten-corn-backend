@@ -29,13 +29,32 @@ export class AuthMiddleware {
     if (!token) {
       // Try to get from cookies - handle both req.cookies (cookie-parser) and direct access
       if (req.cookies) {
+        // Log all cookies for debugging
+        log.warn('Checking cookies for JWT token', {
+          cookieKeys: Object.keys(req.cookies),
+          hasJwtCookie: 'jwt' in req.cookies,
+          cookieType: typeof req.cookies,
+          allCookies: req.cookies
+        });
+        
         if (typeof req.cookies === 'object' && 'jwt' in req.cookies) {
           token = req.cookies.jwt;
-          log.warn('Found token in req.cookies.jwt');
+          log.warn('Found token in req.cookies.jwt', { tokenLength: token?.length });
         } else if (typeof req.cookies.get === 'function') {
           // Some cookie parsers use .get() method
           token = req.cookies.get('jwt');
-          log.warn('Found token via req.cookies.get()');
+          log.warn('Found token via req.cookies.get()', { tokenLength: token?.length });
+        }
+      }
+      
+      // Also check the Cookie header directly as a fallback
+      if (!token && req.headers.cookie) {
+        const cookieHeader = req.headers.cookie;
+        log.warn('Checking Cookie header directly', { cookieHeader: cookieHeader.substring(0, 100) });
+        const jwtMatch = cookieHeader.match(/jwt=([^;]+)/);
+        if (jwtMatch && jwtMatch[1]) {
+          token = jwtMatch[1];
+          log.warn('Found token in Cookie header', { tokenLength: token.length });
         }
       }
 
