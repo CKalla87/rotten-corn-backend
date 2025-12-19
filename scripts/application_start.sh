@@ -389,7 +389,38 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   echo "[$(date)] PM2 status for $PM2_PROCESS_NAME: $PM2_STATUS (waited ${ELAPSED}s)"
 
   if [ "$PM2_STATUS" = "online" ]; then
-    # Wait for initial stabilization period before checking health
+    # CRITICAL: Check if port is listening first (fastest and most reliable indicator)
+    # If PM2 says online AND port is listening, app is running (even if Redis isn't connected yet)
+    PORT_LISTENING=false
+    set +e
+    if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
+      PORT_LISTENING=true
+      echo "[$(date)] ✓ Port 5000 IS listening"
+    else
+      echo "[$(date)] ⚠ Port 5000 is NOT listening yet, waiting..."
+    fi
+    set -e
+
+    # If PM2 says online AND port is listening, app is definitely running
+    # Allow deployment even if Redis connection is still pending (it will retry)
+    if [ "$PORT_LISTENING" = true ]; then
+      echo "[$(date)] ✓ PM2 reports online AND port 5000 is listening - application is running"
+      echo "[$(date)] ⚠ Note: Redis connection may still be pending (this is OK, it will retry)"
+      # Do a quick HTTP check to confirm, but don't fail if it doesn't respond
+      set +e
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:5000/health 2>&1 || printf "000")
+      if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ] || ([ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]); then
+        echo "[$(date)] ✓ HTTP check confirmed (status: $HTTP_STATUS)"
+      else
+        echo "[$(date)] ⚠ HTTP check not responding (status: $HTTP_STATUS), but port is listening - app is running"
+        echo "[$(date)] ⚠ This may be due to Redis connection pending - allowing deployment to continue"
+      fi
+      set -e
+      echo "[$(date)] ✓ Application startup verified after ${ELAPSED}s"
+      exit 0
+    fi
+
+    # Wait for initial stabilization period before checking health (only if port not listening yet)
     if [ $ELAPSED -lt $INITIAL_STABILIZATION ]; then
       echo "[$(date)] PM2 reports app as online, waiting ${INITIAL_STABILIZATION}s for app to stabilize before health check..."
       sleep $((INITIAL_STABILIZATION - ELAPSED))
@@ -406,35 +437,6 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
       echo "[$(date)] ✓ PM2 logs show 'Server running on port 5000'"
     fi
     set -e
-
-    # CRITICAL: Check if port is listening first (faster and more reliable)
-    # The health endpoint may return 503 while database is connecting, which is OK
-    PORT_LISTENING=false
-    set +e
-    if netstat -tln 2>/dev/null | grep -q ":5000 " || ss -tln 2>/dev/null | grep -q ":5000 "; then
-      PORT_LISTENING=true
-      echo "[$(date)] ✓ Port 5000 IS listening"
-    else
-      echo "[$(date)] ⚠ Port 5000 is NOT listening yet, waiting..."
-    fi
-    set -e
-
-    # If port is listening, app is definitely running - exit immediately
-    # (HTTP check is nice but not required if port is listening)
-    if [ "$PORT_LISTENING" = true ]; then
-      echo "[$(date)] ✓ Port 5000 is listening - application is running"
-      # Do a quick HTTP check to confirm, but don't wait long
-      set +e
-      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:5000/health 2>&1 || printf "000")
-      if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "503" ] || ([ "$HTTP_STATUS" != "000" ] && [ -n "$HTTP_STATUS" ] && [ ${#HTTP_STATUS} -eq 3 ]); then
-        echo "[$(date)] ✓ HTTP check confirmed (status: $HTTP_STATUS)"
-      else
-        echo "[$(date)] ⚠ HTTP check not responding yet, but port is listening - app is running"
-      fi
-      set -e
-      echo "[$(date)] ✓ Application startup verified after ${ELAPSED}s"
-      exit 0
-    fi
 
     # If logs show server started, also exit (port should be listening soon)
     if [ "$PM2_LOGS_STARTED" = true ]; then
