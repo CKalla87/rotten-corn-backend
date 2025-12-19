@@ -23,6 +23,10 @@ class ReactionService {
     // Ensure postId is converted to ObjectId
     const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
 
+    // Normalize username to ensure consistent storage and retrieval
+    // This matches how usernames are stored in the database (first letter uppercase)
+    const normalizedUsername = Helpers.firstLetterUppercase(username);
+
     let updatedReactionObject: IReactionDocument = reactionObject as IReactionDocument;
     if (previousReaction) {
       updatedReactionObject = omit(reactionObject, ['_id']);
@@ -31,6 +35,11 @@ class ReactionService {
     // Ensure postId in reaction object is ObjectId
     if (updatedReactionObject.postId && typeof updatedReactionObject.postId === 'string') {
       updatedReactionObject.postId = postIdObj as any;
+    }
+
+    // Ensure username in reaction object is normalized
+    if (updatedReactionObject.username) {
+      updatedReactionObject.username = normalizedUsername;
     }
 
     // Optimize: Skip cache lookup for user - fetch directly from database if needed
@@ -47,7 +56,7 @@ class ReactionService {
 
     const [reactionDoc, postDoc] = await Promise.all([
       ReactionModel.findOneAndUpdate(
-        { postId: postIdObj, username },
+        { postId: postIdObj, username: normalizedUsername },
         updatedReactionObject,
         { upsert: true, new: true }
       ).maxTimeMS(5000).exec(),
@@ -126,9 +135,13 @@ class ReactionService {
     // Ensure postId is converted to ObjectId
     const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
 
+    // Normalize username to ensure consistent storage and retrieval
+    // This matches how usernames are stored in the database (first letter uppercase)
+    const normalizedUsername = Helpers.firstLetterUppercase(username);
+
     // Build update operations
     const operations: Promise<any>[] = [
-      ReactionModel.deleteOne({ postId: postIdObj, type: previousReaction, username }).maxTimeMS(5000).exec()
+      ReactionModel.deleteOne({ postId: postIdObj, type: previousReaction, username: normalizedUsername }).maxTimeMS(5000).exec()
     ];
 
     // Only decrement reaction count if previousReaction is valid

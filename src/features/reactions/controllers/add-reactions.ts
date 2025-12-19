@@ -40,12 +40,15 @@ export class Add {
     const postIdObjectId = typeof postId === 'string'
       ? new mongoose.Types.ObjectId(postId)
       : postId;
+    // Normalize username to match how it's stored in the database (first letter uppercase)
+    // This ensures reactions can be retrieved correctly when querying
+    const normalizedUsername = Helpers.firstLetterUppercase(req.currentUser!.username);
     const reactionObject: IReactionDocument = {
       _id: new ObjectId(),
       postId: postIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       type,
       avataColor: req.currentUser!.avatarColor, // Note: schema uses 'avataColor' (typo but must match schema)
-      username: req.currentUser!.username,
+      username: normalizedUsername,
       profilePicture: normalizedProfilePicture
     } as unknown as IReactionDocument;
 
@@ -53,7 +56,7 @@ export class Add {
       postId,
       userTo,
       userFrom: req.currentUser!.userId,
-      username: req.currentUser!.username,
+      username: normalizedUsername, // Use normalized username to match what's stored in reactionObject
       type,
       previousReaction,
       reactionObject
@@ -71,10 +74,12 @@ export class Add {
     // Handle comment reactions differently from post reactions
     if (commentId && commentId.trim()) {
       // This is a reaction to a comment - update comment's reaction array
+      // Normalize username to match how it's stored in the database
+      const normalizedUsername = Helpers.firstLetterUppercase(req.currentUser!.username);
       try {
         await commentService.addReactionToComment(
           commentId,
-          req.currentUser!.username,
+          normalizedUsername,
           type,
           previousReaction || null
         );

@@ -5,6 +5,7 @@ import { ReactionCache } from '@service/redis/reaction.cache';
 import { reactionQueue } from '@service/queues/reaction.queue';
 import { reactionService } from '@service/db/reaction.services';
 import { commentService } from '@service/db/comment.service';
+import { Helpers } from '@global/helpers/helpers';
 import { config } from '@root/config';
 import Logger from 'bunyan';
 
@@ -28,10 +29,12 @@ export class Remove {
     // Handle comment reactions differently from post reactions
     if (commentId && commentId.trim()) {
       // This is a reaction removal from a comment
+      // Normalize username to match how it's stored in the database
+      const normalizedUsername = Helpers.firstLetterUppercase(req.currentUser!.username);
       try {
         await commentService.removeReactionFromComment(
           commentId,
-          req.currentUser!.username
+          normalizedUsername
         );
         log.info('Comment reaction removed from database successfully', {
           commentId,
@@ -54,16 +57,19 @@ export class Remove {
     }
 
     // This is a reaction removal from a post - use existing post reaction logic
+    // Normalize username to match how it's stored in the database (first letter uppercase)
+    const normalizedUsername = Helpers.firstLetterUppercase(req.currentUser!.username);
+
     // Remove from cache asynchronously (non-blocking)
     if (postReactions) {
-      reactionCache.removePostReactionFromCache(postId, `${req.currentUser!.username}`, JSON.parse(postReactions)).catch((error) => {
+      reactionCache.removePostReactionFromCache(postId, normalizedUsername, JSON.parse(postReactions)).catch((error) => {
         log.warn('Failed to remove reaction from cache (non-critical)', error);
       });
     }
 
     const databaseReactionData: IReactionJob = {
       postId,
-      username: req.currentUser!.username,
+      username: normalizedUsername, // Use normalized username to match what's stored in database
       previousReaction,
     };
 
