@@ -142,10 +142,39 @@ export class RottenCornServer {
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
       }
     });
-    const pubClient = createClient({ url: config.REDIS_HOST });
-    const subClient = pubClient.duplicate();
-    await Promise.all([pubClient.connect(), subClient.connect()]);
-    io.adapter(createAdapter(pubClient, subClient));
+    
+    // Try to connect to Redis for Socket.IO adapter, but don't crash if it fails
+    // Socket.IO will work without Redis adapter (single instance mode)
+    try {
+      const pubClient = createClient({ 
+        url: config.REDIS_HOST,
+        socket: {
+          connectTimeout: 5000,
+          reconnectStrategy: (retries: number) => {
+            if (retries > 5) {
+              return false; // Stop retrying after 5 attempts
+            }
+            return Math.min(retries * 100, 2000);
+          }
+        }
+      });
+      const subClient = pubClient.duplicate();
+      
+      // Set a timeout for Redis connection
+      const connectPromise = Promise.all([pubClient.connect(), subClient.connect()]);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Redis connection timeout')), 10000)
+      );
+      
+      await Promise.race([connectPromise, timeoutPromise]);
+      io.adapter(createAdapter(pubClient, subClient));
+      log.info('Socket.IO Redis adapter connected successfully');
+    } catch (error) {
+      log.error('Failed to connect Redis adapter for Socket.IO, continuing without it', error);
+      // Continue without Redis adapter - Socket.IO will work in single-instance mode
+      // This allows the app to start even if Redis is unavailable
+    }
+    
     return io;
   }
 

@@ -578,17 +578,35 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   echo "[$(date)] Application status: $PM2_STATUS, restarts: $RESTARTS (waited ${ELAPSED}s)"
 
   # Check for crash loop (too many restarts) - but be more lenient during initial startup
-  # Allow up to 10 restarts during the first 30 seconds, then 5 after that
+  # Also check if crashes are due to Redis connection issues (which should be fixed now)
   if [ -n "$RESTARTS" ] && [ "$RESTARTS" != "N/A" ]; then
     RESTART_LIMIT=10
     if [ $ELAPSED -gt 30 ]; then
       RESTART_LIMIT=5
     fi
+    
+    # Check if crashes are due to Redis connection issues
+    REDIS_CRASH=false
+    set +e
+    if "$PM2_BIN" logs $PM2_PROCESS_NAME --err --lines 20 --nostream 2>&1 | grep -qi "redis.*connection\|connection.*timeout.*redis"; then
+      REDIS_CRASH=true
+      echo "[$(date)] ⚠ Detected Redis connection issues in crash logs"
+      echo "[$(date)] ⚠ App should now handle Redis failures gracefully - waiting for fix to take effect..."
+    fi
+    set -e
+    
     if [ "$RESTARTS" -gt $RESTART_LIMIT ]; then
-      echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts, limit: ${RESTART_LIMIT})"
-      echo "[$(date)] Showing last 50 lines of logs:"
-      "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
-      exit 1
+      if [ "$REDIS_CRASH" = true ] && [ $ELAPSED -lt 60 ]; then
+        # If Redis-related crashes and still within first minute, give more time
+        echo "[$(date)] ⚠ App is crashing due to Redis issues (${RESTARTS} restarts)"
+        echo "[$(date)] ⚠ Waiting longer for app to stabilize (Redis connection fix should prevent crashes)..."
+        # Continue waiting instead of exiting
+      else
+        echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts, limit: ${RESTART_LIMIT})"
+        echo "[$(date)] Showing last 50 lines of logs:"
+        "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
+        exit 1
+      fi
     fi
   fi
 
