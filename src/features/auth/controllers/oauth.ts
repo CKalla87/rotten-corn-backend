@@ -156,7 +156,7 @@ export class OAuthController {
       const state = Buffer.from(redirectUri).toString('base64');
 
       log.info(`Initiating ${provider} OAuth with state: ${state.substring(0, 20)}...`);
-      log.info(`OAuth request details:`, {
+      log.info('OAuth request details:', {
         provider,
         expectedCallbackUrl,
         frontendRedirectUri: redirectUri,
@@ -413,7 +413,7 @@ export class OAuthController {
               await userService.addUserData(newUserData);
               userDocument = newUserData;
 
-              log.info(`Created user document synchronously for OAuth user`, {
+              log.info('Created user document synchronously for OAuth user', {
                 provider,
                 userId: user._id,
                 userObjectId: userObjectId.toString()

@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { CurrentUser } from '@auth/controllers/current-user';
 import { authMockRequest, authMockResponse, authUserPayload } from '@root/mocks/auth.mock';
-import { UserCache } from '@service/redis/user.cache';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { existingUser } from '@root/mocks/user.mock';
 import { userService } from '@service/db/user.service';

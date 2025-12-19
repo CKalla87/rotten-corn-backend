@@ -85,7 +85,7 @@ const getGoogleCallbackURL = (): string => {
 const googleCallbackURL = getGoogleCallbackURL();
 log.info('Google OAuth Strategy configured with callback URL:', { callbackURL: googleCallbackURL });
 log.warn('CRITICAL: This callback URL MUST match what is registered in Google OAuth Console');
-log.warn(`Expected: https://api.dev.chatappserver.space/api/v1/auth/google/callback (or appropriate environment)`);
+log.warn('Expected: https://api.dev.chatappserver.space/api/v1/auth/google/callback (or appropriate environment)');
 if (!googleCallbackURL.includes('api.') && !googleCallbackURL.includes('localhost')) {
   log.error(`ERROR: Callback URL does not point to backend API! URL: ${googleCallbackURL}`);
 }

@@ -14,6 +14,7 @@ class HealthRoutes {
 
   public routes(): Router {
     this.router.get('/health', async (req: Request, res: Response) => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const mongoose = require('mongoose');
       const dbStatus = mongoose.connection.readyState;
       // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting

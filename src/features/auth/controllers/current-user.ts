@@ -1,12 +1,10 @@
 import HTTP_STATUS from 'http-status-codes';
 import { Request, Response } from 'express';
-import { UserCache } from '@service/redis/user.cache';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { userService } from '@service/db/user.service';
 import { config } from '@root/config';
 import Logger from 'bunyan';
 
-const userCache: UserCache = new UserCache();
 const log: Logger = config.createLogger('currentUser');
 
 export class CurrentUser {
