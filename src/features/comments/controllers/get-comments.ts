@@ -17,13 +17,25 @@ export class Get {
 
     // Comments now have reactions stored directly in the schema
     // Convert mongoose documents to plain objects and ensure reaction array exists
+    // Ensure consistent data structure to prevent frontend re-render issues with GIFs
     const commentsWithReactions = comments.map((comment) => {
       const commentObj = comment.toObject ? comment.toObject() : comment;
       const reactionArray = Array.isArray(commentObj.reaction) ? commentObj.reaction : [];
 
+      // Handle both avatarColor (interface) and avataColor (schema typo) for compatibility
+      const avatarColor = (commentObj as any).avatarColor || (commentObj as any).avataColor || '';
+
       return {
-        ...commentObj,
-        reaction: reactionArray
+        _id: commentObj._id,
+        postId: commentObj.postId,
+        username: commentObj.username || '',
+        avatarColor: avatarColor,
+        profilePicture: commentObj.profilePicture || '',
+        comment: commentObj.comment || '',
+        gifUrl: commentObj.gifUrl || '',
+        reaction: reactionArray,
+        createdAt: commentObj.createdAt,
+        userTo: commentObj.userTo || null
       };
     });
 

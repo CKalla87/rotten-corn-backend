@@ -7,6 +7,7 @@ import { IReactionDocument, IReactionJob } from '@reaction/interfaces/reaction.i
 import { ReactionCache } from '@service/redis/reaction.cache';
 import { reactionQueue } from '@service/queues/reaction.queue';
 import { reactionService } from '@service/db/reaction.services';
+import { commentService } from '@service/db/comment.service';
 import { config } from '@root/config';
 import { Helpers } from '@global/helpers/helpers';
 import Logger from 'bunyan';
@@ -18,7 +19,7 @@ const reactionCache: ReactionCache = new ReactionCache();
 export class Add {
   @joiValidation(addReactionSchema)
   public async reaction(req: Request, response: Response): Promise<void> {
-    const { userTo, postId, type, previousReaction, postReactions, profilePicture } = req.body;
+    const { userTo, postId, commentId, type, previousReaction, postReactions, profilePicture } = req.body;
 
     // Normalize profile picture URL to ensure correct Cloudinary cloud name
     let normalizedProfilePicture = profilePicture;
@@ -62,11 +63,53 @@ export class Add {
       response.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
     }
 
+    // Handle comment reactions differently from post reactions
+    if (commentId && commentId.trim()) {
+      // This is a reaction to a comment - update comment's reaction array
+      try {
+        await commentService.addReactionToComment(
+          commentId,
+          req.currentUser!.username,
+          type,
+          previousReaction || null
+        );
+        log.info('Comment reaction saved to database successfully', {
+          commentId,
+          username: req.currentUser!.username,
+          type
+        });
+
+        // Return the reaction object so the frontend can update immediately
+        response.status(HTTP_STATUS.OK).json({
+          message: 'Reaction added successfully',
+          reaction: {
+            username: req.currentUser!.username,
+            type,
+            commentId
+          }
+        });
+        return;
+      } catch (error) {
+        log.error('Failed to save comment reaction to database', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          commentId,
+          username: req.currentUser!.username,
+          type,
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        response.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+          message: 'Failed to save reaction'
+        });
+        return;
+      }
+    }
+
+    // This is a reaction to a post - use existing post reaction logic
     // Save to database FIRST for immediate persistence
     // Skip cache to avoid slow Redis operations and ensure data is immediately available
     try {
       await reactionService.addReactionDataToDB(databaseReactionData);
-      log.info('Reaction saved to database successfully', { postId, username: req.currentUser!.username, type });
+      log.info('Post reaction saved to database successfully', { postId, username: req.currentUser!.username, type });
     } catch (error) {
       log.error('Failed to save reaction to database', {
         error: error instanceof Error ? error.message : 'Unknown error',

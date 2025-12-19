@@ -134,6 +134,76 @@ class CommentService {
     ], { allowDiskUse: true, maxTimeMS: 5000 });
     return commentsNameList;
   }
+
+  public async addReactionToComment(
+    commentId: string,
+    username: string,
+    type: string,
+    previousReaction: string | null
+  ): Promise<void> {
+    const commentIdObj = typeof commentId === 'string' ? new mongoose.Types.ObjectId(commentId) : commentId;
+
+    // Get the current comment to access its reaction array
+    const comment = await CommentsModel.findById(commentIdObj).maxTimeMS(5000).exec();
+    if (!comment) {
+      throw new Error(`Comment with id ${commentId} not found`);
+    }
+
+    // Get current reactions array or initialize it
+    const reactions = Array.isArray(comment.reaction) ? [...comment.reaction] : [];
+
+    // Remove previous reaction if it exists
+    if (previousReaction && previousReaction.trim()) {
+      const indexToRemove = reactions.findIndex(
+        (r: any) => r.username === username || r.senderName === username
+      );
+      if (indexToRemove !== -1) {
+        reactions.splice(indexToRemove, 1);
+      }
+    }
+
+    // Add new reaction
+    const newReaction = {
+      username,
+      senderName: username, // Support both fields for compatibility
+      type
+    };
+
+    reactions.push(newReaction);
+
+    // Update comment with new reactions array
+    await CommentsModel.updateOne(
+      { _id: commentIdObj },
+      { $set: { reaction: reactions } }
+    ).maxTimeMS(5000).exec();
+  }
+
+  public async removeReactionFromComment(
+    commentId: string,
+    username: string
+  ): Promise<void> {
+    const commentIdObj = typeof commentId === 'string' ? new mongoose.Types.ObjectId(commentId) : commentId;
+
+    // Get the current comment to access its reaction array
+    const comment = await CommentsModel.findById(commentIdObj).maxTimeMS(5000).exec();
+    if (!comment) {
+      throw new Error(`Comment with id ${commentId} not found`);
+    }
+
+    // Get current reactions array
+    const reactions = Array.isArray(comment.reaction) ? [...comment.reaction] : [];
+
+    // Remove reaction for this user
+    const filteredReactions = reactions.filter(
+      (r: any) => r.username !== username && r.senderName !== username
+    );
+
+    // Update comment with filtered reactions array
+    await CommentsModel.updateOne(
+      { _id: commentIdObj },
+      { $set: { reaction: filteredReactions } }
+    ).maxTimeMS(5000).exec();
+  }
 }
 
 export const commentService: CommentService = new CommentService();

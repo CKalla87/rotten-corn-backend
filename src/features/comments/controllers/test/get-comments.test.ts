@@ -40,10 +40,14 @@ describe('Get', () => {
         { createdAt: 1 }
       );
       expect(res.status).toHaveBeenCalledWith(200);
-      // Implementation adds reaction array to each comment
+      // Implementation adds reaction array and ensures consistent structure (including gifUrl) to each comment
       expect(res.json).toHaveBeenCalledWith({
         message: 'Post comments',
-        comments: [{ ...commentsData, reaction: [] }]
+        comments: [{
+          ...commentsData,
+          reaction: [],
+          gifUrl: commentsData.gifUrl || ''
+        }]
       });
     });
   });
