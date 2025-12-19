@@ -630,25 +630,47 @@ export class OAuthController {
 
       // Try to get code from body first, then from query (in case frontend sends it as query param)
       // Also check if code is in URL params (some frontends might send it that way)
+      // IMPORTANT: Frontend should send code in POST body as JSON: { "code": "..." }
+      // But we also check query string as fallback
       const code = req.body?.code || req.query?.code || (req as any).params?.code;
 
       log.info('Code extraction result', {
         hasCode: !!code,
-        codeSource: req.body?.code ? 'body' : req.query?.code ? 'query' : 'none',
+        codeSource: req.body?.code ? 'body' : req.query?.code ? 'query' : req.params?.code ? 'params' : 'none',
         codeLength: code?.length || 0,
-        codePrefix: code?.substring(0, 30) || 'N/A'
+        codePrefix: code?.substring(0, 30) || 'N/A',
+        bodyHasCode: !!req.body?.code,
+        queryHasCode: !!req.query?.code,
+        bodyType: typeof req.body,
+        bodyKeys: Object.keys(req.body || {})
       });
 
       if (!code) {
-        log.error('No authorization code provided in exchange request', {
+        const errorDetails = {
           body: req.body,
           bodyKeys: Object.keys(req.body || {}),
           query: req.query,
           queryKeys: Object.keys(req.query || {}),
+          params: req.params,
           contentType: req.get('content-type'),
-          rawBody: JSON.stringify(req.body)
-        });
-        throw new BadRequestError('Authorization code is required. Please ensure the OAuth callback completed successfully.');
+          rawBody: req.body ? JSON.stringify(req.body).substring(0, 200) : 'empty',
+          url: req.url,
+          method: req.method
+        };
+
+        log.error('No authorization code provided in exchange request', errorDetails);
+
+        // Provide helpful error message based on what we found
+        let errorMessage = 'Authorization code is required. ';
+        if (!req.body || Object.keys(req.body).length === 0) {
+          errorMessage += 'The request body is empty. Please send the code in the POST body as JSON: { "code": "..." }';
+        } else if (req.body && typeof req.body === 'object' && !req.body.code) {
+          errorMessage += `The request body was received but does not contain a "code" field. Body keys: ${Object.keys(req.body).join(', ')}`;
+        } else {
+          errorMessage += 'Please ensure the OAuth callback completed successfully and the code is included in the request.';
+        }
+
+        throw new BadRequestError(errorMessage);
       }
 
       // Exchange code for user data and token with timeout protection
