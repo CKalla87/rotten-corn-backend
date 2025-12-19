@@ -33,6 +33,8 @@ export class Create {
       commentsCount: 0,
       imgVersion: '',
       imgId: '',
+      videoVersion: '',
+      videoId: '',
       createdAt: new Date(),
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 }
     } as IPostDocument;

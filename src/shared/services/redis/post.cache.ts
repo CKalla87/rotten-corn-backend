@@ -105,6 +105,11 @@ export class PostCache extends BaseCache {
         post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
         post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
         post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
+        // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
+        post.videoVersion = post.videoVersion || '';
+        post.videoId = post.videoId || '';
+        post.imgVersion = post.imgVersion || '';
+        post.imgId = post.imgId || '';
         postReplies.push(post);
       }
 
@@ -146,6 +151,11 @@ export class PostCache extends BaseCache {
           post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
           post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
           post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
+          // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
+          post.videoVersion = post.videoVersion || '';
+          post.videoId = post.videoId || '';
+          post.imgVersion = post.imgVersion || '';
+          post.imgId = post.imgId || '';
           postWithImages.push(post);
         }
       }
@@ -173,6 +183,11 @@ export class PostCache extends BaseCache {
         post.commentsCount = Number(Helpers.parseJson(`${post.commentsCount}`));
         post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
         post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
+        // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
+        post.videoVersion = post.videoVersion || '';
+        post.videoId = post.videoId || '';
+        post.imgVersion = post.imgVersion || '';
+        post.imgId = post.imgId || '';
         postReplies.push(post);
       }
       return postReplies;
@@ -265,16 +280,26 @@ export class PostCache extends BaseCache {
 
       const reply: string[] = await this.client.ZRANGE(key, start, end, { REV: true });
       const multi: ReturnType<typeof this.client.multi> = this.client.multi();
-      for (const value of reply) {
+      for(const value of reply) {
         multi.HGETALL(`posts:${value}`);
       }
-      const replies: PostCacheMultiType = (await multi.exec()) as PostCacheMultiType;
+      const replies: PostCacheMultiType = await multi.exec() as PostCacheMultiType;
       const postWithVideos: IPostDocument[] = [];
-      for (const post of replies as IPostDocument[]) {
+      for(const post of replies as IPostDocument[]) {
+        // Ensure video fields are set to empty strings if undefined to prevent undefined in URLs
+        post.videoVersion = post.videoVersion || '';
+        post.videoId = post.videoId || '';
+        post.imgVersion = post.imgVersion || '';
+        post.imgId = post.imgId || '';
         if (post.videoId && post.videoVersion) {
           post.commentsCount = Helpers.parseJson(`${post.commentsCount}`) as number;
           post.reactions = Helpers.parseJson(`${post.reactions}`) as IReactions;
           post.createdAt = new Date(Helpers.parseJson(`${post.createdAt}`)) as Date;
+          // Ensure video fields are set (should already be set for video posts, but ensure they're not undefined)
+          post.videoVersion = post.videoVersion || '';
+          post.videoId = post.videoId || '';
+          post.imgVersion = post.imgVersion || '';
+          post.imgId = post.imgId || '';
           postWithVideos.push(post);
         }
       }

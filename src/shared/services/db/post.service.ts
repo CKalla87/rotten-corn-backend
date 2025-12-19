@@ -49,6 +49,14 @@ class PostService {
         }
       }
     ]);
+    
+    // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
+    for (const post of posts) {
+      if (!post.videoVersion) post.videoVersion = '';
+      if (!post.videoId) post.videoId = '';
+      if (!post.imgVersion) post.imgVersion = '';
+      if (!post.imgId) post.imgId = '';
+    }
     return posts;
   }
 
