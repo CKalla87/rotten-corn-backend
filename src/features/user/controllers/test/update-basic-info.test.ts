@@ -36,7 +36,7 @@ describe('EditBasicInfo', () => {
         school: 'Taltech',
         location: 'Tallinn'
       };
-      const req: Request = authMockRequest({}, basicInfo, authUserPayload, {}) as Request;
+      const req: Request = authMockRequest({}, basicInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache');
 
@@ -57,7 +57,7 @@ describe('EditBasicInfo', () => {
         school: 'Taltech',
         location: 'Tallinn'
       };
-      const req: Request = authMockRequest({}, basicInfo, authUserPayload, {}) as Request;
+      const req: Request = authMockRequest({}, basicInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(userQueue, 'addUserJob');
 
@@ -81,7 +81,7 @@ describe('EditBasicInfo', () => {
         youtube: 'https://youtube.com',
         twitter: 'https://twitter.com'
       };
-      const req: Request = authMockRequest({}, socialInfo, authUserPayload, {}) as Request;
+      const req: Request = authMockRequest({}, socialInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache');
 
@@ -100,7 +100,7 @@ describe('EditBasicInfo', () => {
         youtube: 'https://youtube.com',
         twitter: 'https://twitter.com'
       };
-      const req: Request = authMockRequest({}, socialInfo, authUserPayload, {}) as Request;
+      const req: Request = authMockRequest({}, socialInfo, authUserPayload, {}) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(userQueue, 'addUserJob');
 

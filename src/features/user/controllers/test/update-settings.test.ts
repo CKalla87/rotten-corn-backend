@@ -26,7 +26,7 @@ describe('Settings', () => {
         comments: true,
         follows: false
       };
-      const req: Request = authMockRequest({}, settings, authUserPayload) as Request;
+      const req: Request = authMockRequest({}, settings, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'updateSingleUserItemInCache');
       jest.spyOn(userQueue, 'addUserJob');

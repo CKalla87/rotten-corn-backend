@@ -33,7 +33,7 @@ describe('Get', () => {
 
   describe('all', () => {
     it('should send success json response if users in cache', async () => {
-      const req: Request = authMockRequest({}, {}, authUserPayload, { page: '1' }) as Request;
+      const req: Request = authMockRequest({}, {}, authUserPayload, { page: '1' }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUsersFromCache').mockResolvedValue([existingUser]);
       jest.spyOn(UserCache.prototype, 'getTotalUsersInCache').mockResolvedValue(1);
@@ -50,7 +50,7 @@ describe('Get', () => {
     });
 
     it('should send success json response if users in database', async () => {
-      const req: Request = authMockRequest({}, {}, authUserPayload, { page: '1' }) as Request;
+      const req: Request = authMockRequest({}, {}, authUserPayload, { page: '1' }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUsersFromCache').mockResolvedValue([]);
       jest.spyOn(UserCache.prototype, 'getTotalUsersInCache').mockResolvedValue(0);
@@ -73,7 +73,7 @@ describe('Get', () => {
 
   describe('profile', () => {
     it('should send success json response if user in cache', async () => {
-      const req: Request = authMockRequest({}, {}, authUserPayload) as Request;
+      const req: Request = authMockRequest({}, {}, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUser);
       await Get.prototype.profile(req, res);
@@ -86,7 +86,7 @@ describe('Get', () => {
     });
 
     it('should send success json response if user in database', async () => {
-      const req: Request = authMockRequest({}, {}, authUserPayload) as Request;
+      const req: Request = authMockRequest({}, {}, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(null);
       jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
@@ -107,7 +107,7 @@ describe('Get', () => {
         username: existingUser.username,
         userId: existingUser._id,
         uId: existingUser.uId
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUser);
       jest.spyOn(PostCache.prototype, 'getUserPostsFromCache').mockResolvedValue([postMockData]);
@@ -128,7 +128,7 @@ describe('Get', () => {
         username: existingUser.username,
         userId: existingUser._id,
         uId: existingUser.uId
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(null);
       jest.spyOn(PostCache.prototype, 'getUserPostsFromCache').mockResolvedValue([]);
@@ -153,7 +153,7 @@ describe('Get', () => {
     it('should send success json response if user in cache', async () => {
       const req: Request = authMockRequest({}, {}, authUserPayload, {
         userId: existingUser._id
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUser);
 
@@ -169,7 +169,7 @@ describe('Get', () => {
     it('should send success json response if user in database', async () => {
       const req: Request = authMockRequest({}, {}, authUserPayload, {
         userId: existingUser._id
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(null);
       jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
@@ -186,7 +186,7 @@ describe('Get', () => {
 
   describe('randomUserSuggestions', () => {
     it('should send success json response if user in cache', async () => {
-      const req: Request = authMockRequest({}, {}, authUserPayload) as Request;
+      const req: Request = authMockRequest({}, {}, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getRandomUsersFromCache').mockResolvedValue([existingUser]);
 
@@ -203,7 +203,7 @@ describe('Get', () => {
     });
 
     it('should send success json response if user in database', async () => {
-      const req: Request = authMockRequest({}, {}, authUserPayload) as Request;
+      const req: Request = authMockRequest({}, {}, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(UserCache.prototype, 'getRandomUsersFromCache').mockResolvedValue([]);
       jest.spyOn(userService, 'getRandomUsers').mockResolvedValue([existingUser]);

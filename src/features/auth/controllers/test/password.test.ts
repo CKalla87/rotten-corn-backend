@@ -27,7 +27,7 @@ describe('Password', () => {
 
   describe('create', () => {
     it('should throw an error if email is invalid', () => {
-      const req: Request = authMockRequest({}, { email: INVALID_EMAIL }) as Request;
+      const req: Request = authMockRequest({}, { email: INVALID_EMAIL }) as unknown as Request;
       const res: Response = authMockResponse();
       Password.prototype.create(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
@@ -36,7 +36,7 @@ describe('Password', () => {
     });
 
     it('should throw "Invalid credentials" if email does not exist', () => {
-      const req: Request = authMockRequest({}, { email: WRONG_EMAIL }) as Request;
+      const req: Request = authMockRequest({}, { email: WRONG_EMAIL }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(authService, 'getAuthUserByEmail').mockResolvedValue(null as any);
       Password.prototype.create(req, res).catch((error: CustomError) => {
@@ -46,7 +46,7 @@ describe('Password', () => {
     });
 
     it('should send correct json response', async () => {
-      const req: Request = authMockRequest({}, { email: CORRECT_EMAIL }) as Request;
+      const req: Request = authMockRequest({}, { email: CORRECT_EMAIL }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(authService, 'getAuthUserByEmail').mockResolvedValue(authMock);
       jest.spyOn(emailQueue, 'addEmailJob');
@@ -61,7 +61,7 @@ describe('Password', () => {
 
   describe('update', () => {
     it('should throw an error if password is empty', () => {
-      const req: Request = authMockRequest({}, { password: '' }) as Request;
+      const req: Request = authMockRequest({}, { password: '' }) as unknown as Request;
       const res: Response = authMockResponse();
       Password.prototype.update(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
@@ -70,7 +70,7 @@ describe('Password', () => {
     });
 
     it('should throw an error if password and confirmPassword are different', () => {
-      const req: Request = authMockRequest({}, { password: CORRECT_PASSWORD, confirmPassword: `${CORRECT_PASSWORD}2` }) as Request;
+      const req: Request = authMockRequest({}, { password: CORRECT_PASSWORD, confirmPassword: `${CORRECT_PASSWORD}2` }) as unknown as Request;
       const res: Response = authMockResponse();
       Password.prototype.update(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
@@ -81,7 +81,7 @@ describe('Password', () => {
     it('should throw error if reset token has expired', () => {
       const req: Request = authMockRequest({}, { password: CORRECT_PASSWORD, confirmPassword: CORRECT_PASSWORD }, null, {
         token: ''
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(authService, 'getAuthUserByPasswordToken').mockResolvedValue(null as any);
       Password.prototype.update(req, res).catch((error: CustomError) => {
@@ -93,7 +93,7 @@ describe('Password', () => {
     it('should send correct json response', async () => {
       const req: Request = authMockRequest({}, { password: CORRECT_PASSWORD, confirmPassword: CORRECT_PASSWORD }, null, {
         token: '12sde3'
-      }) as Request;
+      }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(authService, 'getAuthUserByPasswordToken').mockResolvedValue(authMock);
       jest.spyOn(emailQueue, 'addEmailJob');

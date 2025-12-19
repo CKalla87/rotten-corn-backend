@@ -32,7 +32,7 @@ describe('ChangePassword', () => {
           newPassword: 'manny2',
           confirmPassword: 'manny2'
         }
-      ) as Request;
+      ) as unknown as Request;
       const res: Response = authMockResponse();
       Update.prototype.password(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
@@ -48,7 +48,7 @@ describe('ChangePassword', () => {
           newPassword: '',
           confirmPassword: 'manny2'
         }
-      ) as Request;
+      ) as unknown as Request;
       const res: Response = authMockResponse();
       Update.prototype.password(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
@@ -64,7 +64,7 @@ describe('ChangePassword', () => {
           newPassword: 'manny2',
           confirmPassword: ''
         }
-      ) as Request;
+      ) as unknown as Request;
       const res: Response = authMockResponse();
       Update.prototype.password(req, res).catch((error: CustomError) => {
         expect(error.statusCode).toEqual(400);
@@ -81,7 +81,7 @@ describe('ChangePassword', () => {
           confirmPassword: 'manny2'
         },
         authUserPayload
-      ) as Request;
+      ) as unknown as Request;
       const res: Response = authMockResponse();
       const mockUser = {
         ...existingUser,
@@ -104,7 +104,7 @@ describe('ChangePassword', () => {
           confirmPassword: 'manny2'
         },
         authUserPayload
-      ) as Request;
+      ) as unknown as Request;
       const res: Response = authMockResponse();
       const mockUser = {
         ...existingUser,
