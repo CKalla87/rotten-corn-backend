@@ -37,7 +37,7 @@ export class RottenCornServer {
   public start(): void {
     this.securityMiddleware(this.app);
     this.standardMiddleware(this.app);
-    
+
     // Add request logging middleware to see all incoming requests
     this.app.use((req, res, next) => {
       log.error('Incoming request', {
@@ -50,7 +50,7 @@ export class RottenCornServer {
       });
       next();
     });
-    
+
     this.routeMiddleware(this.app);
     this.apiMonitoring(this.app);
     this.globalErrorHandler(this.app);
@@ -60,12 +60,12 @@ export class RottenCornServer {
   private securityMiddleware(app: Application): void {
     // Parse cookies first (needed for JWT cookie fallback)
     app.use(cookieParser());
-    
+
     // Determine if we're in local development
     const isLocalDev = config.NODE_ENV === 'development' &&
                        (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
                        !config.CLIENT_URL?.includes('chatappserver.space');
-    
+
     app.use(
       cookieSession({
         name: 'session',
@@ -81,19 +81,19 @@ export class RottenCornServer {
     app.use(hpp());
     app.use(helmet());
     // CORS configuration - allow localhost for local development (reuse isLocalDev)
-    
+
     const corsOptions = {
       origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) {
           return callback(null, true);
         }
-        
+
         // Allow localhost for local development
         if (isLocalDev && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
           return callback(null, true);
         }
-        
+
         // Allow configured CLIENT_URL and common deployed URLs
         const allowedOrigins = [
           config.CLIENT_URL,
@@ -101,18 +101,18 @@ export class RottenCornServer {
           'https://staging.chatappserver.space',
           'https://chatappserver.space'
         ].filter(Boolean);
-        
+
         if (allowedOrigins.includes(origin)) {
           return callback(null, true);
         }
-        
+
         callback(new Error('Not allowed by CORS'));
       },
         credentials: true,
         optionsSuccessStatus: 200,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
     };
-    
+
     app.use(cors(corsOptions));
   }
 
@@ -165,11 +165,27 @@ export class RottenCornServer {
   private globalErrorHandler(app: Application): void {
     // Handling urls that do not exist.
     app.all('*', (req: Request, res: Response) => {
+      // Set CORS headers for 404 responses
+      const origin = req.get('origin');
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+      }
       res.status(HTTP_STATUS.NOT_FOUND).json({ message: `${req.originalUrl} not found` });
     });
 
-    app.use((error: IErrorResponse, _req: Request, res: Response, next: NextFunction) => {
+    app.use((error: IErrorResponse, req: Request, res: Response, next: NextFunction) => {
       log.error(error);
+
+      // Set CORS headers for error responses
+      const origin = req.get('origin');
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+      }
+
       if (error instanceof CustomError) {
         return res.status(error.statusCode).json(error.serializeErrors());
       }
@@ -196,11 +212,11 @@ export class RottenCornServer {
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
       }
     });
-    
+
     // Try to connect to Redis for Socket.IO adapter, but don't crash if it fails
     // Socket.IO will work without Redis adapter (single instance mode)
     try {
-      const pubClient = createClient({ 
+      const pubClient = createClient({
         url: config.REDIS_HOST,
         socket: {
           connectTimeout: 5000,
@@ -213,13 +229,13 @@ export class RottenCornServer {
         }
       });
     const subClient = pubClient.duplicate();
-      
+
       // Set a timeout for Redis connection
       const connectPromise = Promise.all([pubClient.connect(), subClient.connect()]);
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Redis connection timeout')), 10000)
       );
-      
+
       await Promise.race([connectPromise, timeoutPromise]);
     io.adapter(createAdapter(pubClient, subClient));
       log.info('Socket.IO Redis adapter connected successfully');
@@ -228,7 +244,7 @@ export class RottenCornServer {
       // Continue without Redis adapter - Socket.IO will work in single-instance mode
       // This allows the app to start even if Redis is unavailable
     }
-    
+
     return io;
   }
 

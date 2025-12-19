@@ -615,11 +615,22 @@ export class OAuthController {
           referer: req.get('referer')
         },
         hasBody: !!req.body,
-        bodyType: typeof req.body
+        bodyType: typeof req.body,
+        rawBody: req.body ? JSON.stringify(req.body) : 'empty'
       });
 
+      // Check if body is empty or not parsed correctly
+      if (!req.body || (typeof req.body === 'object' && Object.keys(req.body).length === 0)) {
+        log.warn('Request body is empty or not parsed', {
+          contentType: req.get('content-type'),
+          body: req.body,
+          query: req.query
+        });
+      }
+
       // Try to get code from body first, then from query (in case frontend sends it as query param)
-      const code = req.body?.code || req.query?.code;
+      // Also check if code is in URL params (some frontends might send it that way)
+      const code = req.body?.code || req.query?.code || (req as any).params?.code;
 
       log.info('Code extraction result', {
         hasCode: !!code,
@@ -758,7 +769,7 @@ export class OAuthController {
         email: user.email,
         hasToken: !!authData.token
       });
-      
+
       res.status(HTTP_STATUS.OK).json({
         token: authData.token,
         user: {
@@ -778,7 +789,7 @@ export class OAuthController {
         body: req.body,
         query: req.query
       });
-      
+
       if (error instanceof BadRequestError) {
         throw error;
       }

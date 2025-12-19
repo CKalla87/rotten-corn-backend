@@ -159,7 +159,14 @@ class AuthRoutes {
     // Routes will be: /api/v1/auth/google, /api/v1/auth/github, /api/v1/auth/facebook
     this.router.get('/auth/:provider', this.oauthController.initiate.bind(this.oauthController));
     this.router.get('/auth/:provider/callback', this.oauthController.callback.bind(this.oauthController));
-    this.router.post('/auth/:provider/callback', this.oauthController.exchangeCode.bind(this.oauthController));
+    // Wrap async handler to ensure errors are caught
+    this.router.post('/auth/:provider/callback', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        await this.oauthController.exchangeCode(req, res);
+      } catch (error) {
+        next(error);
+      }
+    });
 
     // OAuth health check endpoint
     this.router.get('/health/oauth', async (req: Request, res: Response) => {
