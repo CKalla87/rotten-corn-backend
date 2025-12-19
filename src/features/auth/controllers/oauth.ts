@@ -227,7 +227,7 @@ export class OAuthController {
           try {
             if (req.query.state) {
               const decoded = Buffer.from(req.query.state as string, 'base64').toString();
-              // Ensure HTTPS for production
+              // Ensure HTTPS for production (but keep http:// for localhost)
               if (decoded && decoded.startsWith('http://') && !decoded.includes('localhost')) {
                 return decoded.replace('http://', 'https://');
               }
@@ -238,8 +238,41 @@ export class OAuthController {
           } catch (error) {
             log.error('Error decoding state parameter:', error);
           }
-          // Default: redirect to frontend OAuth callback route (CLIENT_URL), not API
-          // If CLIENT_URL is set, use it with the callback path; otherwise use dev.chatappserver.space
+          // Default: redirect to frontend OAuth callback route
+          // Check if we're in local development first
+          const isTrulyLocal = config.NODE_ENV === 'development' &&
+                              !config.EC2_URL &&
+                              !config.CLIENT_URL?.includes('chatappserver.space');
+          
+          if (isTrulyLocal) {
+            // For local development, try to detect the frontend port from the referer or origin
+            const referer = req.get('referer');
+            const origin = req.get('origin');
+            if (referer) {
+              try {
+                const refererUrl = new URL(referer);
+                if (refererUrl.hostname === 'localhost' || refererUrl.hostname === '127.0.0.1') {
+                  return `${refererUrl.origin}/auth/${provider}/callback`;
+                }
+              } catch (e) {
+                // Invalid referer URL, continue to fallback
+              }
+            }
+            if (origin) {
+              try {
+                const originUrl = new URL(origin);
+                if (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1') {
+                  return `${originUrl.origin}/auth/${provider}/callback`;
+                }
+              } catch (e) {
+                // Invalid origin URL, continue to fallback
+              }
+            }
+            // Fallback for local: use common localhost ports
+            return `http://localhost:8080/auth/${provider}/callback`;
+          }
+          
+          // For deployed environments, use CLIENT_URL or default
           const frontendUrl = config.CLIENT_URL || 'https://dev.chatappserver.space';
           // Ensure we redirect to the OAuth callback route, not just the root
           return `${frontendUrl}/auth/${provider}/callback`;
@@ -490,8 +523,23 @@ export class OAuthController {
    */
   public async exchangeCode(req: Request, res: Response): Promise<void> {
     // Set CORS headers immediately
-    const origin = req.get('origin') || 'https://dev.chatappserver.space';
-    res.header('Access-Control-Allow-Origin', origin);
+    const origin = req.get('origin');
+    // Allow localhost origins for local development
+    if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+      res.header('Access-Control-Allow-Origin', origin);
+    } else if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+    } else {
+      // Fallback: check if we're in local development
+      const isTrulyLocal = config.NODE_ENV === 'development' &&
+                          !config.EC2_URL &&
+                          !config.CLIENT_URL?.includes('chatappserver.space');
+      if (isTrulyLocal) {
+        res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
+      } else {
+        res.header('Access-Control-Allow-Origin', config.CLIENT_URL || 'https://dev.chatappserver.space');
+      }
+    }
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
