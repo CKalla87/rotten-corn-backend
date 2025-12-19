@@ -2,6 +2,7 @@ import { postSchema, postWithImageSchema, postWithVideoSchema } from '@post/sche
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
 import { Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
+import mongoose from 'mongoose';
 import HTTP_STATUS from 'http-status-codes';
 import { IPostDocument } from '@post/interfaces/post.interface';
 import { PostCache } from '@service/redis/post.cache';
@@ -31,9 +32,13 @@ export class Create {
 
     const { post, bgColor, privacy, gifUrl, profilePicture, feelings } = req.body;
     const postObjectId: ObjectId = new ObjectId();
+    // Convert userId string to ObjectId for Mongoose schema compatibility
+    const userIdObjectId = typeof req.currentUser!.userId === 'string'
+      ? new mongoose.Types.ObjectId(req.currentUser!.userId)
+      : req.currentUser!.userId;
     const createdPost: IPostDocument = {
       _id: postObjectId,
-      userId: req.currentUser!.userId,
+      userId: userIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       username: req.currentUser!.username,
       email: req.currentUser!.email,
       avatarColor: req.currentUser!.avatarColor,
@@ -108,9 +113,13 @@ export class Create {
     }
 
     const postObjectId: ObjectId = new ObjectId();
+    // Convert userId string to ObjectId for Mongoose schema compatibility
+    const userIdObjectId = typeof req.currentUser!.userId === 'string'
+      ? new mongoose.Types.ObjectId(req.currentUser!.userId)
+      : req.currentUser!.userId;
     const createdPost: IPostDocument = {
       _id: postObjectId,
-      userId: req.currentUser!.userId,
+      userId: userIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       username: req.currentUser!.username,
       email: req.currentUser!.email,
       avatarColor: req.currentUser!.avatarColor,
@@ -196,9 +205,13 @@ export class Create {
     }
 
     const postObjectId: ObjectId = new ObjectId();
+    // Convert userId string to ObjectId for Mongoose schema compatibility
+    const userIdObjectId = typeof req.currentUser!.userId === 'string'
+      ? new mongoose.Types.ObjectId(req.currentUser!.userId)
+      : req.currentUser!.userId;
     const createdPost: IPostDocument = {
       _id: postObjectId,
-      userId: req.currentUser!.userId,
+      userId: userIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       username: req.currentUser!.username,
       email: req.currentUser!.email,
       avatarColor: req.currentUser!.avatarColor,

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Request, Response } from 'express';
 import { Server } from 'socket.io';
+import mongoose from 'mongoose';
 import { authUserPayload } from '@root/mocks/auth.mock';
 import * as postServer from '@socket/post';
 import { newPost, postMockRequest, postMockResponse } from '@root/mocks/post.mock';
@@ -59,6 +60,10 @@ describe('Create', () => {
 
       // Verify database was saved synchronously
       expect(postService.addPostToDB).toHaveBeenCalledWith(`${req.currentUser?.userId}`, createdPost);
+
+      // Verify userId in createdPost is now an ObjectId (converted from string)
+      expect(createdPost.userId).toBeInstanceOf(mongoose.Types.ObjectId);
+      expect(createdPost.userId.toString()).toBe(req.currentUser?.userId);
 
       // Verify queue was NOT called (since addPostToDB succeeded)
       expect(postQueue.addPostJob).not.toHaveBeenCalled();
@@ -123,6 +128,10 @@ describe('Create', () => {
 
       // Verify database was saved synchronously
       expect(postService.addPostToDB).toHaveBeenCalledWith(`${req.currentUser?.userId}`, createdPost);
+
+      // Verify userId in createdPost is now an ObjectId (converted from string)
+      expect(createdPost.userId).toBeInstanceOf(mongoose.Types.ObjectId);
+      expect(createdPost.userId.toString()).toBe(req.currentUser?.userId);
 
       // Verify queue was NOT called (since addPostToDB succeeded)
       expect(postQueue.addPostJob).not.toHaveBeenCalled();

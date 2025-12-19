@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
+import mongoose from 'mongoose';
 import HTTP_STATUS from 'http-status-codes';
 import { addReactionSchema } from '@reaction/schemes/reactions';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
@@ -35,9 +36,13 @@ export class Add {
       }
     }
 
+    // Convert postId string to ObjectId for Mongoose schema compatibility
+    const postIdObjectId = typeof postId === 'string'
+      ? new mongoose.Types.ObjectId(postId)
+      : postId;
     const reactionObject: IReactionDocument = {
       _id: new ObjectId(),
-      postId,
+      postId: postIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
       type,
       avataColor: req.currentUser!.avatarColor, // Note: schema uses 'avataColor' (typo but must match schema)
       username: req.currentUser!.username,
