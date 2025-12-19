@@ -159,6 +159,23 @@ class AuthRoutes {
     // Routes will be: /api/v1/auth/google, /api/v1/auth/github, /api/v1/auth/facebook
     this.router.get('/auth/:provider', this.oauthController.initiate.bind(this.oauthController));
     this.router.get('/auth/:provider/callback', this.oauthController.callback.bind(this.oauthController));
+
+    // Debug endpoint to test POST route (remove in production)
+    this.router.post('/auth/:provider/callback/debug', (req: Request, res: Response) => {
+      this.setCorsHeaders(req, res);
+      res.status(200).json({
+        message: 'POST route is accessible',
+        provider: req.params.provider,
+        body: req.body,
+        query: req.query,
+        hasBody: !!req.body,
+        bodyKeys: Object.keys(req.body || {}),
+        contentType: req.get('content-type'),
+        codeInBody: !!req.body?.code,
+        codeInQuery: !!req.query?.code
+      });
+    });
+
     // Wrap async handler to ensure errors are caught
     this.router.post('/auth/:provider/callback', async (req: Request, res: Response, next: NextFunction) => {
       try {

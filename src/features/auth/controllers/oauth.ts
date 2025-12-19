@@ -499,31 +499,58 @@ export class OAuthController {
 
           // Generate authorization code - if Redis fails, embed token directly in code (base64)
           try {
+            // Check Redis availability first for better logging
+            const redisAvailableBefore = await authCodeService.isRedisAvailable().catch(() => false);
+            log.info('Redis availability before code generation', {
+              redisAvailable: redisAvailableBefore,
+              environment: config.NODE_ENV,
+              redisHost: config.REDIS_HOST ? 'configured' : 'not configured'
+            });
+            
             // Try to generate code with Redis (with fast timeout)
             const codePromise = authCodeService.generateCode(`${userDocument._id}`, token);
             const codeTimeoutPromise = new Promise<never>((_, reject) => {
               setTimeout(() => reject(new Error('Code generation timeout')), 1000);
             });
             let code: string;
+            let codeSource: 'redis' | 'fallback' = 'redis';
             try {
               code = await Promise.race([codePromise, codeTimeoutPromise]) as string;
-            } catch (codeError) {
-              // If Redis fails, create a temporary code with embedded token (valid for immediate exchange)
-              log.warn('Redis code generation failed, using fallback method:', {
-                error: codeError instanceof Error ? codeError.message : 'Unknown error'
+              log.info('Code generated successfully via Redis', {
+                codeLength: code.length,
+                codePrefix: code.substring(0, 10),
+                environment: config.NODE_ENV
               });
-              // Create a temporary code by encoding token data (valid for 1 minute)
+            } catch (codeError) {
+              // If Redis fails, create a temporary code with embedded token (valid for 5 minutes)
+              codeSource = 'fallback';
+              const errorMsg = codeError instanceof Error ? codeError.message : 'Unknown error';
+              log.warn('Redis code generation failed, using fallback method:', {
+                error: errorMsg,
+                environment: config.NODE_ENV,
+                redisAvailable: redisAvailableBefore
+              });
+              // Create a temporary code by encoding token data (valid for 5 minutes)
               const tempData = {
                 userId: userDocument._id,
                 token,
                 createdAt: Date.now()
               };
               code = Buffer.from(JSON.stringify(tempData)).toString('base64');
+              log.info('Fallback code generated (base64-encoded token)', {
+                codeLength: code.length,
+                codePrefix: code.substring(0, 10),
+                expiresIn: '5 minutes (300 seconds)',
+                environment: config.NODE_ENV
+              });
             }
 
             log.info(`OAuth callback successful for ${provider}`, {
               userId: userDocument._id,
-              email: user.email
+              email: user.email,
+              codeSource: codeSource,
+              codeLength: code.length,
+              environment: config.NODE_ENV
             });
             // If redirectUri already has the callback path, use it as-is
             // Otherwise, append the callback path
@@ -678,6 +705,7 @@ export class OAuthController {
       let authData;
 
       // Check if code is actually a base64-encoded token (fallback method)
+      // This happens when Redis is unavailable during code generation
       try {
         const decodedStr = Buffer.from(code, 'base64').toString();
         const decoded = JSON.parse(decodedStr);
@@ -688,32 +716,59 @@ export class OAuthController {
             authData = { userId: decoded.userId, token: decoded.token };
             log.info('Used fallback token code (Redis unavailable)', {
               userId: decoded.userId,
-              age: Math.round(age / 1000) + 's'
+              age: Math.round(age / 1000) + 's',
+              codeLength: code.length
             });
           } else {
-            log.warn('Fallback token code expired', { age: Math.round(age / 1000) + 's' });
+            log.warn('Fallback token code expired', {
+              age: Math.round(age / 1000) + 's',
+              maxAge: '300s (5 minutes)',
+              createdAt: new Date(decoded.createdAt).toISOString()
+            });
+            throw new BadRequestError(`Authorization code has expired. The code was created ${Math.round(age / 1000)} seconds ago and is only valid for 5 minutes. Please try signing in again.`);
           }
+        } else {
+          log.debug('Decoded base64 but missing required fields', {
+            hasToken: !!decoded?.token,
+            hasUserId: !!decoded?.userId,
+            hasCreatedAt: !!decoded?.createdAt
+          });
         }
       } catch (decodeError) {
+        // Check if it's a BadRequestError (expired code) - rethrow it
+        if (decodeError instanceof BadRequestError) {
+          throw decodeError;
+        }
         // Not a fallback code or invalid base64/JSON - proceed with normal Redis exchange
         log.debug('Code is not base64-encoded fallback token, trying Redis exchange', {
-          error: decodeError instanceof Error ? decodeError.message : 'Unknown decode error'
+          error: decodeError instanceof Error ? decodeError.message : 'Unknown decode error',
+          codeLength: code.length,
+          codePrefix: code.substring(0, 20)
         });
       }
 
       // If not a fallback code, try Redis exchange
       if (!authData) {
         try {
+          // Increase timeout to 3 seconds to give Redis more time
           const codePromise = authCodeService.exchangeCode(code);
           const codeTimeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Code exchange timeout')), 1000);
+            setTimeout(() => reject(new Error('Code exchange timeout')), 3000);
           });
           authData = await Promise.race([codePromise, codeTimeoutPromise]);
+          
+          if (authData) {
+            log.info('Code exchanged successfully from Redis', {
+              userId: authData.userId,
+              codeLength: code.length
+            });
+          }
         } catch (codeError) {
           log.error('Failed to exchange authorization code from Redis:', {
             error: codeError instanceof Error ? codeError.message : 'Unknown error',
             code: code?.substring(0, 30),
-            codeLength: code?.length || 0
+            codeLength: code?.length || 0,
+            errorType: codeError instanceof Error ? codeError.constructor.name : 'Unknown'
           });
           // Continue to check if authData was set
         }
@@ -726,15 +781,28 @@ export class OAuthController {
       }
 
       if (!authData) {
+        // Check Redis availability to provide better error message
+        const redisAvailable = await authCodeService.isRedisAvailable().catch(() => false);
+
         log.error('Authorization code exchange failed - code not found in Redis and no fallback token', {
           codeLength: code?.length || 0,
           codePrefix: code?.substring(0, 20) || 'N/A',
-          code: code, // Log full code for debugging (remove in production if sensitive)
+          code: code, // Log full code for debugging
           hasBody: !!req.body,
           bodyKeys: req.body ? Object.keys(req.body) : [],
-          redisAvailable: await authCodeService.isRedisAvailable().catch(() => false)
+          redisAvailable: redisAvailable,
+          codeType: 'normal' // Normal code (not base64 fallback)
         });
-        throw new BadRequestError('Invalid or expired authorization code. The OAuth callback may not have completed successfully. Please try again.');
+
+        let errorMessage = 'Invalid or expired authorization code. ';
+        if (!redisAvailable) {
+          errorMessage += 'Redis is currently unavailable. If this code was generated when Redis was down, it may have expired. ';
+        } else {
+          errorMessage += 'The code may have expired (codes are valid for 10 minutes) or was already used. ';
+        }
+        errorMessage += 'Please try signing in again.';
+
+        throw new BadRequestError(errorMessage);
       }
 
       // Get user from database with timeout protection

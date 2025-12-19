@@ -47,7 +47,7 @@ class AuthCodeService {
         return false;
       }
 
-      // Fast timeout check - fail quickly if Redis is slow
+      // Fast timeout check - increased timeout for better reliability
       const pingPromise = (async () => {
         if (!this.client.isOpen) {
           await this.client.connect();
@@ -55,7 +55,7 @@ class AuthCodeService {
         await this.client.ping();
       })();
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Redis ping timeout')), 1000);
+        setTimeout(() => reject(new Error('Redis ping timeout')), 2000); // Increased to 2 seconds
       });
 
       await Promise.race([pingPromise, timeoutPromise]);
@@ -97,18 +97,23 @@ class AuthCodeService {
           // Add timeout to Redis operation
           const setPromise = this.client.setEx(`auth:code:${code}`, this.CODE_EXPIRY, JSON.stringify(data));
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Redis setEx timeout')), 1000);
+            setTimeout(() => reject(new Error('Redis setEx timeout')), 2000); // 2 seconds
           });
           await Promise.race([setPromise, timeoutPromise]);
           log.info('Auth code stored in Redis', { code: code.substring(0, 8) });
         } catch (redisError) {
           // If Redis fails, log warning but continue - code will work without Redis
+          // The callback will catch this and use fallback base64 method
           log.warn('Failed to store auth code in Redis, continuing without Redis:', {
             error: redisError instanceof Error ? redisError.message : 'Unknown error'
           });
+          // Throw error so callback can catch it and use fallback
+          throw redisError;
         }
       } else {
         log.warn('Redis unavailable, generating code without Redis storage');
+        // Throw error so callback can catch it and use fallback
+        throw new Error('Redis unavailable');
       }
 
       return code;
@@ -135,10 +140,10 @@ class AuthCodeService {
             await this.client.connect();
           }
 
-          // Add timeout to Redis GET operation
+          // Add timeout to Redis GET operation - increased timeout for better reliability
           const getPromise = this.client.get(`auth:code:${code}`);
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Redis get timeout')), 1000);
+            setTimeout(() => reject(new Error('Redis get timeout')), 3000); // Increased to 3 seconds
           });
           const data = await Promise.race([getPromise, timeoutPromise]) as string | null;
 
