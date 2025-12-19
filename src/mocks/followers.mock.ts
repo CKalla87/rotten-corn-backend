@@ -8,13 +8,20 @@ import { IFollowerData } from '@root/features/followers/interfaces/follower.inte
 export const followersMockRequest = (sessionData: IJWT, currentUser?: AuthPayload | null, params?: IParams) => ({
   session: sessionData,
   params,
-  currentUser
+  currentUser,
+  get: jest.fn((header: string) => {
+    if (header === 'origin') {
+      return undefined;
+    }
+    return undefined;
+  })
 });
 
 export const followersMockResponse = (): Response => {
   const res: Response = {} as Response;
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.header = jest.fn().mockReturnValue(res);
   return res;
 };
 

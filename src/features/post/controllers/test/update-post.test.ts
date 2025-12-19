@@ -35,7 +35,7 @@ describe('Update', () => {
 
   describe('post', () => {
     it('should send correct json response', async () => {
-      const req: Request = postMockRequest(updatedPost, authUserPayload, { postId: `${postMockData._id}` }) as Request;
+      const req: Request = postMockRequest(updatedPost, authUserPayload, { postId: `${postMockData._id}` }) as unknown as Request;
       const res: Response = postMockResponse();
       const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache').mockResolvedValue(postMockData);
       jest.spyOn(postService, 'editPost').mockResolvedValue();
@@ -83,7 +83,7 @@ describe('Update', () => {
       updatedPost.imgVersion = '1234';
       updatedPost.post = updatedPostWithImage.post;
       updatedPostWithImage.image = 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';
-      const req: Request = postMockRequest(updatedPostWithImage, authUserPayload, { postId: `${postMockData._id}` }) as Request;
+      const req: Request = postMockRequest(updatedPostWithImage, authUserPayload, { postId: `${postMockData._id}` }) as unknown as Request;
       const res: Response = postMockResponse();
       const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache').mockResolvedValue(postMockData);
       jest.spyOn(postService, 'editPost').mockResolvedValue();
@@ -118,7 +118,7 @@ describe('Update', () => {
       updatedPost.imgVersion = '';
       updatedPost.post = updatedPostWithImage.post;
       updatedPostWithImage.image = 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';
-      const req: Request = postMockRequest(updatedPostWithImage, authUserPayload, { postId: `${postMockData._id}` }) as Request;
+      const req: Request = postMockRequest(updatedPostWithImage, authUserPayload, { postId: `${postMockData._id}` }) as unknown as Request;
       const res: Response = postMockResponse();
       const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache').mockResolvedValue(postMockData);
       jest.spyOn(cloudinaryUploads, 'uploads').mockImplementation((): any => Promise.resolve({ version: '1234', public_id: '123456' }));

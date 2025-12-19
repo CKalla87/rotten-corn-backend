@@ -40,17 +40,15 @@ export class Get {
   }
 
   public async profile(req: Request, res: Response): Promise<void> {
-    const cachedUser: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
-    const existingUser: IUserDocument = cachedUser
-      ? cachedUser
-      : await userService.getUserById(`${req.currentUser!.userId}`);
+    // Skip cache - go directly to database for instant response
+    const existingUser: IUserDocument = await userService.getUserById(`${req.currentUser!.userId}`);
     res.status(HTTP_STATUS.OK).json({ message: 'Get user profile', user: existingUser });
   }
 
   public async profileByUserId(req: Request, res: Response): Promise<void> {
     const { userId } = req.params;
-    const cachedUser: IUserDocument = (await userCache.getUserFromCache(userId)) as IUserDocument;
-    const existingUser: IUserDocument = cachedUser ? cachedUser : await userService.getUserById(userId);
+    // Skip cache - go directly to database for instant response
+    const existingUser: IUserDocument = await userService.getUserById(userId);
     res.status(HTTP_STATUS.OK).json({ message: 'Get user profile by id', user: existingUser });
   }
 
@@ -63,37 +61,23 @@ export class Get {
     let existingUser: IUserDocument;
     let userPosts: IPostDocument[] = [];
 
-    // Get user from cache or database
+    // Skip cache - go directly to database for instant response
     try {
-      const cachedUser: IUserDocument | null = await userCache.getUserFromCache(userId);
-      existingUser = cachedUser || await userService.getUserById(userId);
+      existingUser = await userService.getUserById(userId);
       log.info(`User found: ${existingUser ? 'yes' : 'no'}`);
     } catch (error) {
-      log.error('Failed to get user, falling back to database', error);
-      existingUser = await userService.getUserById(userId);
+      log.error('Failed to get user from database', error);
+      throw error;
     }
 
     // Get user posts from cache or database
     try {
-      const cachedUserPosts: IPostDocument[] = await postCache.getUserPostsFromCache(
-        'post',
-        parseInt(uId, 10)
-      );
-      log.info(`Cache returned ${cachedUserPosts.length} posts for user`);
-
-      if (cachedUserPosts.length > 0) {
-        userPosts = cachedUserPosts;
-      } else {
-        // Cache is empty or failed - get from database
-        log.info('Cache is empty, fetching user posts from database');
-        userPosts = await postService.getPosts({ username: userName }, 0, 100, { createdAt: -1 });
-        log.info(`Database returned ${userPosts.length} posts for user`);
-      }
-    } catch (error) {
-      // If cache completely fails, get from database
-      log.error('Failed to get user posts from cache, falling back to database', error);
+      // Skip cache - go directly to database for instant response
       userPosts = await postService.getPosts({ username: userName }, 0, 100, { createdAt: -1 });
-      log.info(`Database returned ${userPosts.length} posts after cache failure`);
+      log.info(`Database returned ${userPosts.length} posts for user`);
+    } catch (error) {
+      log.error('Failed to get user posts from database', error);
+      userPosts = [];
     }
 
     log.info(`Returning ${userPosts.length} posts to client for user ${username}`);
@@ -101,43 +85,73 @@ export class Get {
   }
 
   private async allUsers({ newSkip, limit, skip, userId }: IUserAll): Promise<IAllUsers> {
+    // Skip cache - go directly to database for instant response
+    // Cache can be slow, database is faster and more reliable
     let users: IUserDocument[] = [];
-    let type = '';
-    const cachedUsers: IUserDocument[] = (await userCache.getUsersFromCache(newSkip, limit, userId)) as IUserDocument[];
-    if (cachedUsers.length) {
-      type = 'redis';
-      users = cachedUsers;
-    } else {
-      type = 'mongodb';
+    try {
       users = await userService.getAllUsers(userId, skip, limit);
+    } catch (dbError) {
+      // Return empty array rather than failing completely
+      users = [];
     }
-    const totalUsers: number = await Get.prototype.usersCount(type);
+    const totalUsers: number = await userService.getTotalUsersInDB();
     return { users, totalUsers };
   }
 
   private async usersCount(type: string): Promise<number> {
-    const totalUsers: number =
-      type === 'redis' ? await userCache.getTotalUsersInCache() : await userService.getTotalUsersInDB();
-    return totalUsers;
+    // Always use database count
+    return await userService.getTotalUsersInDB();
   }
 
   public async randomUserSuggestions(req: Request, res: Response): Promise<void> {
-    let randomUsers: IUserDocument[] = [];
-    const cachedUsers: IUserDocument[] = await userCache.getRandomUsersFromCache(`${req.currentUser!.userId}`, `${req.currentUser!.username}`);
-    if (cachedUsers.length) {
-      randomUsers = [...cachedUsers];
-    } else {
-      const users: IUserDocument[] = await userService.getRandomUsers(`${req.currentUser!.userId}`);
-      randomUsers = [...users];
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
     }
-    res.status(HTTP_STATUS.OK).json({ message: 'User suggestions', users: randomUsers });
+
+    try {
+      let randomUsers: IUserDocument[] = [];
+
+      // Skip cache - go directly to database for instant response
+      try {
+        const users: IUserDocument[] = await userService.getRandomUsers(`${req.currentUser!.userId}`);
+        randomUsers = [...users];
+        log.info('User suggestions retrieved from database', { userId: req.currentUser!.userId, count: randomUsers.length });
+      } catch (dbError) {
+        log.error('Database operation failed for user suggestions', {
+          error: dbError instanceof Error ? dbError.message : 'Unknown error',
+          userId: req.currentUser!.userId
+        });
+        // Return empty array rather than failing completely
+        randomUsers = [];
+      }
+
+      res.status(HTTP_STATUS.OK).json({ message: 'User suggestions', users: randomUsers });
+    } catch (error) {
+      log.error('Unexpected error in randomUserSuggestions endpoint', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userId: req.currentUser?.userId
+      });
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: 'Error fetching user suggestions',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    }
   }
 
   private async followers(userId: string): Promise<IFollowerData[]> {
-    const cachedFollowers: IFollowerData[] = await followerCache.getFollowersFromCache(`followers:${userId}`);
-    const result: IFollowerData[] = cachedFollowers.length
-      ? cachedFollowers
-      : await followerService.getFolloweeData(new mongoose.Types.ObjectId(userId));
-    return result;
+    // Skip cache - go directly to database for instant response
+    try {
+      return await followerService.getFolloweeData(new mongoose.Types.ObjectId(userId));
+    } catch (dbError) {
+      // Return empty array rather than failing completely
+      return [];
+    }
   }
 }

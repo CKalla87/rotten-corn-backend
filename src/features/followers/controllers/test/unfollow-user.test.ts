@@ -23,7 +23,7 @@ describe('Remove', () => {
   it('should send correct json response', async () => {
     const req: Request = followersMockRequest({}, authUserPayload, {
       followeeId: `${existingUser._id}`
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = followersMockResponse();
     jest.spyOn(FollowerCache.prototype, 'removeFollowerFromCache');
     jest.spyOn(FollowerCache.prototype, 'updateFollowersCountInCache');

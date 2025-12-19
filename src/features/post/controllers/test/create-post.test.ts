@@ -36,7 +36,7 @@ describe('Create', () => {
 
   describe('post', () => {
     it('should send correct json response', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload) as Request;
+      const req: Request = postMockRequest(newPost, authUserPayload) as unknown as Request;
       const res: Response = postMockResponse();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
       const spy = jest.spyOn(PostCache.prototype, 'savePostToCache');
@@ -73,7 +73,7 @@ describe('Create', () => {
   describe('postWithImage', () => {
     it('should throw an error if image is not available', () => {
       delete newPost.image;
-      const req: Request = postMockRequest(newPost, authUserPayload) as Request;
+      const req: Request = postMockRequest(newPost, authUserPayload) as unknown as Request;
       const res: Response = postMockResponse();
 
       Create.prototype.postWithImage(req, res).catch((error: CustomError) => {
@@ -84,7 +84,7 @@ describe('Create', () => {
 
     it('should throw an upload error', () => {
       newPost.image = 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';
-      const req: Request = postMockRequest(newPost, authUserPayload) as Request;
+      const req: Request = postMockRequest(newPost, authUserPayload) as unknown as Request;
       const res: Response = postMockResponse();
       jest
         .spyOn(cloudinaryUploads, 'uploads')
@@ -98,7 +98,7 @@ describe('Create', () => {
 
     it('should send correct json response', async () => {
       newPost.image = 'testing image';
-      const req: Request = postMockRequest(newPost, authUserPayload) as Request;
+      const req: Request = postMockRequest(newPost, authUserPayload) as unknown as Request;
       const res: Response = postMockResponse();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
       const spy = jest.spyOn(PostCache.prototype, 'savePostToCache');

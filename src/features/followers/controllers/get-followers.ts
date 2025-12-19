@@ -10,26 +10,66 @@ const followerCache: FollowerCache = new FollowerCache();
 
 export class Get {
   public async userFollowing(req: Request, res: Response): Promise<void> {
-    const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.currentUser!.userId);
-    const cachedFollowee: IFollowerData[] = await followerCache.getFollowersFromCache(
-      `following:${req.currentUser!.userId}`
-    );
-    const following: IFollowerData[] = cachedFollowee.length
-      ? cachedFollowee
-      : await followerService.getFolloweeData(userObjectId);
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
 
-    res.status(HTTP_STATUS.OK).json({ message: 'User following', following });
+    try {
+      const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.currentUser!.userId);
+      let following: IFollowerData[] = [];
+
+      // Skip cache - go directly to database for instant response
+      try {
+        following = await followerService.getFolloweeData(userObjectId);
+      } catch (dbError) {
+        // Return empty array rather than failing completely
+        following = [];
+      }
+
+      res.status(HTTP_STATUS.OK).json({ message: 'User following', following });
+    } catch (error) {
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: 'Error fetching user following',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    }
   }
 
   public async userFollowers(req: Request, res: Response): Promise<void> {
-    const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.params.userId);
-    const cachedFollower: IFollowerData[] = await followerCache.getFollowersFromCache(
-      `followers:${req.params.userId}`
-    );
-    const followers: IFollowerData[] = cachedFollower.length
-      ? cachedFollower
-      : await followerService.getFollowerData(userObjectId);
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+    }
 
-    res.status(HTTP_STATUS.OK).json({ message: 'User followers', followers });
+    try {
+      const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.params.userId);
+      let followers: IFollowerData[] = [];
+
+      // Skip cache - go directly to database for instant response
+      try {
+        followers = await followerService.getFollowerData(userObjectId);
+      } catch (dbError) {
+        // Return empty array rather than failing completely
+        followers = [];
+      }
+
+      res.status(HTTP_STATUS.OK).json({ message: 'User followers', followers });
+    } catch (error) {
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        message: 'Error fetching user followers',
+        status: 'error',
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR
+      });
+    }
   }
 }

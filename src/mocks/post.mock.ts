@@ -7,13 +7,20 @@ import { IPostDocument } from '@post/interfaces/post.interface';
 export const postMockRequest = (body: IBody, currentUser?: AuthPayload | null, params?: IParams) => ({
   body,
   params,
-  currentUser
+  currentUser,
+  get: jest.fn((header: string) => {
+    if (header === 'origin') {
+      return undefined;
+    }
+    return undefined;
+  })
 });
 
 export const postMockResponse = (): Response => {
   const res: Response = {} as Response;
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.header = jest.fn().mockReturnValue(res);
   return res;
 };
 

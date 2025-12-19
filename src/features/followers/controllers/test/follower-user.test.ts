@@ -33,7 +33,7 @@ describe('Add', () => {
 
   describe('follower', () => {
     it('should call updateFollowersCountInCache', async () => {
-      const req: Request = followersMockRequest({}, authUserPayload, { followerId: '6064861bc25eaa5a5d2f9bf4' }) as Request;
+      const req: Request = followersMockRequest({}, authUserPayload, { followerId: '6064861bc25eaa5a5d2f9bf4' }) as unknown as Request;
       const res: Response = followersMockResponse();
       jest.spyOn(FollowerCache.prototype, 'updateFollowersCountInCache');
       jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUser);
@@ -49,7 +49,7 @@ describe('Add', () => {
     });
 
     it('should call saveFollowerToCache', async () => {
-      const req: Request = followersMockRequest({}, authUserPayload, { followerId: '6064861bc25eaa5a5d2f9bf4' }) as Request;
+      const req: Request = followersMockRequest({}, authUserPayload, { followerId: '6064861bc25eaa5a5d2f9bf4' }) as unknown as Request;
       const res: Response = followersMockResponse();
       jest.spyOn(followerServer.socketIOFollowerObject, 'emit');
       jest.spyOn(FollowerCache.prototype, 'saveFollowerToCache');
@@ -70,7 +70,7 @@ describe('Add', () => {
     });
 
     it('should call followerQueue addFollowerJob', async () => {
-      const req: Request = followersMockRequest({}, authUserPayload, { followerId: '6064861bc25eaa5a5d2f9bf4' }) as Request;
+      const req: Request = followersMockRequest({}, authUserPayload, { followerId: '6064861bc25eaa5a5d2f9bf4' }) as unknown as Request;
       const res: Response = followersMockResponse();
       const spy = jest.spyOn(followerQueue, 'addFollowerJob');
 
