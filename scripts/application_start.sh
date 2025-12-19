@@ -602,10 +602,10 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
         echo "[$(date)] ⚠ Waiting longer for app to stabilize (Redis connection fix should prevent crashes)..."
         # Continue waiting instead of exiting
       else
-        echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts, limit: ${RESTART_LIMIT})"
-        echo "[$(date)] Showing last 50 lines of logs:"
-        "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
-        exit 1
+      echo "[$(date)] ERROR: App is in crash loop (${RESTARTS} restarts, limit: ${RESTART_LIMIT})"
+      echo "[$(date)] Showing last 50 lines of logs:"
+      "$PM2_BIN" logs $PM2_PROCESS_NAME --lines 50 --nostream 2>&1 || true
+      exit 1
       fi
     fi
   fi

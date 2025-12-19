@@ -7,11 +7,15 @@ import { IPostDocument } from '@post/interfaces/post.interface';
 import { PostCache } from '@service/redis/post.cache';
 import { socketIOPostObject } from '@socket/post';
 import { postQueue } from '@service/queues/post.queue';
+import { postService } from '@service/db/post.service';
 import { UploadApiResponse } from 'cloudinary';
 import { uploads, videoUpload } from '@global/helpers/cloudinary-upload';
 import { BadRequestError } from '@global/helpers/error-handler';
+import { config } from '@root/config';
+import Logger from 'bunyan';
 
 const postCache: PostCache = new PostCache();
+const log: Logger = config.createLogger('createPost');
 
 export class Create {
   @joiValidation(postSchema)
@@ -45,7 +49,15 @@ export class Create {
       uId: `${req.currentUser!.uId}`,
       createdPost
     });
-    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    
+    // Save to database synchronously to ensure persistence
+    try {
+      await postService.addPostToDB(`${req.currentUser!.userId}`, createdPost);
+    } catch (error) {
+      log.error('Failed to save post synchronously, falling back to queue', error);
+      postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    }
+    
     res.status(HTTP_STATUS.CREATED).json({ message: 'Post created successfully'});
   }
 
@@ -84,7 +96,15 @@ export class Create {
       uId: `${req.currentUser!.uId}`,
       createdPost
     });
-    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    
+    // Save to database synchronously to ensure persistence
+    try {
+      await postService.addPostToDB(`${req.currentUser!.userId}`, createdPost);
+    } catch (error) {
+      log.error('Failed to save post synchronously, falling back to queue', error);
+      postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    }
+    
     // call image queue to add image to mongodb database
 
     res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with image successfully'});
@@ -142,7 +162,14 @@ export class Create {
       uId: `${req.currentUser!.uId}`,
       createdPost
     });
-    postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    
+    // Save to database synchronously to ensure persistence
+    try {
+      await postService.addPostToDB(`${req.currentUser!.userId}`, createdPost);
+    } catch (error) {
+      log.error('Failed to save post synchronously, falling back to queue', error);
+      postQueue.addPostJob('addPostToDB', { key: req.currentUser!.userId, value: createdPost});
+    }
 
     res.status(HTTP_STATUS.CREATED).json({ message: 'Post created with video successfully'});
   }

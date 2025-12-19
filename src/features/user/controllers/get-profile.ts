@@ -11,12 +11,15 @@ import { Helpers } from '@global/helpers/helpers';
 import { PostCache } from '@service/redis/post.cache';
 import { IPostDocument } from '@post/interfaces/post.interface';
 import { postService } from '@service/db/post.service';
+import { config } from '@root/config';
+import Logger from 'bunyan';
 
 const PAGE_SIZE = 12;
 
 const userCache: UserCache = new UserCache();
 const followerCache: FollowerCache = new FollowerCache();
 const postCache: PostCache = new PostCache();
+const log: Logger = config.createLogger('getProfile');
 
 export class Get {
   public async all(req: Request, res: Response): Promise<void> {
@@ -54,15 +57,46 @@ export class Get {
   public async profileAndPosts(req: Request, res: Response): Promise<void> {
     const { userId, username, uId } = req.params;
     const userName: string = Helpers.firstLetterUppercase(username);
-    const cachedUser: IUserDocument = (await userCache.getUserFromCache(userId)) as IUserDocument;
-    const cachedUserPosts: IPostDocument[] = (await postCache.getUserPostsFromCache(
-      'post',
-      parseInt(uId, 10)
-    )) as IPostDocument[];
-    const existingUser: IUserDocument = cachedUser ? cachedUser : await userService.getUserById(userId);
-    const userPosts: IPostDocument[] = cachedUserPosts.length
-      ? cachedUserPosts
-      : await postService.getPosts({ username: userName }, 0, 100, { createdAt: -1 });
+
+    log.info(`Fetching profile and posts: userId=${userId}, username=${username}, uId=${uId}`);
+
+    let existingUser: IUserDocument;
+    let userPosts: IPostDocument[] = [];
+
+    // Get user from cache or database
+    try {
+      const cachedUser: IUserDocument | null = await userCache.getUserFromCache(userId);
+      existingUser = cachedUser || await userService.getUserById(userId);
+      log.info(`User found: ${existingUser ? 'yes' : 'no'}`);
+    } catch (error) {
+      log.error('Failed to get user, falling back to database', error);
+      existingUser = await userService.getUserById(userId);
+    }
+
+    // Get user posts from cache or database
+    try {
+      const cachedUserPosts: IPostDocument[] = await postCache.getUserPostsFromCache(
+        'post',
+        parseInt(uId, 10)
+      );
+      log.info(`Cache returned ${cachedUserPosts.length} posts for user`);
+
+      if (cachedUserPosts.length > 0) {
+        userPosts = cachedUserPosts;
+      } else {
+        // Cache is empty or failed - get from database
+        log.info('Cache is empty, fetching user posts from database');
+        userPosts = await postService.getPosts({ username: userName }, 0, 100, { createdAt: -1 });
+        log.info(`Database returned ${userPosts.length} posts for user`);
+      }
+    } catch (error) {
+      // If cache completely fails, get from database
+      log.error('Failed to get user posts from cache, falling back to database', error);
+      userPosts = await postService.getPosts({ username: userName }, 0, 100, { createdAt: -1 });
+      log.info(`Database returned ${userPosts.length} posts after cache failure`);
+    }
+
+    log.info(`Returning ${userPosts.length} posts to client for user ${username}`);
     res.status(HTTP_STATUS.OK).json({ message: 'Get user profile and posts', user: existingUser, posts: userPosts });
   }
 

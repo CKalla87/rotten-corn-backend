@@ -49,7 +49,7 @@ class PostService {
         }
       }
     ]);
-    
+
     // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
     // Also ensure reactions object is properly initialized
     for (const post of posts) {
@@ -88,7 +88,49 @@ class PostService {
   }
 
   public async editPost(postId: string, updatedPost: IPostDocument): Promise<void> {
-    const updatePost: UpdateQuery<IPostDocument> = PostModel.updateOne({ _id: postId }, { $set: updatedPost });
+    // Build update object with only the fields that should be updated
+    // This ensures we only update fields that were explicitly provided in the request
+    const fieldsToUpdate: Partial<IPostDocument> = {};
+
+    // Check if field exists in updatedPost and update it
+    // Use !== undefined to preserve empty strings (which are valid values)
+    if ('post' in updatedPost && updatedPost.post !== undefined) {
+      fieldsToUpdate.post = updatedPost.post;
+    }
+    if ('bgColor' in updatedPost && updatedPost.bgColor !== undefined) {
+      fieldsToUpdate.bgColor = updatedPost.bgColor;
+    }
+    if ('privacy' in updatedPost && updatedPost.privacy !== undefined) {
+      fieldsToUpdate.privacy = updatedPost.privacy;
+    }
+    if ('feelings' in updatedPost && updatedPost.feelings !== undefined) {
+      fieldsToUpdate.feelings = updatedPost.feelings;
+    }
+    if ('gifUrl' in updatedPost && updatedPost.gifUrl !== undefined) {
+      fieldsToUpdate.gifUrl = updatedPost.gifUrl;
+    }
+    if ('profilePicture' in updatedPost && updatedPost.profilePicture !== undefined) {
+      fieldsToUpdate.profilePicture = updatedPost.profilePicture;
+    }
+    if ('imgId' in updatedPost && updatedPost.imgId !== undefined) {
+      fieldsToUpdate.imgId = updatedPost.imgId;
+    }
+    if ('imgVersion' in updatedPost && updatedPost.imgVersion !== undefined) {
+      fieldsToUpdate.imgVersion = updatedPost.imgVersion;
+    }
+    if ('videoId' in updatedPost && updatedPost.videoId !== undefined) {
+      fieldsToUpdate.videoId = updatedPost.videoId;
+    }
+    if ('videoVersion' in updatedPost && updatedPost.videoVersion !== undefined) {
+      fieldsToUpdate.videoVersion = updatedPost.videoVersion;
+    }
+
+    // Only update if there are fields to update
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return; // No fields to update
+    }
+
+    const updatePost: UpdateQuery<IPostDocument> = PostModel.updateOne({ _id: postId }, { $set: fieldsToUpdate });
     await Promise.all([updatePost]);
   }
 }

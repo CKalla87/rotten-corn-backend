@@ -26,7 +26,7 @@ export class Remove {
     } catch (error) {
       // If synchronous save fails, fall back to queue
       log.error('Failed to remove reaction synchronously, falling back to queue', error);
-      reactionQueue.addReactionJob('removeReactionFromToDB', databaseReactionData);
+    reactionQueue.addReactionJob('removeReactionFromToDB', databaseReactionData);
     }
     
     res.status(HTTP_STATUS.OK).json({ message: 'Reaction removed from post' });

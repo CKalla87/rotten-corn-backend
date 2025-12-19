@@ -59,7 +59,7 @@ export class SignUp {
 
     const userJwt: string = SignUp.prototype.signToken(authData, userObjectId);
     req.session = { jwt: userJwt };
-    
+
     // ALSO set a regular cookie with the JWT as a fallback
     // Deployed environments are: 'develop', 'staging', 'production'
     // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space

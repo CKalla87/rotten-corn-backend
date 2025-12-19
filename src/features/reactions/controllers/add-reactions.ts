@@ -46,7 +46,7 @@ export class Add {
     } catch (error) {
       // If synchronous save fails, fall back to queue (but log the error)
       log.error('Failed to save reaction synchronously, falling back to queue', error);
-      reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
+    reactionQueue.addReactionJob('addReactionToDB', databaseReactionData);
     }
     
     response.status(HTTP_STATUS.OK).json({ message: 'Reaction added successfully'});

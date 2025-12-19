@@ -15,6 +15,7 @@ import { INotificationTemplate } from '@notification/interfaces/notification.int
 import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
 import { emailQueue } from '@service/queues/email.queue';
 import { socketIOChatObject } from '@socket/chat';
+import { connectedUsersMap } from '@socket/user';
 import { chatQueue } from '@service/queues/chat.queue';
 import { userService } from '@service/db/user.service';
 import { chatService } from '@service/db/chat.service';
@@ -56,7 +57,7 @@ export class Add {
     } catch (error) {
       log.warn(`Failed to get user from cache: ${error}, falling back to database`);
     }
-    
+
     if (!sender) {
       log.warn(`User ${req.currentUser!.userId} not found in cache, fetching from database`);
       try {
@@ -66,7 +67,7 @@ export class Add {
         throw new BadRequestError('Failed to retrieve user information. Please try again.');
       }
     }
-    
+
     if (!sender) {
       throw new BadRequestError('User not found. Please login again.');
     }
@@ -153,21 +154,21 @@ export class Add {
     } catch (error) {
       log.warn('Failed to add sender to chat list cache:', error);
     }
-    
+
     // 2 - add receiver to chat list in cache (with error handling)
     try {
       await messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`);
     } catch (error) {
       log.warn('Failed to add receiver to chat list cache:', error);
     }
-    
+
     // 3 - add message data to cache (with error handling)
     try {
       await messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData);
     } catch (error) {
       log.warn('Failed to add message to cache:', error);
     }
-    
+
     // 4 - Save to database synchronously to ensure persistence, then queue for any additional processing
     try {
       await chatService.addMessageToDB(messageData);
@@ -192,8 +193,37 @@ export class Add {
   }
 
   private emitSocketIOEvent(data: IMessageData): void {
-    socketIOChatObject?.emit('message received', data);
-    socketIOChatObject?.emit('chat list', data);
+    // Emit to specific users in the conversation instead of broadcasting globally
+    const senderId = `${data.senderId}`;
+    const receiverId = `${data.receiverId}`;
+
+    // Emit message received event to receiver
+    const receiverSocketId = connectedUsersMap.get(receiverId);
+    if (receiverSocketId && socketIOChatObject) {
+      socketIOChatObject.to(receiverSocketId).emit('message received', data);
+      log.debug(`Message emitted to receiver ${receiverId} (socket: ${receiverSocketId})`);
+    }
+
+    // Emit chat list update to both sender and receiver
+    if (socketIOChatObject) {
+      // Update sender's chat list
+      const senderSocketId = connectedUsersMap.get(senderId);
+      if (senderSocketId) {
+        socketIOChatObject.to(senderSocketId).emit('chat list', data);
+      }
+
+      // Update receiver's chat list
+      if (receiverSocketId) {
+        socketIOChatObject.to(receiverSocketId).emit('chat list', data);
+      }
+    }
+
+    // Fallback: if socket IDs not found, emit globally (for backwards compatibility)
+    if (!receiverSocketId) {
+      log.warn(`Receiver ${receiverId} not found in connectedUsersMap, broadcasting globally`);
+      socketIOChatObject?.emit('message received', data);
+      socketIOChatObject?.emit('chat list', data);
+    }
   }
 
   private async messageNotification({ currentUser, message, receiverName, receiverId }: IMessageNotification): Promise<void> {

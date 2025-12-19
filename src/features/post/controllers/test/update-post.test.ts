@@ -6,12 +6,14 @@ import * as postServer from '@socket/post';
 import { postMockData, postMockRequest, postMockResponse, updatedPost, updatedPostWithImage } from '@root/mocks/post.mock';
 import { PostCache } from '@service/redis/post.cache';
 import { postQueue } from '@service/queues/post.queue';
+import { postService } from '@service/db/post.service';
 import { Update } from '@post/controllers/update-post';
 import * as cloudinaryUploads from '@global/helpers/cloudinary-upload';
 
 jest.useFakeTimers();
 jest.mock('@service/queues/base.queue');
 jest.mock('@service/redis/post.cache');
+jest.mock('@service/db/post.service');
 jest.mock('@global/helpers/cloudinary-upload');
 
 Object.defineProperties(postServer, {
@@ -36,16 +38,39 @@ describe('Update', () => {
       const req: Request = postMockRequest(updatedPost, authUserPayload, { postId: `${postMockData._id}` }) as Request;
       const res: Response = postMockResponse();
       const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache').mockResolvedValue(postMockData);
+      jest.spyOn(postService, 'editPost').mockResolvedValue();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
       jest.spyOn(postQueue, 'addPostJob');
 
       await Update.prototype.post(req, res);
-      expect(postSpy).toHaveBeenCalledWith(`${postMockData._id}`, updatedPost);
+
+      // Verify cache update was called with partial updatedPost (only provided fields)
+      expect(postSpy).toHaveBeenCalledWith(`${postMockData._id}`, expect.objectContaining({
+        post: updatedPost.post,
+        bgColor: updatedPost.bgColor,
+        privacy: updatedPost.privacy,
+        feelings: updatedPost.feelings
+      }));
+
+      // Verify database update was called synchronously
+      expect(postService.editPost).toHaveBeenCalledWith(`${postMockData._id}`, expect.objectContaining({
+        post: updatedPost.post,
+        bgColor: updatedPost.bgColor,
+        privacy: updatedPost.privacy,
+        feelings: updatedPost.feelings
+      }));
+
+      // Verify socket emit
       expect(postServer.socketIOPostObject.emit).toHaveBeenCalledWith('update post', postMockData, 'posts');
-      expect(postQueue.addPostJob).toHaveBeenCalledWith('updatePostInDB', { key: `${postMockData._id}`, value: postMockData });
+
+      // Verify queue was NOT called (since editPost succeeded)
+      expect(postQueue.addPostJob).not.toHaveBeenCalled();
+
+      // Verify response
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
-        message: 'Post updated successfully'
+        message: 'Post updated successfully',
+        post: postMockData
       });
     });
   });
@@ -60,14 +85,26 @@ describe('Update', () => {
       updatedPostWithImage.image = 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';
       const req: Request = postMockRequest(updatedPostWithImage, authUserPayload, { postId: `${postMockData._id}` }) as Request;
       const res: Response = postMockResponse();
-      const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache');
+      const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache').mockResolvedValue(postMockData);
+      jest.spyOn(postService, 'editPost').mockResolvedValue();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
       jest.spyOn(postQueue, 'addPostJob');
 
       await Update.prototype.postWithImage(req, res);
+
+      // Verify cache update was called
       expect(PostCache.prototype.updatePostInCache).toHaveBeenCalledWith(`${postMockData._id}`, postSpy.mock.calls[0][1]);
+
+      // Verify database update was called synchronously
+      expect(postService.editPost).toHaveBeenCalled();
+
+      // Verify socket emit
       expect(postServer.socketIOPostObject.emit).toHaveBeenCalledWith('update post', postMockData, 'posts');
-      expect(postQueue.addPostJob).toHaveBeenCalledWith('updatePostInDB', { key: `${postMockData._id}`, value: postMockData });
+
+      // Verify queue was NOT called (since editPost succeeded)
+      expect(postQueue.addPostJob).not.toHaveBeenCalled();
+
+      // Verify response
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Post with image updated successfully'
@@ -75,23 +112,35 @@ describe('Update', () => {
     });
 
     it('should send correct json response if no imgId and imgVersion', async () => {
-      updatedPostWithImage.imgId = '1234';
-      updatedPostWithImage.imgVersion = '1234';
-      updatedPost.imgId = '1234';
-      updatedPost.imgVersion = '1234';
+      updatedPostWithImage.imgId = '';
+      updatedPostWithImage.imgVersion = '';
+      updatedPost.imgId = '';
+      updatedPost.imgVersion = '';
       updatedPost.post = updatedPostWithImage.post;
       updatedPostWithImage.image = 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';
       const req: Request = postMockRequest(updatedPostWithImage, authUserPayload, { postId: `${postMockData._id}` }) as Request;
       const res: Response = postMockResponse();
-      const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache');
+      const postSpy = jest.spyOn(PostCache.prototype, 'updatePostInCache').mockResolvedValue(postMockData);
       jest.spyOn(cloudinaryUploads, 'uploads').mockImplementation((): any => Promise.resolve({ version: '1234', public_id: '123456' }));
+      jest.spyOn(postService, 'editPost').mockResolvedValue();
       jest.spyOn(postServer.socketIOPostObject, 'emit');
       jest.spyOn(postQueue, 'addPostJob');
 
       await Update.prototype.postWithImage(req, res);
+
+      // Verify cache update was called
       expect(PostCache.prototype.updatePostInCache).toHaveBeenCalledWith(`${postMockData._id}`, postSpy.mock.calls[0][1]);
+
+      // Verify database update was called synchronously
+      expect(postService.editPost).toHaveBeenCalled();
+
+      // Verify socket emit
       expect(postServer.socketIOPostObject.emit).toHaveBeenCalledWith('update post', postMockData, 'posts');
-      expect(postQueue.addPostJob).toHaveBeenCalledWith('updatePostInDB', { key: `${postMockData._id}`, value: postMockData });
+
+      // Verify queue was NOT called (since editPost succeeded)
+      expect(postQueue.addPostJob).not.toHaveBeenCalled();
+
+      // Verify response
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Post with image updated successfully'

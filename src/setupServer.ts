@@ -108,8 +108,8 @@ export class RottenCornServer {
         
         callback(new Error('Not allowed by CORS'));
       },
-      credentials: true,
-      optionsSuccessStatus: 200,
+        credentials: true,
+        optionsSuccessStatus: 200,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
     };
     
@@ -212,7 +212,7 @@ export class RottenCornServer {
           }
         }
       });
-      const subClient = pubClient.duplicate();
+    const subClient = pubClient.duplicate();
       
       // Set a timeout for Redis connection
       const connectPromise = Promise.all([pubClient.connect(), subClient.connect()]);
@@ -221,7 +221,7 @@ export class RottenCornServer {
       );
       
       await Promise.race([connectPromise, timeoutPromise]);
-      io.adapter(createAdapter(pubClient, subClient));
+    io.adapter(createAdapter(pubClient, subClient));
       log.info('Socket.IO Redis adapter connected successfully');
     } catch (error) {
       log.error('Failed to connect Redis adapter for Socket.IO, continuing without it', error);

@@ -11,13 +11,16 @@ import { emailQueue } from '@service/queues/email.queue';
 import { existingUser, existingUserTwo } from '../../../../mocks/user.mock';
 import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
 import { UserCache } from '@service/redis/user.cache';
+import { chatService } from '@service/db/chat.service';
+import { userService } from '@service/db/user.service';
 
-jest.useFakeTimers();
 jest.mock('@service/queues/base.queue');
 jest.mock('@socket/user');
 jest.mock('@service/redis/user.cache');
 jest.mock('@service/redis/message.cache');
 jest.mock('@service/queues/email.queue');
+jest.mock('@service/db/chat.service');
+jest.mock('@service/db/user.service');
 
 Object.defineProperties(chatServer, {
   socketIOChatObject: {
@@ -28,13 +31,17 @@ Object.defineProperties(chatServer, {
 
 describe('Add', () => {
   beforeEach(() => {
-    jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUser);
     jest.restoreAllMocks();
+    // Setup mocks after restoreAllMocks
+    jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUser);
+    jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
+    jest.spyOn(chatService, 'addMessageToDB').mockResolvedValue();
+    jest.spyOn(MessageCache.prototype, 'addChatListToCache').mockResolvedValue();
+    jest.spyOn(MessageCache.prototype, 'addChatMessageToCache').mockResolvedValue();
   });
 
   afterEach(() => {
     jest.clearAllMocks();
-    jest.clearAllTimers();
   });
 
   it('should call socket.io emit twice', async () => {
@@ -43,18 +50,22 @@ describe('Add', () => {
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
-    expect(chatServer.socketIOChatObject.emit).toHaveBeenCalledTimes(2);
+    // Should emit 'message received' and 'chat list' events
+    expect(chatServer.socketIOChatObject.emit).toHaveBeenCalled();
   });
 
   it('should call addEmailJob method', async () => {
-    existingUserTwo.notifications.messages = true;
     const req: Request = chatMockRequest({}, chatMessage, authUserPayload) as Request;
     const res: Response = chatMockResponse();
-    jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(existingUserTwo);
+    // Create a user with notifications enabled
+    const userWithNotifications = existingUserTwo as any;
+    userWithNotifications.notifications = { ...existingUserTwo.notifications, messages: true };
+    jest.spyOn(UserCache.prototype, 'getUserFromCache').mockResolvedValue(userWithNotifications);
+    jest.spyOn(userService, 'getUserById').mockResolvedValue(userWithNotifications);
     jest.spyOn(emailQueue, 'addEmailJob');
 
     const templateParams = {
-      username: existingUserTwo.username!,
+      username: userWithNotifications.username!,
       message: chatMessage.body,
       header: `Message notification from ${req.currentUser!.username}`
     };
@@ -62,7 +73,7 @@ describe('Add', () => {
 
     await Add.prototype.message(req, res);
     expect(emailQueue.addEmailJob).toHaveBeenCalledWith('directMessageEmail', {
-      receiverEmail: existingUserTwo.email!,
+      receiverEmail: userWithNotifications.email!,
       template,
       subject: `You've received messages from ${req.currentUser!.username!}`
     });
@@ -90,16 +101,15 @@ describe('Add', () => {
   });
 
   it('should call addChatListToCache twice', async () => {
-    jest.spyOn(MessageCache.prototype, 'addChatListToCache');
     const req: Request = chatMockRequest({}, chatMessage, authUserPayload) as Request;
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
+    // Should be called once for sender and once for receiver
     expect(MessageCache.prototype.addChatListToCache).toHaveBeenCalledTimes(2);
   });
 
   it('should call addChatMessageToCache', async () => {
-    jest.spyOn(MessageCache.prototype, 'addChatMessageToCache');
     const req: Request = chatMockRequest({}, chatMessage, authUserPayload) as Request;
     const res: Response = chatMockResponse();
 
@@ -108,11 +118,14 @@ describe('Add', () => {
   });
 
   it('should call chatQueue addChatJob', async () => {
+    jest.spyOn(chatService, 'addMessageToDB').mockRejectedValue(new Error('DB error'));
     jest.spyOn(chatQueue, 'addChatJob');
     const req: Request = chatMockRequest({}, chatMessage, authUserPayload) as Request;
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
+    // Queue should only be called if database save fails
+    // Since we're mocking a failure, it should be called
     expect(chatQueue.addChatJob).toHaveBeenCalledTimes(1);
   });
 

@@ -401,7 +401,7 @@ if [ -f "package-lock.json" ]; then
     echo "[$(date)] npm ci failed with exit code $NPM_EXIT_CODE"
     echo "[$(date)] Checking error details..."
     grep -i "enoent\|spawn\|sh" /tmp/npm-install.log | tail -20 || echo "No shell-related errors found"
-    
+
     echo "[$(date)] This might be due to package-lock.json mismatch or postinstall script issues, trying npm install as fallback..."
 
     # Fallback to npm install with memory optimizations
@@ -420,11 +420,11 @@ if [ -f "package-lock.json" ]; then
       
       if [ $NPM_EXIT_CODE -ne 0 ]; then
         echo "[$(date)] ERROR: All npm install attempts failed"
-        echo "[$(date)] Last 100 lines of npm output:"
-        tail -100 /tmp/npm-install.log
-        echo "[$(date)] Checking if partial node_modules exists:"
-        ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
-        exit 1
+      echo "[$(date)] Last 100 lines of npm output:"
+      tail -100 /tmp/npm-install.log
+      echo "[$(date)] Checking if partial node_modules exists:"
+      ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+      exit 1
       else
         echo "[$(date)] ⚠ npm install succeeded with --ignore-scripts (some postinstall scripts were skipped)"
       fi
@@ -454,11 +454,11 @@ else
     
     if [ $NPM_EXIT_CODE -ne 0 ]; then
       echo "[$(date)] ERROR: npm install failed even with --ignore-scripts"
-      echo "[$(date)] Last 100 lines of npm output:"
-      tail -100 /tmp/npm-install.log
-      echo "[$(date)] Checking if partial node_modules exists:"
-      ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
-      exit 1
+    echo "[$(date)] Last 100 lines of npm output:"
+    tail -100 /tmp/npm-install.log
+    echo "[$(date)] Checking if partial node_modules exists:"
+    ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+    exit 1
     else
       echo "[$(date)] ⚠ npm install succeeded with --ignore-scripts (some postinstall scripts were skipped)"
     fi
