@@ -219,7 +219,33 @@ fi
 
 # Ensure Node.js and npm are in PATH
 # DO NOT include /opt/nodejs paths - they don't exist and break PM2
-export PATH="/usr/local/bin:/usr/bin:$PATH"
+# CRITICAL: Include /bin and /usr/bin for shell commands (sh, bash) needed by npm postinstall scripts
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+
+# Verify essential shell commands are available (needed for npm postinstall scripts)
+if ! command -v sh >/dev/null 2>&1; then
+  echo "[$(date)] WARNING: sh command not found in PATH"
+  echo "[$(date)] PATH: $PATH"
+  echo "[$(date)] Searching for sh..."
+  if [ -f /bin/sh ]; then
+    export PATH="/bin:$PATH"
+    echo "[$(date)] Added /bin to PATH"
+  elif [ -f /usr/bin/sh ]; then
+    export PATH="/usr/bin:$PATH"
+    echo "[$(date)] Added /usr/bin to PATH"
+  fi
+fi
+
+# Verify sh is now available
+if ! command -v sh >/dev/null 2>&1; then
+  echo "[$(date)] ERROR: sh command still not found after PATH adjustment"
+  echo "[$(date)] PATH: $PATH"
+  echo "[$(date)] Checking for sh in common locations:"
+  ls -la /bin/sh /usr/bin/sh 2>&1 || echo "sh not found in common locations"
+  exit 1
+fi
+
+echo "[$(date)] ✓ Shell commands verified: sh=$(command -v sh)"
 
 # Stop any existing PM2 processes
 if ! command -v npm >/dev/null 2>&1; then
@@ -296,6 +322,19 @@ npm config set fetch-retries 3
 npm config set fetch-retry-mintimeout 20000
 npm config set fetch-retry-maxtimeout 120000
 
+# Configure npm to handle postinstall script failures gracefully
+# Some packages (like core-js) may have postinstall scripts that fail in certain environments
+npm config set ignore-scripts false
+npm config set script-shell /bin/sh
+
+# Verify shell is accessible for npm scripts
+echo "[$(date)] Verifying shell for npm scripts..."
+if ! command -v sh >/dev/null 2>&1; then
+  echo "[$(date)] ERROR: sh not found - npm postinstall scripts will fail"
+  exit 1
+fi
+echo "[$(date)] ✓ Shell verified: $(command -v sh)"
+
 # Check available memory
 echo "[$(date)] System memory info:"
 free -h || echo "free command not available"
@@ -334,27 +373,41 @@ if [ -f "package-lock.json" ]; then
 
   # Run npm ci - disable set -e temporarily to handle errors gracefully
   set +e
-  npm ci --production --prefer-offline --no-audit 2>&1 | tee /tmp/npm-install.log
+  npm ci --production --prefer-offline --no-audit --ignore-scripts=false 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   set -e
 
   if [ $NPM_EXIT_CODE -ne 0 ]; then
     echo "[$(date)] npm ci failed with exit code $NPM_EXIT_CODE"
-    echo "[$(date)] This might be due to package-lock.json mismatch, trying npm install as fallback..."
+    echo "[$(date)] Checking error details..."
+    grep -i "enoent\|spawn\|sh" /tmp/npm-install.log | tail -20 || echo "No shell-related errors found"
+    
+    echo "[$(date)] This might be due to package-lock.json mismatch or postinstall script issues, trying npm install as fallback..."
 
     # Fallback to npm install with memory optimizations
+    # Try with ignore-scripts if postinstall scripts are failing
     set +e
-    npm install --production --prefer-offline --no-audit 2>&1 | tee -a /tmp/npm-install.log
+    npm install --production --prefer-offline --no-audit --ignore-scripts=false 2>&1 | tee -a /tmp/npm-install.log
     NPM_EXIT_CODE=${PIPESTATUS[0]}
     set -e
 
     if [ $NPM_EXIT_CODE -ne 0 ]; then
-      echo "[$(date)] ERROR: Both npm ci and npm install failed"
-      echo "[$(date)] Last 100 lines of npm output:"
-      tail -100 /tmp/npm-install.log
-      echo "[$(date)] Checking if partial node_modules exists:"
-      ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
-      exit 1
+      echo "[$(date)] npm install also failed, trying with ignore-scripts as last resort..."
+      set +e
+      npm install --production --prefer-offline --no-audit --ignore-scripts 2>&1 | tee -a /tmp/npm-install.log
+      NPM_EXIT_CODE=${PIPESTATUS[0]}
+      set -e
+      
+      if [ $NPM_EXIT_CODE -ne 0 ]; then
+        echo "[$(date)] ERROR: All npm install attempts failed"
+        echo "[$(date)] Last 100 lines of npm output:"
+        tail -100 /tmp/npm-install.log
+        echo "[$(date)] Checking if partial node_modules exists:"
+        ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+        exit 1
+      else
+        echo "[$(date)] ⚠ npm install succeeded with --ignore-scripts (some postinstall scripts were skipped)"
+      fi
     fi
   fi
 else
@@ -364,17 +417,31 @@ else
 
   # Run npm install - disable set -e temporarily
   set +e
-  npm install --production --prefer-offline --no-audit 2>&1 | tee /tmp/npm-install.log
+  npm install --production --prefer-offline --no-audit --ignore-scripts=false 2>&1 | tee /tmp/npm-install.log
   NPM_EXIT_CODE=${PIPESTATUS[0]}
   set -e
 
   if [ $NPM_EXIT_CODE -ne 0 ]; then
-    echo "[$(date)] ERROR: npm install failed with exit code $NPM_EXIT_CODE"
-    echo "[$(date)] Last 100 lines of npm output:"
-    tail -100 /tmp/npm-install.log
-    echo "[$(date)] Checking if partial node_modules exists:"
-    ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
-    exit 1
+    echo "[$(date)] npm install failed with exit code $NPM_EXIT_CODE"
+    echo "[$(date)] Checking error details..."
+    grep -i "enoent\|spawn\|sh" /tmp/npm-install.log | tail -20 || echo "No shell-related errors found"
+    echo "[$(date)] Trying with ignore-scripts as fallback..."
+    
+    set +e
+    npm install --production --prefer-offline --no-audit --ignore-scripts 2>&1 | tee -a /tmp/npm-install.log
+    NPM_EXIT_CODE=${PIPESTATUS[0]}
+    set -e
+    
+    if [ $NPM_EXIT_CODE -ne 0 ]; then
+      echo "[$(date)] ERROR: npm install failed even with --ignore-scripts"
+      echo "[$(date)] Last 100 lines of npm output:"
+      tail -100 /tmp/npm-install.log
+      echo "[$(date)] Checking if partial node_modules exists:"
+      ls -la node_modules 2>&1 | head -20 || echo "node_modules does not exist"
+      exit 1
+    else
+      echo "[$(date)] ⚠ npm install succeeded with --ignore-scripts (some postinstall scripts were skipped)"
+    fi
   fi
 fi
 
