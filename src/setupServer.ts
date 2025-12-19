@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import hpp from 'hpp';
 import compression from 'compression';
 import cookieSession from 'cookie-session';
+import cookieParser from 'cookie-parser';
 import HTTP_STATUS from 'http-status-codes';
 import { Server } from 'socket.io';
 import { createClient } from 'redis';
@@ -43,6 +44,8 @@ export class RottenCornServer {
   }
 
   private securityMiddleware(app: Application): void {
+    // Parse cookies first (needed for JWT cookie fallback)
+    app.use(cookieParser());
     app.use(
       cookieSession({
         name: 'session',

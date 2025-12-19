@@ -59,6 +59,27 @@ export class SignUp {
 
     const userJwt: string = SignUp.prototype.signToken(authData, userObjectId);
     req.session = { jwt: userJwt };
+    
+    // ALSO set a regular cookie with the JWT as a fallback
+    // Deployed environments are: 'develop', 'staging', 'production'
+    // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
+    const isLocalDev = config.NODE_ENV === 'development' &&
+                       !config.EC2_URL &&
+                       !config.CLIENT_URL?.includes('chatappserver.space');
+
+    const cookieOptions: any = {
+      maxAge: 24 * 7 * 3600000,
+      httpOnly: true,
+      secure: !isLocalDev,
+      sameSite: isLocalDev ? 'lax' : 'none',
+      path: '/'
+    };
+
+    if (!isLocalDev) {
+      cookieOptions.domain = '.chatappserver.space';
+    }
+
+    res.cookie('jwt', userJwt, cookieOptions);
 
     res.status(HTTP_STATUS.CREATED).json({ message: 'User created successfully', user: userDataForCache, token: userJwt });
   }
