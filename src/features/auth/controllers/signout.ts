@@ -8,7 +8,7 @@ export class SignOut {
     
     // Also clear the JWT cookie
     const isLocalDev = config.NODE_ENV === 'development' &&
-                       !config.EC2_URL &&
+                       (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
                        !config.CLIENT_URL?.includes('chatappserver.space');
 
     const cookieOptions: any = {
