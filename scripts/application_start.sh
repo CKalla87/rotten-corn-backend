@@ -163,7 +163,7 @@ fi
 
 # Verify critical dependencies
 MISSING_DEPS=""
-for dep in express passport dotenv; do
+for dep in express dotenv mongoose; do
   if [ ! -d "node_modules/$dep" ]; then
     MISSING_DEPS="$MISSING_DEPS $dep"
   fi
@@ -179,7 +179,7 @@ if [ -n "$MISSING_DEPS" ]; then
   exit 1
 fi
 
-echo "[$(date)] ✓ Dependencies verified - express, passport, dotenv all present"
+echo "[$(date)] ✓ Dependencies verified - express, dotenv, mongoose all present"
 
 # Start the application with PM2
 echo "[$(date)] Starting application with PM2..."
