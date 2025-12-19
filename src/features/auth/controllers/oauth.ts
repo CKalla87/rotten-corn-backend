@@ -600,20 +600,42 @@ export class OAuthController {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
 
     try {
-      const { code } = req.body;
-
+      // Log the full request for debugging
       log.info('Code exchange request received', {
+        method: req.method,
+        url: req.url,
+        path: req.path,
+        body: req.body,
+        bodyKeys: Object.keys(req.body || {}),
+        query: req.query,
+        queryKeys: Object.keys(req.query || {}),
+        headers: {
+          'content-type': req.get('content-type'),
+          origin: req.get('origin'),
+          referer: req.get('referer')
+        },
+        hasBody: !!req.body,
+        bodyType: typeof req.body
+      });
+
+      // Try to get code from body first, then from query (in case frontend sends it as query param)
+      const code = req.body?.code || req.query?.code;
+
+      log.info('Code extraction result', {
         hasCode: !!code,
+        codeSource: req.body?.code ? 'body' : req.query?.code ? 'query' : 'none',
         codeLength: code?.length || 0,
-        codePrefix: code?.substring(0, 30) || 'N/A',
-        origin: req.get('origin'),
-        referer: req.get('referer')
+        codePrefix: code?.substring(0, 30) || 'N/A'
       });
 
       if (!code) {
         log.error('No authorization code provided in exchange request', {
           body: req.body,
-          bodyKeys: Object.keys(req.body || {})
+          bodyKeys: Object.keys(req.body || {}),
+          query: req.query,
+          queryKeys: Object.keys(req.query || {}),
+          contentType: req.get('content-type'),
+          rawBody: JSON.stringify(req.body)
         });
         throw new BadRequestError('Authorization code is required. Please ensure the OAuth callback completed successfully.');
       }
@@ -674,8 +696,10 @@ export class OAuthController {
         log.error('Authorization code exchange failed - code not found in Redis and no fallback token', {
           codeLength: code?.length || 0,
           codePrefix: code?.substring(0, 20) || 'N/A',
+          code: code, // Log full code for debugging (remove in production if sensitive)
           hasBody: !!req.body,
-          bodyKeys: req.body ? Object.keys(req.body) : []
+          bodyKeys: req.body ? Object.keys(req.body) : [],
+          redisAvailable: await authCodeService.isRedisAvailable().catch(() => false)
         });
         throw new BadRequestError('Invalid or expired authorization code. The OAuth callback may not have completed successfully. Please try again.');
       }
@@ -729,6 +753,12 @@ export class OAuthController {
       res.cookie('jwt', authData.token, cookieOptions);
 
       // Return token and user data
+      log.info('Code exchange successful', {
+        userId: user._id,
+        email: user.email,
+        hasToken: !!authData.token
+      });
+      
       res.status(HTTP_STATUS.OK).json({
         token: authData.token,
         user: {
@@ -742,10 +772,17 @@ export class OAuthController {
         }
       });
     } catch (error) {
+      log.error('Error in code exchange:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        body: req.body,
+        query: req.query
+      });
+      
       if (error instanceof BadRequestError) {
         throw error;
       }
-      throw new BadRequestError((error as Error).message);
+      throw new BadRequestError((error as Error).message || 'An error occurred during code exchange');
     }
   }
 }

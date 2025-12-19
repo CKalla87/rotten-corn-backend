@@ -9,10 +9,23 @@ import { BadRequestError } from '@global/helpers/error-handler';
 import { loginSchema } from '@auth/schemes/signin';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { userService } from '@service/db/user.service';
+import Logger from 'bunyan';
 
 export class SignIn {
   @joiValidation(loginSchema)
   public async read(req: Request, res: Response): Promise<void> {
+    // Log request for debugging
+    const log: Logger = config.createLogger('signin');
+    log.info('Signin request received', {
+      method: req.method,
+      url: req.url,
+      body: req.body,
+      bodyKeys: Object.keys(req.body || {}),
+      hasBody: !!req.body,
+      contentType: req.get('content-type'),
+      origin: req.get('origin')
+    });
+
     const { username, password } = req.body;
     const existingUser: IAuthDocument = await authService.getAuthUserByUsername(username);
     if (!existingUser) {
@@ -43,7 +56,7 @@ export class SignIn {
       (req as any).session = {};
     }
     (req.session as any).jwt = userJwt;
-    
+
     // ALSO set a regular cookie with the JWT as a fallback
     // Deployed environments are: 'develop', 'staging', 'production'
     // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space
@@ -64,7 +77,7 @@ export class SignIn {
     }
 
     res.cookie('jwt', userJwt, cookieOptions);
-    
+
     const userDocument: IUserDocument = {
       ...user,
       authId: existingUser!._id,
