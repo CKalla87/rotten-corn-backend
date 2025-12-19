@@ -24,12 +24,13 @@ class PostService {
     const safeLimit = limit > 0 ? Math.min(limit, 100) : 10;
 
     // Use find() with lean() for much faster queries - no Mongoose overhead
-    // This is significantly faster than aggregate for simple queries
+    // Use hint to ensure index is used for sorting
     const posts: IPostDocument[] = await PostModel.find(postQuery)
       .sort(sort)
       .skip(skip)
       .limit(safeLimit)
       .lean()
+      .hint({ createdAt: -1 }) // Force use of createdAt index
       .maxTimeMS(10000)
       .exec() as IPostDocument[];
 
@@ -66,7 +67,7 @@ class PostService {
       return count;
     } catch (error) {
       // Fallback to countDocuments if estimatedDocumentCount fails
-      const count: number = await PostModel.find({}).countDocuments();
+      const count: number = await PostModel.find({}).countDocuments().maxTimeMS(5000);
       return count;
     }
   }

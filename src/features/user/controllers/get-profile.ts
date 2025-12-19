@@ -149,19 +149,10 @@ export class Get {
     try {
       let randomUsers: IUserDocument[] = [];
 
-      // Skip cache - go directly to database for instant response
-      try {
-        const users: IUserDocument[] = await userService.getRandomUsers(`${req.currentUser!.userId}`);
-        randomUsers = [...users];
-        log.info('User suggestions retrieved from database', { userId: req.currentUser!.userId, count: randomUsers.length });
-      } catch (dbError) {
-        log.error('Database operation failed for user suggestions', {
-          error: dbError instanceof Error ? dbError.message : 'Unknown error',
-          userId: req.currentUser!.userId
-        });
-        // Return empty array rather than failing completely
-        randomUsers = [];
-      }
+      // Skip cache - go directly to database
+      const users: IUserDocument[] = await userService.getRandomUsers(`${req.currentUser!.userId}`);
+      randomUsers = [...users];
+      log.info('User suggestions retrieved from database', { userId: req.currentUser!.userId, count: randomUsers.length });
 
       res.status(HTTP_STATUS.OK).json({ message: 'User suggestions', users: randomUsers });
     } catch (error) {

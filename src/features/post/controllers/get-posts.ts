@@ -29,33 +29,15 @@ export class Get {
       let posts: IPostDocument[] = [];
       let totalPosts = 0;
 
-      // Skip cache entirely - go directly to database for instant response
-      // Cache can be slow, database is faster and more reliable
+      // Skip cache entirely - go directly to database
       // Run queries in parallel for maximum speed
-      try {
-        const [postsResult, totalPostsResult] = await Promise.all([
-          postService.getPosts({}, skip, limit, { createdAt: -1 }),
-          postService.postsCount()
-        ]);
-        posts = postsResult;
-        totalPosts = totalPostsResult;
-        log.info('Posts retrieved from database', { page, count: posts.length });
-      } catch (dbError) {
-        const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown error';
-        const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('maxTimeMS');
-
-        log.error('Database operation failed', {
-          error: errorMessage,
-          page,
-          isTimeout,
-          errorType: isTimeout ? 'Query timeout' : 'Database error'
-        });
-
-        // Return empty results rather than failing completely
-        // This allows the frontend to still render (just with no data) instead of showing an error
-        posts = [];
-        totalPosts = 0;
-      }
+      const [postsResult, totalPostsResult] = await Promise.all([
+        postService.getPosts({}, skip, limit, { createdAt: -1 }),
+        postService.postsCount()
+      ]);
+      posts = postsResult;
+      totalPosts = totalPostsResult;
+      log.info('Posts retrieved from database', { page, count: posts.length });
 
       res.status(HTTP_STATUS.OK).json({ message: 'All posts', posts, totalPosts });
     } catch (error) {

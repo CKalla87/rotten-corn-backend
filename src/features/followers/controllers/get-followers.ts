@@ -23,13 +23,8 @@ export class Get {
       const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.currentUser!.userId);
       let following: IFollowerData[] = [];
 
-      // Skip cache - go directly to database for instant response
-      try {
-        following = await followerService.getFolloweeData(userObjectId);
-      } catch (dbError) {
-        // Return empty array rather than failing completely
-        following = [];
-      }
+      // Skip cache - go directly to database
+      following = await followerService.getFolloweeData(userObjectId);
 
       res.status(HTTP_STATUS.OK).json({ message: 'User following', following });
     } catch (error) {
@@ -55,13 +50,8 @@ export class Get {
       const userObjectId: ObjectId = new mongoose.Types.ObjectId(req.params.userId);
       let followers: IFollowerData[] = [];
 
-      // Skip cache - go directly to database for instant response
-      try {
-        followers = await followerService.getFollowerData(userObjectId);
-      } catch (dbError) {
-        // Return empty array rather than failing completely
-        followers = [];
-      }
+      // Skip cache - go directly to database
+      followers = await followerService.getFollowerData(userObjectId);
 
       res.status(HTTP_STATUS.OK).json({ message: 'User followers', followers });
     } catch (error) {

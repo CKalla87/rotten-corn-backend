@@ -109,11 +109,12 @@ class UserService {
     // Fast approach: Get random users without expensive $lookup
     try {
       // Step 1: Get random users (without auth data first - faster)
+      // Note: $ne queries can be slow on large collections, but we limit to 50
       const users = await UserModel.find({ _id: { $ne: new mongoose.Types.ObjectId(userId) } })
         .select('_id authId postsCount followersCount followingCount profilePicture')
         .limit(50) // Get more than needed, filter later
         .lean()
-        .maxTimeMS(3000)
+        .maxTimeMS(5000)
         .exec();
 
       if (!users || users.length === 0) {
@@ -132,7 +133,7 @@ class UserService {
         })
           .select('_id username email avatarColor uId createdAt')
           .lean()
-          .maxTimeMS(3000)
+          .maxTimeMS(5000)
           .exec()
       ]);
 

@@ -109,10 +109,12 @@ class FollowerService {
     // This avoids expensive $lookup operations
     try {
       // Step 1: Get all followee IDs (fast - just IDs)
+      // Use hint to ensure index is used
       const followers = await FollowerModel.find({ followerId: userObjectId })
         .select('followeeId')
         .lean()
-        .maxTimeMS(3000)
+        .hint({ followerId: 1 }) // Force use of followerId index
+        .maxTimeMS(5000)
         .exec();
 
       if (!followers || followers.length === 0) {
@@ -122,10 +124,11 @@ class FollowerService {
       const followeeIds = followers.map((f: any) => f.followeeId);
 
       // Step 2: Get users (with authId reference)
+      // _id queries are automatically indexed, no hint needed
       const users = await UserModel.find({ _id: { $in: followeeIds } })
         .select('_id postsCount followersCount followingCount profilePicture authId')
         .lean()
-        .maxTimeMS(3000)
+        .maxTimeMS(5000)
         .exec();
 
       if (!users || users.length === 0) {
@@ -181,10 +184,12 @@ class FollowerService {
     // This avoids expensive $lookup operations
     try {
       // Step 1: Get all follower IDs (fast - just IDs)
+      // Use hint to ensure index is used
       const followers = await FollowerModel.find({ followeeId: userObjectId })
         .select('followerId')
         .lean()
-        .maxTimeMS(3000)
+        .hint({ followeeId: 1 }) // Force use of followeeId index
+        .maxTimeMS(5000)
         .exec();
 
       if (!followers || followers.length === 0) {
@@ -194,10 +199,11 @@ class FollowerService {
       const followerIds = followers.map((f: any) => f.followerId);
 
       // Step 2: Get users (with authId reference)
+      // _id queries are automatically indexed
       const users = await UserModel.find({ _id: { $in: followerIds } })
         .select('_id postsCount followersCount followingCount profilePicture authId')
         .lean()
-        .maxTimeMS(3000)
+        .maxTimeMS(5000)
         .exec();
 
       if (!users || users.length === 0) {
