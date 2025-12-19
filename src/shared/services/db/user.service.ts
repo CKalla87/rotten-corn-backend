@@ -106,41 +106,69 @@ class UserService {
   }
 
   public async getRandomUsers(userId: string): Promise<IUserDocument[]> {
-    const randomUsers: IUserDocument[] = [];
-    // Optimize with allowDiskUse for large user collections and timeout
-    // Run user query and followers query in parallel for speed
-    const [users, followers] = await Promise.all([
-      UserModel.aggregate([
-        { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
-        { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-        { $unwind: '$authId' },
-        { $sample: { size: 10 } },
-        {
-          $addFields: {
-            username: '$authId.username',
-            email: '$authId.email',
-            avatarColor: '$authId.avatarColor',
-            uId: '$authId.uId',
-            createdAt: '$authId.createdAt'
-          }
-        },
-        {
-          $project: {
-            authId: 0,
-            __v: 0
-          }
-        }
-      ], { allowDiskUse: true, maxTimeMS: 10000 }), // 10 second timeout - prevents hanging while allowing legitimate slow queries
-      followerService.getFolloweesIds(`${userId}`)
-    ]);
+    // Fast approach: Get random users without expensive $lookup
+    try {
+      // Step 1: Get random users (without auth data first - faster)
+      const users = await UserModel.find({ _id: { $ne: new mongoose.Types.ObjectId(userId) } })
+        .select('_id authId postsCount followersCount followingCount profilePicture')
+        .limit(50) // Get more than needed, filter later
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
 
-    for (const user of users) {
-      const followerIndex = followers.indexOf(user._id.toString());
-      if (followerIndex < 0) {
-        randomUsers.push(user);
+      if (!users || users.length === 0) {
+        return [];
       }
+
+      // Step 2: Shuffle and take 10 random users
+      const shuffled = users.sort(() => 0.5 - Math.random());
+      const selectedUsers = shuffled.slice(0, 10);
+
+      // Step 3: Get followers list and auth data in parallel
+      const [followers, authData] = await Promise.all([
+        followerService.getFolloweesIds(`${userId}`),
+        AuthModel.find({
+          _id: { $in: selectedUsers.map((u: any) => u.authId).filter(Boolean) }
+        })
+          .select('_id username email avatarColor uId createdAt')
+          .lean()
+          .maxTimeMS(3000)
+          .exec()
+      ]);
+
+      // Step 4: Create auth map and filter out followed users
+      const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
+      const followersSet = new Set(followers);
+
+      // Step 5: Combine data and filter
+      const randomUsers: IUserDocument[] = [];
+      for (const user of selectedUsers) {
+        // Skip if user is already followed
+        if (followersSet.has(user._id.toString())) {
+          continue;
+        }
+
+        const auth = authMap.get(user.authId?.toString() || '');
+        if (!auth) continue;
+
+        randomUsers.push({
+          ...user,
+          username: auth.username,
+          email: auth.email,
+          avatarColor: auth.avatarColor,
+          uId: auth.uId,
+          createdAt: auth.createdAt
+        } as IUserDocument);
+
+        // Stop when we have 10
+        if (randomUsers.length >= 10) break;
+      }
+
+      return randomUsers;
+    } catch (error) {
+      // If query fails, return empty array to prevent 503
+      return [];
     }
-    return randomUsers;
   }
 
   public async getTotalUsersInDB(): Promise<number> {

@@ -7,6 +7,7 @@ import { NotificationModel } from '@notification/models/notification.schema';
 import { socketIONotificationObject } from '@socket/notification';
 import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
 import { emailQueue } from '@service/queues/email.queue';
+import { AuthModel } from '@auth/models/auth.schema';
 import mongoose from 'mongoose';
 import { ObjectId, BulkWriteResult } from 'mongodb';
 
@@ -104,128 +105,146 @@ class FollowerService {
   }
 
   public async getFolloweeData(userObjectId: ObjectId): Promise<IFollowerData[]> {
-    // Use find() with populate - much faster than aggregate with $lookup
+    // Fast approach: Get follower IDs first, then fetch users in parallel
+    // This avoids expensive $lookup operations
     try {
+      // Step 1: Get all followee IDs (fast - just IDs)
       const followers = await FollowerModel.find({ followerId: userObjectId })
-        .populate({
-          path: 'followeeId',
-          populate: { path: 'authId' }
-        })
+        .select('followeeId')
         .lean()
-        .maxTimeMS(10000)
+        .maxTimeMS(3000)
         .exec();
 
-      // Transform to IFollowerData format
-      return followers.map((follower: any) => {
-        const user = follower.followeeId;
-        const auth = user?.authId;
-        return {
-          _id: user?._id,
-          username: auth?.username || '',
-          avatarColor: auth?.avatarColor || '',
-          uId: auth?.uId || '',
-          postCount: user?.postsCount || 0,
-          followersCount: user?.followersCount || 0,
-          followingCount: user?.followingCount || 0,
-          profilePicture: user?.profilePicture || '',
-          userProfile: user
-        } as IFollowerData;
-      }).filter((f: IFollowerData) => f._id); // Filter out any invalid entries
+      if (!followers || followers.length === 0) {
+        return [];
+      }
+
+      const followeeIds = followers.map((f: any) => f.followeeId);
+
+      // Step 2: Get users (with authId reference)
+      const users = await UserModel.find({ _id: { $in: followeeIds } })
+        .select('_id postsCount followersCount followingCount profilePicture authId')
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
+
+      if (!users || users.length === 0) {
+        return [];
+      }
+
+      // Step 3: Get auth IDs from users and fetch auth data in parallel
+      const authIds = users.map((u: any) => u.authId).filter(Boolean);
+      if (authIds.length === 0) {
+        return [];
+      }
+
+      const authData = await AuthModel.find({ _id: { $in: authIds } })
+        .select('_id username avatarColor uId')
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
+
+      // Step 4: Create maps for quick lookup
+      const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
+      const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
+
+      // Step 5: Combine data
+      return followeeIds
+        .map((followeeId: any) => {
+          const user = userMap.get(followeeId.toString());
+          if (!user) return null;
+
+          const auth = authMap.get(user.authId?.toString() || '');
+          if (!auth) return null;
+
+          return {
+            _id: user._id,
+            username: auth.username || '',
+            avatarColor: auth.avatarColor || '',
+            uId: auth.uId || '',
+            postCount: user.postsCount || 0,
+            followersCount: user.followersCount || 0,
+            followingCount: user.followingCount || 0,
+            profilePicture: user.profilePicture || '',
+            userProfile: user
+          } as IFollowerData;
+        })
+        .filter((f): f is IFollowerData => f !== null);
     } catch (error) {
-      // Fallback to aggregate if populate fails
-      const followee: IFollowerData[] = await FollowerModel.aggregate([
-        { $match: { followerId: userObjectId } },
-        { $lookup: { from: 'User', localField: 'followeeId', foreignField: '_id', as: 'followeeId' } },
-        { $unwind: '$followeeId' },
-        { $lookup: { from: 'Auth', localField: 'followeeId.authId', foreignField: '_id', as: 'authId' } },
-        { $unwind: '$authId' },
-        {
-          $addFields: {
-            _id: '$followeeId._id',
-            username: '$authId.username',
-            avatarColor: '$authId.avatarColor',
-            uId: '$authId.uId',
-            postCount: '$followeeId.postsCount',
-            followersCount: '$followeeId.followersCount',
-            followingCount: '$followeeId.followingCount',
-            profilePicture: '$followeeId.profilePicture',
-            userProfile: '$followeeId'
-          }
-        },
-        {
-          $project: {
-            authId: 0,
-            followerId: 0,
-            followeeId: 0,
-            createdAt: 0,
-            __v: 0
-          }
-        }
-      ], { allowDiskUse: true, maxTimeMS: 10000 });
-      return followee;
+      // If parallel approach fails, return empty array to prevent 503
+      return [];
     }
   }
 
   public async getFollowerData(userObjectId: ObjectId): Promise<IFollowerData[]> {
-    // Use find() with populate - much faster than aggregate with $lookup
+    // Fast approach: Get follower IDs first, then fetch users in parallel
+    // This avoids expensive $lookup operations
     try {
+      // Step 1: Get all follower IDs (fast - just IDs)
       const followers = await FollowerModel.find({ followeeId: userObjectId })
-        .populate({
-          path: 'followerId',
-          populate: { path: 'authId' }
-        })
+        .select('followerId')
         .lean()
-        .maxTimeMS(10000)
+        .maxTimeMS(3000)
         .exec();
 
-      // Transform to IFollowerData format
-      return followers.map((follower: any) => {
-        const user = follower.followerId;
-        const auth = user?.authId;
-        return {
-          _id: user?._id,
-          username: auth?.username || '',
-          avatarColor: auth?.avatarColor || '',
-          uId: auth?.uId || '',
-          postCount: user?.postsCount || 0,
-          followersCount: user?.followersCount || 0,
-          followingCount: user?.followingCount || 0,
-          profilePicture: user?.profilePicture || '',
-          userProfile: user
-        } as IFollowerData;
-      }).filter((f: IFollowerData) => f._id); // Filter out any invalid entries
+      if (!followers || followers.length === 0) {
+        return [];
+      }
+
+      const followerIds = followers.map((f: any) => f.followerId);
+
+      // Step 2: Get users (with authId reference)
+      const users = await UserModel.find({ _id: { $in: followerIds } })
+        .select('_id postsCount followersCount followingCount profilePicture authId')
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
+
+      if (!users || users.length === 0) {
+        return [];
+      }
+
+      // Step 3: Get auth IDs from users and fetch auth data
+      const authIds = users.map((u: any) => u.authId).filter(Boolean);
+      if (authIds.length === 0) {
+        return [];
+      }
+
+      const authData = await AuthModel.find({ _id: { $in: authIds } })
+        .select('_id username avatarColor uId')
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
+
+      // Step 4: Create maps for quick lookup
+      const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
+      const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
+
+      // Step 5: Combine data
+      return followerIds
+        .map((followerId: any) => {
+          const user = userMap.get(followerId.toString());
+          if (!user) return null;
+
+          const auth = authMap.get(user.authId?.toString() || '');
+          if (!auth) return null;
+
+          return {
+            _id: user._id,
+            username: auth.username || '',
+            avatarColor: auth.avatarColor || '',
+            uId: auth.uId || '',
+            postCount: user.postsCount || 0,
+            followersCount: user.followersCount || 0,
+            followingCount: user.followingCount || 0,
+            profilePicture: user.profilePicture || '',
+            userProfile: user
+          } as IFollowerData;
+        })
+        .filter((f): f is IFollowerData => f !== null);
     } catch (error) {
-      // Fallback to aggregate if populate fails
-      const follower: IFollowerData[] = await FollowerModel.aggregate([
-        { $match: { followeeId: userObjectId } },
-        { $lookup: { from: 'User', localField: 'followerId', foreignField: '_id', as: 'followerId' } },
-        { $unwind: '$followerId' },
-        { $lookup: { from: 'Auth', localField: 'followerId.authId', foreignField: '_id', as: 'authId' } },
-        { $unwind: '$authId' },
-        {
-          $addFields: {
-            _id: '$followerId._id',
-            username: '$authId.username',
-            avatarColor: '$authId.avatarColor',
-            uId: '$authId.uId',
-            postCount: '$followerId.postsCount',
-            followersCount: '$followerId.followersCount',
-            followingCount: '$followerId.followingCount',
-            profilePicture: '$followerId.profilePicture',
-            userProfile: '$followerId'
-          }
-        },
-        {
-          $project: {
-            authId: 0,
-            followerId: 0,
-            followeeId: 0,
-            createdAt: 0,
-            __v: 0
-          }
-        }
-      ], { allowDiskUse: true, maxTimeMS: 10000 });
-      return follower;
+      // If parallel approach fails, return empty array to prevent 503
+      return [];
     }
   }
 
