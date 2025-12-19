@@ -91,6 +91,12 @@ export class UserCache extends BaseCache {
       }
 
       const response: IUserDocument = await this.client.HGETALL(`users:${userId}`) as unknown as IUserDocument;
+      
+      // Check if response is empty (user not in cache)
+      if (!response || !response._id || Object.keys(response).length === 0) {
+        return null;
+      }
+      
       response.createdAt = new Date(Helpers.parseJson(`${response.createdAt}`));
       response.postsCount = Helpers.parseJson(`${response.postsCount}`);
       response.blocked = Helpers.parseJson(`${response.blocked}`);
@@ -105,9 +111,9 @@ export class UserCache extends BaseCache {
 
       return response;
     } catch (error) {
-      log.error(error);
-      throw new ServerError('Server error. Try again.');
-
+      log.error('Error getting user from cache:', error);
+      // Return null instead of throwing, so caller can fallback to database
+      return null;
     }
   }
 

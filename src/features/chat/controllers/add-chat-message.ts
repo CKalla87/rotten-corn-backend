@@ -16,9 +16,14 @@ import { notificationTemplate } from '@service/emails/templates/notifications/no
 import { emailQueue } from '@service/queues/email.queue';
 import { socketIOChatObject } from '@socket/chat';
 import { chatQueue } from '@service/queues/chat.queue';
+import { userService } from '@service/db/user.service';
+import { chatService } from '@service/db/chat.service';
+import { config } from '@root/config';
+import Logger from 'bunyan';
 
 const userCache: UserCache = new UserCache();
 const messageCache: MessageCache = new MessageCache();
+const log: Logger = config.createLogger('addChatMessage');
 
 export class Add {
   @joiValidation(addChatSchema)
@@ -40,7 +45,31 @@ export class Add {
       ? new mongoose.Types.ObjectId(conversationId)
       : new mongoose.Types.ObjectId();
 
-    const sender: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
+    // Get sender from cache, fallback to database if not in cache
+    // Use timeout to prevent hanging if Redis is slow/unavailable
+    let sender: IUserDocument | null = null;
+    try {
+      sender = await Promise.race([
+        userCache.getUserFromCache(`${req.currentUser!.userId}`),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+      ]);
+    } catch (error) {
+      log.warn(`Failed to get user from cache: ${error}, falling back to database`);
+    }
+    
+    if (!sender) {
+      log.warn(`User ${req.currentUser!.userId} not found in cache, fetching from database`);
+      try {
+        sender = await userService.getUserById(`${req.currentUser!.userId}`);
+      } catch (error) {
+        log.error(`Failed to get user from database: ${error}`);
+        throw new BadRequestError('Failed to retrieve user information. Please try again.');
+      }
+    }
+    
+    if (!sender) {
+      throw new BadRequestError('User not found. Please login again.');
+    }
 
     if (selectedImage && selectedImage.length) {
       // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
@@ -95,7 +124,7 @@ export class Add {
       senderUsername: `${req.currentUser!.username}`,
       senderId: `${req.currentUser!.userId}`,
       senderAvatarColor: `${req.currentUser!.avatarColor}`,
-      senderProfilePicture: `${sender.profilePicture}`,
+      senderProfilePicture: sender.profilePicture || req.currentUser!.avatarColor || '',
       body,
       isRead,
       gifUrl,
@@ -118,14 +147,34 @@ export class Add {
       });
     }
 
-    // 1 - add sender to chat list in cache
-    await messageCache.addChatListToCache(`${req.currentUser!.userId}`, `${receiverId}`, `${conversationObjectId}`);
-    // 2 - add receiver to chat list in cache
-    await messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`);
-    // 3 - add message data to cache
-    await messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData);
-    // 4 - add message to chat queue
-    chatQueue.addChatJob('addChatMessageToDB', messageData);
+    // 1 - add sender to chat list in cache (with error handling)
+    try {
+      await messageCache.addChatListToCache(`${req.currentUser!.userId}`, `${receiverId}`, `${conversationObjectId}`);
+    } catch (error) {
+      log.warn('Failed to add sender to chat list cache:', error);
+    }
+    
+    // 2 - add receiver to chat list in cache (with error handling)
+    try {
+      await messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`);
+    } catch (error) {
+      log.warn('Failed to add receiver to chat list cache:', error);
+    }
+    
+    // 3 - add message data to cache (with error handling)
+    try {
+      await messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData);
+    } catch (error) {
+      log.warn('Failed to add message to cache:', error);
+    }
+    
+    // 4 - Save to database synchronously to ensure persistence, then queue for any additional processing
+    try {
+      await chatService.addMessageToDB(messageData);
+    } catch (error) {
+      log.error('Failed to save message synchronously, falling back to queue:', error);
+      chatQueue.addChatJob('addChatMessageToDB', messageData);
+    }
 
     res.status(HTTP_STATUS.OK).json({ message: 'Message added', conversationId: conversationObjectId });
   }
