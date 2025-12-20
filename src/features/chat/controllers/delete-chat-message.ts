@@ -15,33 +15,48 @@ const log: Logger = config.createLogger('deleteChatMessage');
 export class Delete {
   public async markMessageAsDeleted(req: Request, res: Response): Promise<void> {
     const { senderId, receiverId, messageId, type } = req.params;
-    const updatedMessage: IMessageData = await messageCache.markMessageAsDeleted(
-      senderId,
-      receiverId,
-      messageId,
-      type
-    );
+    
+    // Add timeout protection to prevent hanging if Redis is slow/unavailable
+    let updatedMessage: IMessageData = {} as IMessageData;
+    try {
+      updatedMessage = await Promise.race([
+        messageCache.markMessageAsDeleted(senderId, receiverId, messageId, type),
+        new Promise<IMessageData>((resolve) => {
+          setTimeout(() => {
+            log.warn(`markMessageAsDeleted cache operation timed out for messageId: ${messageId}`);
+            resolve({} as IMessageData);
+          }, 3000);
+        })
+      ]);
+    } catch (error) {
+      log.warn(`Failed to mark message as deleted in cache: ${error}, continuing with queue job`);
+    }
 
-    // Emit to specific users instead of broadcasting globally
-    const senderSocketId = connectedUsersMap.get(senderId);
-    const receiverSocketId = connectedUsersMap.get(receiverId);
+    // Only emit socket events if we successfully got the updated message from cache
+    // If cache timed out or failed, skip socket events (database update will still happen via queue)
+    if (updatedMessage && updatedMessage._id) {
+      const senderSocketId = connectedUsersMap.get(senderId);
+      const receiverSocketId = connectedUsersMap.get(receiverId);
 
-    if (socketIOChatObject) {
-      // Emit message read event to both users
-      if (senderSocketId) {
-        socketIOChatObject.to(senderSocketId).emit('message read', updatedMessage);
-      }
-      if (receiverSocketId) {
-        socketIOChatObject.to(receiverSocketId).emit('message read', updatedMessage);
-      }
+      if (socketIOChatObject) {
+        // Emit message read event to both users
+        if (senderSocketId) {
+          socketIOChatObject.to(senderSocketId).emit('message read', updatedMessage);
+        }
+        if (receiverSocketId) {
+          socketIOChatObject.to(receiverSocketId).emit('message read', updatedMessage);
+        }
 
-      // Emit chat list update to both users
-      if (senderSocketId) {
-        socketIOChatObject.to(senderSocketId).emit('chat list', updatedMessage);
+        // Emit chat list update to both users
+        if (senderSocketId) {
+          socketIOChatObject.to(senderSocketId).emit('chat list', updatedMessage);
+        }
+        if (receiverSocketId) {
+          socketIOChatObject.to(receiverSocketId).emit('chat list', updatedMessage);
+        }
       }
-      if (receiverSocketId) {
-        socketIOChatObject.to(receiverSocketId).emit('chat list', updatedMessage);
-      }
+    } else {
+      log.warn(`Skipping socket events for message deletion due to cache timeout/failure, messageId: ${messageId}`);
     }
 
     chatQueue.addChatJob('markMessageAsDeletedInDB', {

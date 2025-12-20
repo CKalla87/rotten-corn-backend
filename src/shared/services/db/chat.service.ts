@@ -117,12 +117,12 @@ class ChatService {
 
   public async markMessageAsDeleted(messageId: string, type: string): Promise<void> {
     if (type === 'deleteForMe') {
-      await MessageModel.updateOne({ _id: messageId }, { $set: { deleteForMe: true } }).exec();
+      await MessageModel.updateOne({ _id: messageId }, { $set: { deleteForMe: true } }).maxTimeMS(5000).exec();
     } else {
       await MessageModel.updateOne(
         { _id: messageId },
         { $set: { deleteForMe: true, deleteForEveryone: true } }
-      ).exec();
+      ).maxTimeMS(5000).exec();
     }
   }
 
@@ -142,7 +142,7 @@ class ChatService {
     reaction: string,
     type: string
   ): Promise<void> {
-    const message = await MessageModel.findOne({ _id: messageId }).exec();
+    const message = await MessageModel.findOne({ _id: messageId }).maxTimeMS(5000).exec();
 
     // If message found, update it (for chat messages)
     if (message) {
@@ -156,7 +156,7 @@ class ChatService {
     } else {
       // If message not found, it might be a comment - try to update comment instead
       const { CommentsModel } = await import('@comment/models/comment.schema');
-      const comment = await CommentsModel.findOne({ _id: messageId }).exec();
+      const comment = await CommentsModel.findOne({ _id: messageId }).maxTimeMS(5000).exec();
 
       if (comment) {
         const reactions: IReaction[] = Array.isArray(comment.reaction)

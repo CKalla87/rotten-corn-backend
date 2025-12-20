@@ -14,39 +14,70 @@ const log: Logger = config.createLogger('addMessageReaction');
 
 export class Message {
   public async reaction(req: Request, res: Response): Promise<void> {
-    const { conversationId, messageId, reaction, type, senderId, receiverId } = req.body;
-    const updatedMessage: IMessageData = await messageCache.updateMessageReaction(
-      conversationId,
-      messageId,
-      reaction,
-      `${req.currentUser!.username}`,
-      type
-    );
-
-    // Emit to specific users in the conversation instead of broadcasting globally
-    if (socketIOChatObject && senderId && receiverId) {
-      const senderSocketId = connectedUsersMap.get(senderId);
-      const receiverSocketId = connectedUsersMap.get(receiverId);
-
-      // Emit reaction to both users in the conversation
-      if (senderSocketId) {
-        socketIOChatObject.to(senderSocketId).emit('message reaction', updatedMessage);
+    try {
+      const { conversationId, messageId, reaction, type, senderId, receiverId } = req.body;
+      
+      // Add timeout protection to prevent hanging if Redis is slow/unavailable
+      let updatedMessage: IMessageData = {} as IMessageData;
+      try {
+        updatedMessage = await Promise.race([
+          messageCache.updateMessageReaction(
+            conversationId,
+            messageId,
+            reaction,
+            `${req.currentUser!.username}`,
+            type
+          ),
+          new Promise<IMessageData>((resolve) => {
+            setTimeout(() => {
+              log.warn(`updateMessageReaction cache operation timed out for messageId: ${messageId}`);
+              resolve({} as IMessageData);
+            }, 3000);
+          })
+        ]);
+      } catch (error) {
+        log.warn(`Failed to update message reaction in cache: ${error}, continuing with queue job`);
       }
-      if (receiverSocketId) {
-        socketIOChatObject.to(receiverSocketId).emit('message reaction', updatedMessage);
+
+      // Only emit socket events if we successfully got the updated message from cache
+      // If cache timed out or failed, skip socket events (database update will still happen via queue)
+      if (updatedMessage && updatedMessage._id) {
+        if (socketIOChatObject && senderId && receiverId) {
+          const senderSocketId = connectedUsersMap.get(senderId);
+          const receiverSocketId = connectedUsersMap.get(receiverId);
+
+          // Emit reaction to both users in the conversation
+          if (senderSocketId) {
+            socketIOChatObject.to(senderSocketId).emit('message reaction', updatedMessage);
+          }
+          if (receiverSocketId) {
+            socketIOChatObject.to(receiverSocketId).emit('message reaction', updatedMessage);
+          }
+        } else if (socketIOChatObject) {
+          // Fallback: broadcast if user IDs not provided
+          socketIOChatObject.emit('message reaction', updatedMessage);
+        }
+      } else {
+        log.warn(`Skipping socket events for message reaction due to cache timeout/failure, messageId: ${messageId}`);
       }
-    } else {
-      // Fallback: broadcast if user IDs not provided
-      socketIOChatObject.emit('message reaction', updatedMessage);
+
+      chatQueue.addChatJob('updateMessageReaction', {
+        messageId: new mongoose.Types.ObjectId(messageId),
+        senderName: req.currentUser!.username,
+        reaction,
+        type
+      });
+
+      res.status(HTTP_STATUS.OK).json({ message: 'Message reaction added' });
+    } catch (error) {
+      log.error(`Error in reaction endpoint: ${error}`);
+      // Ensure response is sent even if there's an error
+      if (!res.headersSent) {
+        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
+          message: 'Failed to add reaction',
+          error: 'Internal server error'
+        });
+      }
     }
-
-    chatQueue.addChatJob('updateMessageReaction', {
-      messageId: new mongoose.Types.ObjectId(messageId),
-      senderName: req.currentUser!.username,
-      reaction,
-      type
-    });
-
-    res.status(HTTP_STATUS.OK).json({ message: 'Message reaction added' });
   }
 }

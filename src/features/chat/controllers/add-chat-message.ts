@@ -127,7 +127,7 @@ export class Add {
       _id: `${messageObjectId}`,
       conversationId: conversationObjectId,
       receiverId: receiverIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
-      receiverAvatarColor,
+      receiverAvatarColor: receiverAvatarColor || '',
       receiverProfilePicture,
       receiverUsername,
       senderUsername: `${req.currentUser!.username}`,
