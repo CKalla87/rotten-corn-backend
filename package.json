@@ -106,5 +106,8 @@
     "socket.io": "^4.6.1",
     "ttypescript": "^1.5.15",
     "typescript-transform-paths": "^3.4.6"
+  },
+  "overrides": {
+    "config": "^3.3.9"
   }
 }

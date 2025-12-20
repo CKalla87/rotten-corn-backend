@@ -127,18 +127,46 @@ describe('Add', () => {
     expect(MessageCache.prototype.addChatMessageToCache).toHaveBeenCalledTimes(1);
   });
 
-  it('should call chatQueue addChatJob', async () => {
+  it('should call chatService addMessageToDB synchronously', async () => {
+    jest.spyOn(chatService, 'addMessageToDB').mockResolvedValue();
+    const req: Request = chatMockRequest({}, chatMessage, authUserPayload) as Request;
+    const res: Response = chatMockResponse();
+
+    await Add.prototype.message(req, res);
+    
+    // Verify database save was called synchronously before response
+    expect(chatService.addMessageToDB).toHaveBeenCalledTimes(1);
+    expect(chatService.addMessageToDB).toHaveBeenCalledWith(expect.objectContaining({
+      body: chatMessage.body,
+      receiverId: expect.any(Object),
+      senderId: expect.any(Object)
+    }));
+    
+    // Verify response was sent after DB save
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('should call chatQueue addChatJob as fallback when DB save fails', async () => {
     jest.spyOn(chatService, 'addMessageToDB').mockRejectedValue(new Error('DB error'));
     jest.spyOn(chatQueue, 'addChatJob');
     const req: Request = chatMockRequest({}, chatMessage, authUserPayload) as Request;
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
-    // Wait for setImmediate to complete (queue operations run asynchronously)
-    await new Promise(resolve => setImmediate(resolve));
-    // Queue is always called now (database save is queued asynchronously)
+    
+    // Verify database save was attempted
+    expect(chatService.addMessageToDB).toHaveBeenCalled();
+    
+    // Verify queue was called as fallback
     expect(chatQueue.addChatJob).toHaveBeenCalledTimes(1);
     expect(chatQueue.addChatJob).toHaveBeenCalledWith('addChatMessageToDB', expect.any(Object));
+    
+    // Should return error status
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Failed to save message',
+      error: 'Database error'
+    }));
   });
 
   it('should send correct json response', async () => {

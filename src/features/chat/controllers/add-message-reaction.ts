@@ -3,6 +3,7 @@ import HTTP_STATUS from 'http-status-codes';
 import mongoose from 'mongoose';
 import { MessageCache } from '@service/redis/message.cache';
 import { chatQueue } from '@service/queues/chat.queue';
+import { chatService } from '@service/db/chat.service';
 import { socketIOChatObject } from '@socket/chat';
 import { connectedUsersMap } from '@socket/user';
 import { IMessageData } from '@chat/interfaces/chat.interface';
@@ -17,55 +18,85 @@ export class Message {
     try {
       const { conversationId, messageId, reaction, type, senderId, receiverId } = req.body;
       
-      // Add timeout protection to prevent hanging if Redis is slow/unavailable
-      let updatedMessage: IMessageData = {} as IMessageData;
+      // Save to database synchronously with timeout to ensure persistence
       try {
-        updatedMessage = await Promise.race([
-          messageCache.updateMessageReaction(
-            conversationId,
-            messageId,
+        await Promise.race([
+          chatService.updateMessageReaction(
+            new mongoose.Types.ObjectId(messageId),
+            req.currentUser!.username,
             reaction,
-            `${req.currentUser!.username}`,
             type
           ),
-          new Promise<IMessageData>((resolve) => {
-            setTimeout(() => {
-              log.warn(`updateMessageReaction cache operation timed out for messageId: ${messageId}`);
-              resolve({} as IMessageData);
-            }, 3000);
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Database save timeout after 10 seconds')), 10000);
           })
         ]);
-      } catch (error) {
-        log.warn(`Failed to update message reaction in cache: ${error}, continuing with queue job`);
-      }
-
-      // Only emit socket events if we successfully got the updated message from cache
-      // If cache timed out or failed, skip socket events (database update will still happen via queue)
-      if (updatedMessage && updatedMessage._id) {
-        if (socketIOChatObject && senderId && receiverId) {
-          const senderSocketId = connectedUsersMap.get(senderId);
-          const receiverSocketId = connectedUsersMap.get(receiverId);
-
-          // Emit reaction to both users in the conversation
-          if (senderSocketId) {
-            socketIOChatObject.to(senderSocketId).emit('message reaction', updatedMessage);
-          }
-          if (receiverSocketId) {
-            socketIOChatObject.to(receiverSocketId).emit('message reaction', updatedMessage);
-          }
-        } else if (socketIOChatObject) {
-          // Fallback: broadcast if user IDs not provided
-          socketIOChatObject.emit('message reaction', updatedMessage);
+        log.info('Reaction saved to database successfully', { messageId, reaction, type });
+      } catch (dbError) {
+        log.error('Failed to save reaction to database:', dbError);
+        // Try queue as fallback
+        try {
+          chatQueue.addChatJob('updateMessageReaction', {
+            messageId: new mongoose.Types.ObjectId(messageId),
+            senderName: req.currentUser!.username,
+            reaction,
+            type
+          });
+          log.warn('Reaction queued as fallback after direct DB save failed');
+        } catch (queueError) {
+          log.error('Failed to queue reaction after DB save failed:', queueError);
         }
-      } else {
-        log.warn(`Skipping socket events for message reaction due to cache timeout/failure, messageId: ${messageId}`);
+        
+        if (!res.headersSent) {
+          res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
+            message: 'Failed to add reaction',
+            error: 'Database error'
+          });
+        }
+        return;
       }
 
-      chatQueue.addChatJob('updateMessageReaction', {
-        messageId: new mongoose.Types.ObjectId(messageId),
-        senderName: req.currentUser!.username,
-        reaction,
-        type
+      // Update cache asynchronously (non-blocking) for better performance
+      // Cache is just for optimization, database is the source of truth
+      setImmediate(async () => {
+        try {
+          const updatedMessage = await Promise.race([
+            messageCache.updateMessageReaction(
+              conversationId,
+              messageId,
+              reaction,
+              `${req.currentUser!.username}`,
+              type
+            ),
+            new Promise<IMessageData>((resolve) => {
+              setTimeout(() => {
+                log.warn(`updateMessageReaction cache operation timed out for messageId: ${messageId}`);
+                resolve({} as IMessageData);
+              }, 3000);
+            })
+          ]);
+
+          // Emit socket events if cache update succeeded
+          if (updatedMessage && updatedMessage._id) {
+            if (socketIOChatObject && senderId && receiverId) {
+              const senderSocketId = connectedUsersMap.get(senderId);
+              const receiverSocketId = connectedUsersMap.get(receiverId);
+
+              // Emit reaction to both users in the conversation
+              if (senderSocketId) {
+                socketIOChatObject.to(senderSocketId).emit('message reaction', updatedMessage);
+              }
+              if (receiverSocketId) {
+                socketIOChatObject.to(receiverSocketId).emit('message reaction', updatedMessage);
+              }
+            } else if (socketIOChatObject) {
+              // Fallback: broadcast if user IDs not provided
+              socketIOChatObject.emit('message reaction', updatedMessage);
+            }
+          }
+        } catch (error) {
+          log.warn('Failed to update cache or emit socket events for reaction:', error);
+        }
       });
 
       res.status(HTTP_STATUS.OK).json({ message: 'Message reaction added' });

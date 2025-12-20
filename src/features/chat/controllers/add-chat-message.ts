@@ -112,11 +112,11 @@ export class Add {
         log.warn(`Failed to get sender from cache: ${error}`);
       }
 
-      // Handle image upload with timeout - don't block response
+      // Handle image upload with timeout - must complete before database save
       if (selectedImage && selectedImage.length) {
         // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
         const uniqueImageId = `${messageObjectId}`;
-        // Add timeout protection for Cloudinary upload (shorter timeout)
+        // Add timeout protection for Cloudinary upload (10 seconds to match DB timeout)
         try {
           const result = await Promise.race([
             uploads(selectedImage, uniqueImageId, true, true),
@@ -125,12 +125,12 @@ export class Add {
                 log.warn(`Cloudinary upload timed out for messageId: ${messageObjectId}`);
                 resolve({
                   error: { message: 'Upload timeout' },
-                  message: 'Cloudinary upload timed out after 5 seconds',
+                  message: 'Cloudinary upload timed out after 10 seconds',
                   name: 'UploadTimeoutError',
                   http_code: 408,
                   severity: 'error'
                 } as unknown as UploadApiErrorResponse);
-              }, 5000); // Reduced to 5 seconds
+              }, 10000); // 10 seconds to match database timeout
             })
           ]);
 
@@ -197,25 +197,42 @@ export class Add {
         deleteForMe: false
       };
 
-      // Send response immediately - don't wait for database or cache operations
-      // This ensures the endpoint always responds quickly, even if services are slow/unavailable
+      // Save to database synchronously with timeout to ensure persistence
+      // This is critical - messages must be saved before responding
+      try {
+        await Promise.race([
+          chatService.addMessageToDB(messageData),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Database save timeout after 10 seconds')), 10000);
+          })
+        ]);
+        log.info('Message saved to database successfully', { messageId: messageObjectId, conversationId: conversationObjectId });
+      } catch (dbError) {
+        log.error('Failed to save message to database:', dbError);
+        // Try queue as fallback, but still respond with error
+        try {
+          chatQueue.addChatJob('addChatMessageToDB', messageData);
+          log.warn('Message queued as fallback after direct DB save failed');
+        } catch (queueError) {
+          log.error('Failed to queue message after DB save failed:', queueError);
+        }
+        
+        // Still respond, but with error status so client knows it failed
+        if (!res.headersSent) {
+          res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+            message: 'Failed to save message',
+            error: 'Database error',
+            conversationId: conversationObjectId
+          });
+          return;
+        }
+        return;
+      }
+
+      // Send response after successful database save
       res.status(HTTP_STATUS.OK).json({
         message: 'Message added',
         conversationId: conversationObjectId
-      });
-
-      // Fire and forget - save to database asynchronously via queue
-      // This prevents blocking the response if database is slow/unavailable
-      setImmediate(() => {
-        try {
-          chatQueue.addChatJob('addChatMessageToDB', messageData);
-        } catch (queueError) {
-          log.error('Failed to add job to queue:', queueError);
-          // Try to save directly as last resort (but don't wait for it)
-          chatService.addMessageToDB(messageData).catch((dbError) => {
-            log.error('Failed to save message to database:', dbError);
-          });
-        }
       });
 
       // Fire and forget - do these operations asynchronously after response is sent
