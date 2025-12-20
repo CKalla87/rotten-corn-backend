@@ -218,48 +218,7 @@ export class Add {
         deleteForMe: false
       };
 
-      // Emit socket events - wrap in try-catch to prevent crashes
-      try {
-        Add.prototype.emitSocketIOEvent(messageData);
-      } catch (error) {
-        log.warn('Failed to emit socket events:', error);
-      }
-
-      if (!isRead) {
-        // Fire and forget notification - don't block on it
-        Add.prototype.messageNotification({
-          currentUser: req.currentUser!,
-          message: body,
-          receiverName: receiverUsername,
-          receiverId,
-          messageData
-        }).catch((error) => {
-          log.warn('Failed to send message notification:', error);
-        });
-      }
-
-      // 1 - add sender to chat list in cache (with error handling)
-      try {
-        await messageCache.addChatListToCache(`${req.currentUser!.userId}`, `${receiverId}`, `${conversationObjectId}`);
-      } catch (error) {
-        log.warn('Failed to add sender to chat list cache:', error);
-      }
-
-      // 2 - add receiver to chat list in cache (with error handling)
-      try {
-        await messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`);
-      } catch (error) {
-        log.warn('Failed to add receiver to chat list cache:', error);
-      }
-
-      // 3 - add message data to cache (with error handling)
-      try {
-        await messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData);
-      } catch (error) {
-        log.warn('Failed to add message to cache:', error);
-      }
-
-      // 4 - Save to database synchronously to ensure persistence, then queue for any additional processing
+      // 4 - Save to database synchronously to ensure persistence
       // Add timeout protection to prevent hanging if database is slow/unavailable
       try {
         await Promise.race([
@@ -273,10 +232,84 @@ export class Add {
         ]);
       } catch (error) {
         log.error('Failed to save message synchronously, falling back to queue:', error);
-        chatQueue.addChatJob('addChatMessageToDB', messageData);
+        // Add to queue as fallback - wrap in try-catch to prevent blocking
+        try {
+          chatQueue.addChatJob('addChatMessageToDB', messageData);
+        } catch (queueError) {
+          log.error('Failed to add job to queue:', queueError);
+          // Continue anyway - at least we tried
+        }
       }
 
-      res.status(HTTP_STATUS.OK).json({ message: 'Message added', conversationId: conversationObjectId });
+      // Send response immediately - don't wait for cache operations or other non-critical tasks
+      res.status(HTTP_STATUS.OK).json({
+        message: 'Message added',
+        conversationId: conversationObjectId
+      });
+
+      // Fire and forget - do these operations asynchronously after response is sent
+      // This prevents blocking the response if Redis is slow/unavailable
+      setImmediate(async () => {
+        // Emit socket events - wrap in try-catch to prevent crashes
+        try {
+          Add.prototype.emitSocketIOEvent(messageData);
+        } catch (error) {
+          log.warn('Failed to emit socket events:', error);
+        }
+
+        if (!isRead) {
+          // Fire and forget notification - don't block on it
+          Add.prototype.messageNotification({
+            currentUser: req.currentUser!,
+            message: body,
+            receiverName: receiverUsername,
+            receiverId,
+            messageData
+          }).catch((error) => {
+            log.warn('Failed to send message notification:', error);
+          });
+        }
+
+        // Cache operations - fire and forget with timeouts
+        // 1 - add sender to chat list in cache
+        Promise.race([
+          messageCache.addChatListToCache(`${req.currentUser!.userId}`, `${receiverId}`, `${conversationObjectId}`),
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              log.warn('addChatListToCache (sender) timed out');
+              resolve();
+            }, 2000);
+          })
+        ]).catch((error) => {
+          log.warn('Failed to add sender to chat list cache:', error);
+        });
+
+        // 2 - add receiver to chat list in cache
+        Promise.race([
+          messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`),
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              log.warn('addChatListToCache (receiver) timed out');
+              resolve();
+            }, 2000);
+          })
+        ]).catch((error) => {
+          log.warn('Failed to add receiver to chat list cache:', error);
+        });
+
+        // 3 - add message data to cache
+        Promise.race([
+          messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData),
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              log.warn('addChatMessageToCache timed out');
+              resolve();
+            }, 2000);
+          })
+        ]).catch((error) => {
+          log.warn('Failed to add message to cache:', error);
+        });
+      });
     } catch (error) {
       log.error(`Error in message endpoint: ${error}`);
       // Ensure response is sent even if there's an error

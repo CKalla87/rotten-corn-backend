@@ -50,6 +50,8 @@ describe('Add', () => {
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
+    // Wait for setImmediate to complete
+    await new Promise(resolve => setImmediate(resolve));
     // Should emit 'message received' and 'chat list' events
     expect(chatServer.socketIOChatObject.emit).toHaveBeenCalled();
   });
@@ -72,6 +74,8 @@ describe('Add', () => {
     const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
 
     await Add.prototype.message(req, res);
+    // Wait for setImmediate to complete (notifications run asynchronously)
+    await new Promise(resolve => setImmediate(resolve));
     expect(emailQueue.addEmailJob).toHaveBeenCalledWith('directMessageEmail', {
       receiverEmail: userWithNotifications.email!,
       template,
@@ -93,6 +97,8 @@ describe('Add', () => {
     const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
 
     await Add.prototype.message(req, res);
+    // Wait for setImmediate to complete
+    await new Promise(resolve => setImmediate(resolve));
     expect(emailQueue.addEmailJob).not.toHaveBeenCalledWith('directMessageMail', {
       receiverEmail: req.currentUser!.email,
       template,
@@ -105,6 +111,8 @@ describe('Add', () => {
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
+    // Wait for setImmediate to complete (cache operations run asynchronously)
+    await new Promise(resolve => setImmediate(resolve));
     // Should be called once for sender and once for receiver
     expect(MessageCache.prototype.addChatListToCache).toHaveBeenCalledTimes(2);
   });
@@ -114,6 +122,8 @@ describe('Add', () => {
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
+    // Wait for setImmediate to complete (cache operations run asynchronously)
+    await new Promise(resolve => setImmediate(resolve));
     expect(MessageCache.prototype.addChatMessageToCache).toHaveBeenCalledTimes(1);
   });
 
