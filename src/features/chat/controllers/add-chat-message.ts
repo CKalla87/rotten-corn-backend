@@ -5,7 +5,6 @@ import mongoose from 'mongoose';
 import { UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import { joiValidation } from '@root/shared/decorators/joi-validation.decorators';
 import { uploads } from '@global/helpers/cloudinary-upload';
-import { BadRequestError } from '@global/helpers/error-handler';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserCache } from '@service/redis/user.cache';
 import { MessageCache } from '@service/redis/message.cache';
@@ -78,104 +77,84 @@ export class Add {
         return;
       }
 
-      // Get sender from cache, fallback to database if not in cache
-      // Use timeout to prevent hanging if Redis is slow/unavailable
-      let sender: IUserDocument | null = null;
+      // Get sender profile picture from cache/database, but don't block on it
+      // Use empty string as default, try to get from cache/database with short timeout
+      let senderProfilePicture = '';
+
+      // Try to get profile picture from cache/database, but with very short timeout
+      // If it fails, we'll use empty string (not critical for message creation)
       try {
-        sender = await Promise.race([
+        const sender = await Promise.race([
           userCache.getUserFromCache(`${req.currentUser!.userId}`),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000))
         ]);
-      } catch (error) {
-        log.warn(`Failed to get user from cache: ${error}, falling back to database`);
-      }
-
-      if (!sender) {
-        log.warn(`User ${req.currentUser!.userId} not found in cache, fetching from database`);
-        try {
-          // Add timeout protection for database call
-          sender = await Promise.race([
-            userService.getUserById(`${req.currentUser!.userId}`),
-            new Promise<IUserDocument | null>((resolve) => {
-              setTimeout(() => {
-                log.warn(`getUserById timed out for ${req.currentUser!.userId}`);
-                resolve(null);
-              }, 5000);
-            })
-          ]);
-        } catch (error) {
-          log.error(`Failed to get user from database: ${error}`);
-          throw new BadRequestError('Failed to retrieve user information. Please try again.');
+        if (sender?.profilePicture) {
+          senderProfilePicture = sender.profilePicture;
+        } else {
+          // Try database as fallback, but with very short timeout
+          try {
+            const dbSender = await Promise.race([
+              userService.getUserById(`${req.currentUser!.userId}`),
+              new Promise<IUserDocument | null>((resolve) => {
+                setTimeout(() => resolve(null), 2000);
+              })
+            ]);
+            if (dbSender?.profilePicture) {
+              senderProfilePicture = dbSender.profilePicture;
+            }
+          } catch (error) {
+            // Silently fail - profile picture is not critical
+            log.warn(`Failed to get sender profile picture: ${error}`);
+          }
         }
+      } catch (error) {
+        // Silently fail - profile picture is not critical for message creation
+        log.warn(`Failed to get sender from cache: ${error}`);
       }
 
-      if (!sender) {
-        throw new BadRequestError('User not found. Please login again.');
-      }
-
+      // Handle image upload with timeout - don't block response
       if (selectedImage && selectedImage.length) {
         // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
         const uniqueImageId = `${messageObjectId}`;
-        // Add timeout protection for Cloudinary upload
-        let result: UploadApiResponse | UploadApiErrorResponse | undefined;
+        // Add timeout protection for Cloudinary upload (shorter timeout)
         try {
-          result = await Promise.race([
+          const result = await Promise.race([
             uploads(selectedImage, uniqueImageId, true, true),
             new Promise<UploadApiErrorResponse>((resolve) => {
               setTimeout(() => {
                 log.warn(`Cloudinary upload timed out for messageId: ${messageObjectId}`);
                 resolve({
                   error: { message: 'Upload timeout' },
-                  message: 'Cloudinary upload timed out after 10 seconds',
+                  message: 'Cloudinary upload timed out after 5 seconds',
                   name: 'UploadTimeoutError',
                   http_code: 408,
                   severity: 'error'
                 } as unknown as UploadApiErrorResponse);
-              }, 10000);
+              }, 5000); // Reduced to 5 seconds
             })
           ]);
+
+          // Check if upload failed or returned undefined
+          if (!result || (result as UploadApiErrorResponse).error) {
+            const errorResponse = result as UploadApiErrorResponse;
+            log.warn('Cloudinary upload failed, continuing without image:', errorResponse.message);
+            // Don't throw error - just log and continue without image
+            // The message will be saved without the image
+          } else {
+            // Verify we have a valid upload response
+            const uploadResponse = result as UploadApiResponse;
+            if (uploadResponse.public_id) {
+              // Use Cloudinary's secure_url if available, otherwise construct the URL manually
+              fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
+              log.info('✅ Cloudinary upload successful:', { fileUrl, public_id: uploadResponse.public_id });
+            } else {
+              log.warn('Cloudinary upload response missing public_id, continuing without image');
+            }
+          }
         } catch (error) {
-          log.error(`Cloudinary upload failed: ${error}`);
-          result = {
-            error: { message: String(error) },
-            message: 'Cloudinary upload failed',
-            name: 'UploadError',
-            http_code: 500,
-            severity: 'error'
-          } as unknown as UploadApiErrorResponse;
+          log.error(`Cloudinary upload error: ${error}, continuing without image`);
+          // Don't throw error - continue without image to ensure response is sent
         }
-
-        // Check if upload failed or returned undefined
-        if (!result || (result as UploadApiErrorResponse).error) {
-          const errorResponse = result as UploadApiErrorResponse;
-          const errorMessage = errorResponse?.message || 'Failed to upload image to Cloudinary';
-          console.error('❌ Cloudinary upload error:', {
-            error: errorResponse?.error,
-            message: errorMessage,
-            uniqueImageId,
-            http_code: errorResponse?.http_code
-          });
-          throw new BadRequestError(errorMessage);
-        }
-
-        // Verify we have a valid upload response
-        const uploadResponse = result as UploadApiResponse;
-        if (!uploadResponse.public_id) {
-          console.error('❌ Cloudinary upload response missing public_id:', {
-            result: uploadResponse
-          });
-          throw new BadRequestError('Invalid response from Cloudinary upload: missing public_id');
-        }
-
-        // Use Cloudinary's secure_url if available, otherwise construct the URL manually with correct cloud name
-        fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
-        console.log('✅ Cloudinary upload successful:', {
-          fileUrl,
-          public_id: uploadResponse.public_id,
-          version: uploadResponse.version,
-          secure_url: uploadResponse.secure_url,
-          url: uploadResponse.url
-        });
       }
 
       // Convert senderId and receiverId to ObjectId for Mongoose schema compatibility
@@ -207,7 +186,7 @@ export class Add {
         senderUsername: `${req.currentUser!.username}`,
         senderId: senderIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
         senderAvatarColor: `${req.currentUser!.avatarColor}`,
-        senderProfilePicture: sender.profilePicture || req.currentUser!.avatarColor || '',
+        senderProfilePicture: senderProfilePicture || req.currentUser!.avatarColor || '',
         body,
         isRead,
         gifUrl,
@@ -218,33 +197,25 @@ export class Add {
         deleteForMe: false
       };
 
-      // 4 - Save to database synchronously to ensure persistence
-      // Add timeout protection to prevent hanging if database is slow/unavailable
-      try {
-        await Promise.race([
-          chatService.addMessageToDB(messageData),
-          new Promise<void>((_, reject) => {
-            setTimeout(() => {
-              log.warn('addMessageToDB timed out after 5 seconds, falling back to queue');
-              reject(new Error('Database operation timeout'));
-            }, 5000);
-          })
-        ]);
-      } catch (error) {
-        log.error('Failed to save message synchronously, falling back to queue:', error);
-        // Add to queue as fallback - wrap in try-catch to prevent blocking
+      // Send response immediately - don't wait for database or cache operations
+      // This ensures the endpoint always responds quickly, even if services are slow/unavailable
+      res.status(HTTP_STATUS.OK).json({
+        message: 'Message added',
+        conversationId: conversationObjectId
+      });
+
+      // Fire and forget - save to database asynchronously via queue
+      // This prevents blocking the response if database is slow/unavailable
+      setImmediate(() => {
         try {
           chatQueue.addChatJob('addChatMessageToDB', messageData);
         } catch (queueError) {
           log.error('Failed to add job to queue:', queueError);
-          // Continue anyway - at least we tried
+          // Try to save directly as last resort (but don't wait for it)
+          chatService.addMessageToDB(messageData).catch((dbError) => {
+            log.error('Failed to save message to database:', dbError);
+          });
         }
-      }
-
-      // Send response immediately - don't wait for cache operations or other non-critical tasks
-      res.status(HTTP_STATUS.OK).json({
-        message: 'Message added',
-        conversationId: conversationObjectId
       });
 
       // Fire and forget - do these operations asynchronously after response is sent

@@ -134,9 +134,11 @@ describe('Add', () => {
     const res: Response = chatMockResponse();
 
     await Add.prototype.message(req, res);
-    // Queue should only be called if database save fails
-    // Since we're mocking a failure, it should be called
+    // Wait for setImmediate to complete (queue operations run asynchronously)
+    await new Promise(resolve => setImmediate(resolve));
+    // Queue is always called now (database save is queued asynchronously)
     expect(chatQueue.addChatJob).toHaveBeenCalledTimes(1);
+    expect(chatQueue.addChatJob).toHaveBeenCalledWith('addChatMessageToDB', expect.any(Object));
   });
 
   it('should send correct json response', async () => {

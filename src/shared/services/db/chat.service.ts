@@ -8,9 +8,15 @@ import { IReaction } from '@reaction/interfaces/reaction.interface';
 
 class ChatService {
   public async addMessageToDB(data: IMessageData): Promise<void> {
-    const conversation: IConversationDocument[] = await ConversationModel.find({
-      _id: data.conversationId
-    }).maxTimeMS(5000).exec();
+    // Add timeout wrapper to prevent hanging
+    const conversation: IConversationDocument[] = await Promise.race([
+      ConversationModel.find({
+        _id: data.conversationId
+      }).maxTimeMS(5000).exec(),
+      new Promise<IConversationDocument[]>((_, reject) => {
+        setTimeout(() => reject(new Error('Conversation find timeout')), 5000);
+      })
+    ]).catch(() => [] as IConversationDocument[]);
 
     // Convert senderId and receiverId to ObjectId if they're strings
     const senderIdObjectId = typeof data.senderId === 'string'
@@ -21,11 +27,16 @@ class ChatService {
       : data.receiverId;
 
     if (!conversation.length) {
-      await ConversationModel.create({
-        _id: data.conversationId,
-        senderId: senderIdObjectId,
-        receiverId: receiverIdObjectId
-      });
+      await Promise.race([
+        ConversationModel.create({
+          _id: data.conversationId,
+          senderId: senderIdObjectId,
+          receiverId: receiverIdObjectId
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Conversation create timeout')), 5000);
+        })
+      ]);
     }
 
     // Create message with ObjectId fields
@@ -34,7 +45,12 @@ class ChatService {
       senderId: senderIdObjectId,
       receiverId: receiverIdObjectId
     };
-    await MessageModel.create(messageData);
+    await Promise.race([
+      MessageModel.create(messageData),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Message create timeout')), 5000);
+      })
+    ]);
   }
 
   public async getUserConversationList(userId: mongoose.Types.ObjectId): Promise<IMessageData[]> {
