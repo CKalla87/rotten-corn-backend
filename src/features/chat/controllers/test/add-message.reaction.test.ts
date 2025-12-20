@@ -41,7 +41,7 @@ describe('Message', () => {
   });
 
   describe('message', () => {
-    it('should call updateMessageReaction on chatService synchronously', async () => {
+    it('should call updateMessageReaction on chatService in background', async () => {
       const req: Request = chatMockRequest(
         {},
         {
@@ -65,18 +65,24 @@ describe('Message', () => {
 
       await Message.prototype.reaction(req, res);
       
-      // Verify database save was called synchronously
+      // Verify response was sent immediately (before DB save)
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Message reaction added'
+      });
+      
+      // Wait for setImmediate to complete (DB save and cache operations run asynchronously)
+      await new Promise(resolve => setImmediate(resolve));
+      // Wait a bit more to ensure all async operations complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Verify database save was called in background
       expect(chatService.updateMessageReaction).toHaveBeenCalledWith(
         expect.any(mongoose.Types.ObjectId), // messageId as ObjectId
         authUserPayload.username,
         'love',
         'add'
       );
-      
-      // Wait for setImmediate to complete (cache operations run asynchronously)
-      await new Promise(resolve => setImmediate(resolve));
-      // Wait a bit more to ensure all async operations complete
-      await new Promise(resolve => setTimeout(resolve, 10));
       
       // Verify cache update was called asynchronously
       expect(MessageCache.prototype.updateMessageReaction).toHaveBeenCalledWith(
@@ -93,10 +99,6 @@ describe('Message', () => {
       expect(mockTo).toHaveBeenCalledWith('receiver-socket-id');
       // Verify emit was called for message reaction
       expect(mockEmit).toHaveBeenCalledWith('message reaction', messageDataMock);
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Message reaction added'
-      });
     }, 10000); // Increase timeout to 10 seconds
 
     it('should call chatQueue addChatJob as fallback when DB save fails', async () => {
@@ -118,7 +120,18 @@ describe('Message', () => {
 
       await Message.prototype.reaction(req, res);
       
-      // Verify database save was attempted
+      // Verify response was sent immediately (before DB save attempt)
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Message reaction added'
+      });
+      
+      // Wait for setImmediate to complete (DB save and queue happen in background)
+      await new Promise(resolve => setImmediate(resolve));
+      // Wait a bit more to ensure all async operations complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Verify database save was attempted in background
       expect(chatService.updateMessageReaction).toHaveBeenCalled();
       
       // Verify queue was called as fallback
@@ -127,13 +140,6 @@ describe('Message', () => {
         senderName: req.currentUser!.username,
         reaction: 'love',
         type: 'add'
-      });
-      
-      // Should return error status
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'Failed to add reaction',
-        error: 'Database error'
       });
     });
   });

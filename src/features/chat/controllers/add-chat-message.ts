@@ -197,42 +197,40 @@ export class Add {
         deleteForMe: false
       };
 
-      // Save to database synchronously with timeout to ensure persistence
-      // This is critical - messages must be saved before responding
-      try {
-        await Promise.race([
-          chatService.addMessageToDB(messageData),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Database save timeout after 10 seconds')), 10000);
-          })
-        ]);
-        log.info('Message saved to database successfully', { messageId: messageObjectId, conversationId: conversationObjectId });
-      } catch (dbError) {
-        log.error('Failed to save message to database:', dbError);
-        // Try queue as fallback, but still respond with error
-        try {
-          chatQueue.addChatJob('addChatMessageToDB', messageData);
-          log.warn('Message queued as fallback after direct DB save failed');
-        } catch (queueError) {
-          log.error('Failed to queue message after DB save failed:', queueError);
-        }
-        
-        // Still respond, but with error status so client knows it failed
-        if (!res.headersSent) {
-          res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-            message: 'Failed to save message',
-            error: 'Database error',
-            conversationId: conversationObjectId
-          });
-          return;
-        }
-        return;
-      }
-
-      // Send response after successful database save
+      // Send response immediately - don't wait for database
+      // This ensures the endpoint always responds quickly, even if database is slow/unavailable
       res.status(HTTP_STATUS.OK).json({
         message: 'Message added',
         conversationId: conversationObjectId
+      });
+
+      // Save to database in background with timeout - use queue for reliability
+      // Queue is more reliable than direct DB save in slow/unavailable database scenarios
+      setImmediate(async () => {
+        try {
+          // Try direct DB save first with short timeout (3 seconds)
+          // If it succeeds quickly, great. If not, queue will handle it.
+          await Promise.race([
+            chatService.addMessageToDB(messageData),
+            new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error('Database save timeout after 3 seconds')), 3000);
+            })
+          ]);
+          log.info('Message saved to database successfully', { messageId: messageObjectId, conversationId: conversationObjectId });
+        } catch (dbError) {
+          log.warn('Direct DB save failed or timed out, using queue:', dbError);
+          // Always queue as fallback/primary mechanism for persistence
+          try {
+            chatQueue.addChatJob('addChatMessageToDB', messageData);
+            log.info('Message queued for database save', { messageId: messageObjectId });
+          } catch (queueError) {
+            log.error('Failed to queue message:', queueError);
+            // Last resort: try direct save one more time (don't await)
+            chatService.addMessageToDB(messageData).catch((finalError) => {
+              log.error('Final attempt to save message failed:', finalError);
+            });
+          }
+        }
       });
 
       // Fire and forget - do these operations asynchronously after response is sent

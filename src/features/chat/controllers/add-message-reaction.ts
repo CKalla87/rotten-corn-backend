@@ -18,45 +18,52 @@ export class Message {
     try {
       const { conversationId, messageId, reaction, type, senderId, receiverId } = req.body;
       
-      // Save to database synchronously with timeout to ensure persistence
-      try {
-        await Promise.race([
-          chatService.updateMessageReaction(
-            new mongoose.Types.ObjectId(messageId),
-            req.currentUser!.username,
-            reaction,
-            type
-          ),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Database save timeout after 10 seconds')), 10000);
-          })
-        ]);
-        log.info('Reaction saved to database successfully', { messageId, reaction, type });
-      } catch (dbError) {
-        log.error('Failed to save reaction to database:', dbError);
-        // Try queue as fallback
-        try {
-          chatQueue.addChatJob('updateMessageReaction', {
-            messageId: new mongoose.Types.ObjectId(messageId),
-            senderName: req.currentUser!.username,
-            reaction,
-            type
-          });
-          log.warn('Reaction queued as fallback after direct DB save failed');
-        } catch (queueError) {
-          log.error('Failed to queue reaction after DB save failed:', queueError);
-        }
-        
-        if (!res.headersSent) {
-          res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
-            message: 'Failed to add reaction',
-            error: 'Database error'
-          });
-        }
-        return;
-      }
+      // Send response immediately - don't wait for database
+      res.status(HTTP_STATUS.OK).json({ message: 'Message reaction added' });
 
-      // Update cache asynchronously (non-blocking) for better performance
+      // Save to database in background with timeout - use queue for reliability
+      setImmediate(async () => {
+        try {
+          // Try direct DB save first with short timeout (3 seconds)
+          await Promise.race([
+            chatService.updateMessageReaction(
+              new mongoose.Types.ObjectId(messageId),
+              req.currentUser!.username,
+              reaction,
+              type
+            ),
+            new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error('Database save timeout after 3 seconds')), 3000);
+            })
+          ]);
+          log.info('Reaction saved to database successfully', { messageId, reaction, type });
+        } catch (dbError) {
+          log.warn('Direct DB save failed or timed out, using queue:', dbError);
+          // Always queue as fallback/primary mechanism for persistence
+          try {
+            chatQueue.addChatJob('updateMessageReaction', {
+              messageId: new mongoose.Types.ObjectId(messageId),
+              senderName: req.currentUser!.username,
+              reaction,
+              type
+            });
+            log.info('Reaction queued for database save', { messageId });
+          } catch (queueError) {
+            log.error('Failed to queue reaction:', queueError);
+            // Last resort: try direct save one more time (don't await)
+            chatService.updateMessageReaction(
+              new mongoose.Types.ObjectId(messageId),
+              req.currentUser!.username,
+              reaction,
+              type
+            ).catch((finalError) => {
+              log.error('Final attempt to save reaction failed:', finalError);
+            });
+          }
+        }
+      });
+
+      // Update cache and emit socket events asynchronously (non-blocking)
       // Cache is just for optimization, database is the source of truth
       setImmediate(async () => {
         try {
@@ -98,8 +105,6 @@ export class Message {
           log.warn('Failed to update cache or emit socket events for reaction:', error);
         }
       });
-
-      res.status(HTTP_STATUS.OK).json({ message: 'Message reaction added' });
     } catch (error) {
       log.error(`Error in reaction endpoint: ${error}`);
       // Ensure response is sent even if there's an error
