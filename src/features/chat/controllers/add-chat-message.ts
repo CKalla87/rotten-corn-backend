@@ -29,163 +29,182 @@ const log: Logger = config.createLogger('addChatMessage');
 export class Add {
   @joiValidation(addChatSchema)
   public async message(req: Request, res: Response): Promise<void> {
-    const {
-      conversationId,
-      receiverId,
-      receiverUsername,
-      receiverAvatarColor,
-      receiverProfilePicture,
-      body,
-      gifUrl,
-      isRead,
-      selectedImage
-    } = req.body;
-    let fileUrl = '';
-    const messageObjectId: ObjectId = new ObjectId();
-    const conversationObjectId: mongoose.Types.ObjectId = conversationId
-      ? new mongoose.Types.ObjectId(conversationId)
-      : new mongoose.Types.ObjectId();
-
-    // Get sender from cache, fallback to database if not in cache
-    // Use timeout to prevent hanging if Redis is slow/unavailable
-    let sender: IUserDocument | null = null;
     try {
-      sender = await Promise.race([
-        userCache.getUserFromCache(`${req.currentUser!.userId}`),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
-      ]);
-    } catch (error) {
-      log.warn(`Failed to get user from cache: ${error}, falling back to database`);
-    }
-
-    if (!sender) {
-      log.warn(`User ${req.currentUser!.userId} not found in cache, fetching from database`);
-      try {
-        sender = await userService.getUserById(`${req.currentUser!.userId}`);
-      } catch (error) {
-        log.error(`Failed to get user from database: ${error}`);
-        throw new BadRequestError('Failed to retrieve user information. Please try again.');
-      }
-    }
-
-    if (!sender) {
-      throw new BadRequestError('User not found. Please login again.');
-    }
-
-    if (selectedImage && selectedImage.length) {
-      // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
-      const uniqueImageId = `${messageObjectId}`;
-      const result: UploadApiResponse | UploadApiErrorResponse | undefined = await uploads(
-        selectedImage,
-        uniqueImageId,
-        true, // Allow overwrite in case of retries - messageObjectId should be unique anyway
-        true
-      );
-
-      // Check if upload failed or returned undefined
-      if (!result || (result as UploadApiErrorResponse).error) {
-        const errorResponse = result as UploadApiErrorResponse;
-        const errorMessage = errorResponse?.message || 'Failed to upload image to Cloudinary';
-        console.error('❌ Cloudinary upload error:', {
-          error: errorResponse?.error,
-          message: errorMessage,
-          uniqueImageId,
-          http_code: errorResponse?.http_code
-        });
-        throw new BadRequestError(errorMessage);
-      }
-
-      // Verify we have a valid upload response
-      const uploadResponse = result as UploadApiResponse;
-      if (!uploadResponse.public_id) {
-        console.error('❌ Cloudinary upload response missing public_id:', {
-          result: uploadResponse
-        });
-        throw new BadRequestError('Invalid response from Cloudinary upload: missing public_id');
-      }
-
-      // Use Cloudinary's secure_url if available, otherwise construct the URL manually with correct cloud name
-      fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
-      console.log('✅ Cloudinary upload successful:', {
-        fileUrl,
-        public_id: uploadResponse.public_id,
-        version: uploadResponse.version,
-        secure_url: uploadResponse.secure_url,
-        url: uploadResponse.url
-      });
-    }
-
-    // Convert senderId and receiverId to ObjectId for Mongoose schema compatibility
-    const senderIdObjectId = typeof req.currentUser!.userId === 'string'
-      ? new mongoose.Types.ObjectId(req.currentUser!.userId)
-      : req.currentUser!.userId;
-    const receiverIdObjectId = typeof receiverId === 'string'
-      ? new mongoose.Types.ObjectId(receiverId)
-      : receiverId;
-
-    const messageData: IMessageData = {
-      _id: `${messageObjectId}`,
-      conversationId: conversationObjectId,
-      receiverId: receiverIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
-      receiverAvatarColor: receiverAvatarColor || '',
-      receiverProfilePicture,
-      receiverUsername,
-      senderUsername: `${req.currentUser!.username}`,
-      senderId: senderIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
-      senderAvatarColor: `${req.currentUser!.avatarColor}`,
-      senderProfilePicture: sender.profilePicture || req.currentUser!.avatarColor || '',
-      body,
-      isRead,
-      gifUrl,
-      selectedImage: fileUrl,
-      reaction: [],
-      createdAt: new Date(),
-      deleteForEveryone: false,
-      deleteForMe: false
-    };
-
-    Add.prototype.emitSocketIOEvent(messageData);
-
-    if (!isRead) {
-      Add.prototype.messageNotification({
-        currentUser: req.currentUser!,
-        message: body,
-        receiverName: receiverUsername,
+      const {
+        conversationId,
         receiverId,
-        messageData
-      });
-    }
+        receiverUsername,
+        receiverAvatarColor,
+        receiverProfilePicture,
+        body,
+        gifUrl,
+        isRead,
+        selectedImage
+      } = req.body;
+      let fileUrl = '';
+      const messageObjectId: ObjectId = new ObjectId();
+      const conversationObjectId: mongoose.Types.ObjectId = conversationId
+        ? new mongoose.Types.ObjectId(conversationId)
+        : new mongoose.Types.ObjectId();
 
-    // 1 - add sender to chat list in cache (with error handling)
-    try {
-      await messageCache.addChatListToCache(`${req.currentUser!.userId}`, `${receiverId}`, `${conversationObjectId}`);
+      // Get sender from cache, fallback to database if not in cache
+      // Use timeout to prevent hanging if Redis is slow/unavailable
+      let sender: IUserDocument | null = null;
+      try {
+        sender = await Promise.race([
+          userCache.getUserFromCache(`${req.currentUser!.userId}`),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+        ]);
+      } catch (error) {
+        log.warn(`Failed to get user from cache: ${error}, falling back to database`);
+      }
+
+      if (!sender) {
+        log.warn(`User ${req.currentUser!.userId} not found in cache, fetching from database`);
+        try {
+          sender = await userService.getUserById(`${req.currentUser!.userId}`);
+        } catch (error) {
+          log.error(`Failed to get user from database: ${error}`);
+          throw new BadRequestError('Failed to retrieve user information. Please try again.');
+        }
+      }
+
+      if (!sender) {
+        throw new BadRequestError('User not found. Please login again.');
+      }
+
+      if (selectedImage && selectedImage.length) {
+        // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
+        const uniqueImageId = `${messageObjectId}`;
+        const result: UploadApiResponse | UploadApiErrorResponse | undefined = await uploads(
+          selectedImage,
+          uniqueImageId,
+          true, // Allow overwrite in case of retries - messageObjectId should be unique anyway
+          true
+        );
+
+        // Check if upload failed or returned undefined
+        if (!result || (result as UploadApiErrorResponse).error) {
+          const errorResponse = result as UploadApiErrorResponse;
+          const errorMessage = errorResponse?.message || 'Failed to upload image to Cloudinary';
+          console.error('❌ Cloudinary upload error:', {
+            error: errorResponse?.error,
+            message: errorMessage,
+            uniqueImageId,
+            http_code: errorResponse?.http_code
+          });
+          throw new BadRequestError(errorMessage);
+        }
+
+        // Verify we have a valid upload response
+        const uploadResponse = result as UploadApiResponse;
+        if (!uploadResponse.public_id) {
+          console.error('❌ Cloudinary upload response missing public_id:', {
+            result: uploadResponse
+          });
+          throw new BadRequestError('Invalid response from Cloudinary upload: missing public_id');
+        }
+
+        // Use Cloudinary's secure_url if available, otherwise construct the URL manually with correct cloud name
+        fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
+        console.log('✅ Cloudinary upload successful:', {
+          fileUrl,
+          public_id: uploadResponse.public_id,
+          version: uploadResponse.version,
+          secure_url: uploadResponse.secure_url,
+          url: uploadResponse.url
+        });
+      }
+
+      // Convert senderId and receiverId to ObjectId for Mongoose schema compatibility
+      const senderIdObjectId = typeof req.currentUser!.userId === 'string'
+        ? new mongoose.Types.ObjectId(req.currentUser!.userId)
+        : req.currentUser!.userId;
+      const receiverIdObjectId = typeof receiverId === 'string'
+        ? new mongoose.Types.ObjectId(receiverId)
+        : receiverId;
+
+      const messageData: IMessageData = {
+        _id: `${messageObjectId}`,
+        conversationId: conversationObjectId,
+        receiverId: receiverIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
+        receiverAvatarColor: receiverAvatarColor || '',
+        receiverProfilePicture,
+        receiverUsername,
+        senderUsername: `${req.currentUser!.username}`,
+        senderId: senderIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
+        senderAvatarColor: `${req.currentUser!.avatarColor}`,
+        senderProfilePicture: sender.profilePicture || req.currentUser!.avatarColor || '',
+        body,
+        isRead,
+        gifUrl,
+        selectedImage: fileUrl,
+        reaction: [],
+        createdAt: new Date(),
+        deleteForEveryone: false,
+        deleteForMe: false
+      };
+
+      // Emit socket events - wrap in try-catch to prevent crashes
+      try {
+        Add.prototype.emitSocketIOEvent(messageData);
+      } catch (error) {
+        log.warn('Failed to emit socket events:', error);
+      }
+
+      if (!isRead) {
+        // Fire and forget notification - don't block on it
+        Add.prototype.messageNotification({
+          currentUser: req.currentUser!,
+          message: body,
+          receiverName: receiverUsername,
+          receiverId,
+          messageData
+        }).catch((error) => {
+          log.warn('Failed to send message notification:', error);
+        });
+      }
+
+      // 1 - add sender to chat list in cache (with error handling)
+      try {
+        await messageCache.addChatListToCache(`${req.currentUser!.userId}`, `${receiverId}`, `${conversationObjectId}`);
+      } catch (error) {
+        log.warn('Failed to add sender to chat list cache:', error);
+      }
+
+      // 2 - add receiver to chat list in cache (with error handling)
+      try {
+        await messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`);
+      } catch (error) {
+        log.warn('Failed to add receiver to chat list cache:', error);
+      }
+
+      // 3 - add message data to cache (with error handling)
+      try {
+        await messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData);
+      } catch (error) {
+        log.warn('Failed to add message to cache:', error);
+      }
+
+      // 4 - Save to database synchronously to ensure persistence, then queue for any additional processing
+      try {
+        await chatService.addMessageToDB(messageData);
+      } catch (error) {
+        log.error('Failed to save message synchronously, falling back to queue:', error);
+        chatQueue.addChatJob('addChatMessageToDB', messageData);
+      }
+
+      res.status(HTTP_STATUS.OK).json({ message: 'Message added', conversationId: conversationObjectId });
     } catch (error) {
-      log.warn('Failed to add sender to chat list cache:', error);
+      log.error(`Error in message endpoint: ${error}`);
+      // Ensure response is sent even if there's an error
+      if (!res.headersSent) {
+        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
+          message: 'Failed to add message',
+          error: 'Internal server error'
+        });
+      }
     }
-
-    // 2 - add receiver to chat list in cache (with error handling)
-    try {
-      await messageCache.addChatListToCache(`${receiverId}`, `${req.currentUser!.userId}`, `${conversationObjectId}`);
-    } catch (error) {
-      log.warn('Failed to add receiver to chat list cache:', error);
-    }
-
-    // 3 - add message data to cache (with error handling)
-    try {
-      await messageCache.addChatMessageToCache(`${conversationObjectId}`, messageData);
-    } catch (error) {
-      log.warn('Failed to add message to cache:', error);
-    }
-
-    // 4 - Save to database synchronously to ensure persistence, then queue for any additional processing
-    try {
-      await chatService.addMessageToDB(messageData);
-    } catch (error) {
-      log.error('Failed to save message synchronously, falling back to queue:', error);
-      chatQueue.addChatJob('addChatMessageToDB', messageData);
-    }
-
-    res.status(HTTP_STATUS.OK).json({ message: 'Message added', conversationId: conversationObjectId });
   }
 
   public async addChatUsers(req: Request, res: Response): Promise<void> {
