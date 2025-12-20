@@ -10,7 +10,7 @@ class ChatService {
   public async addMessageToDB(data: IMessageData): Promise<void> {
     const conversation: IConversationDocument[] = await ConversationModel.find({
       _id: data.conversationId
-    }).exec();
+    }).maxTimeMS(5000).exec();
 
     // Convert senderId and receiverId to ObjectId if they're strings
     const senderIdObjectId = typeof data.senderId === 'string'
@@ -133,7 +133,7 @@ class ChatService {
         { senderId: receiverId, receiverId: senderId, isRead: false }
       ]
     };
-    await MessageModel.updateMany(query, { $set: { isRead: true } }).exec();
+    await MessageModel.updateMany(query, { $set: { isRead: true } }).maxTimeMS(5000).exec();
   }
 
   public async updateMessageReaction(

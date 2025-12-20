@@ -62,7 +62,16 @@ export class Add {
       if (!sender) {
         log.warn(`User ${req.currentUser!.userId} not found in cache, fetching from database`);
         try {
-          sender = await userService.getUserById(`${req.currentUser!.userId}`);
+          // Add timeout protection for database call
+          sender = await Promise.race([
+            userService.getUserById(`${req.currentUser!.userId}`),
+            new Promise<IUserDocument | null>((resolve) => {
+              setTimeout(() => {
+                log.warn(`getUserById timed out for ${req.currentUser!.userId}`);
+                resolve(null);
+              }, 5000);
+            })
+          ]);
         } catch (error) {
           log.error(`Failed to get user from database: ${error}`);
           throw new BadRequestError('Failed to retrieve user information. Please try again.');
@@ -187,8 +196,17 @@ export class Add {
       }
 
       // 4 - Save to database synchronously to ensure persistence, then queue for any additional processing
+      // Add timeout protection to prevent hanging if database is slow/unavailable
       try {
-        await chatService.addMessageToDB(messageData);
+        await Promise.race([
+          chatService.addMessageToDB(messageData),
+          new Promise<void>((_, reject) => {
+            setTimeout(() => {
+              log.warn('addMessageToDB timed out after 5 seconds, falling back to queue');
+              reject(new Error('Database operation timeout'));
+            }, 5000);
+          })
+        ]);
       } catch (error) {
         log.error('Failed to save message synchronously, falling back to queue:', error);
         chatQueue.addChatJob('addChatMessageToDB', messageData);
@@ -199,7 +217,7 @@ export class Add {
       log.error(`Error in message endpoint: ${error}`);
       // Ensure response is sent even if there's an error
       if (!res.headersSent) {
-        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
+        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
           message: 'Failed to add message',
           error: 'Internal server error'
         });
