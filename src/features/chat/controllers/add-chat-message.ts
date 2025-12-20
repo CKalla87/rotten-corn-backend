@@ -59,10 +59,8 @@ export class Add {
         return;
       }
 
-      let fileUrl = '';
+      // Generate message ID and conversation ID immediately
       const messageObjectId: ObjectId = new ObjectId();
-
-      // Safely convert conversationId to ObjectId
       let conversationObjectId: mongoose.Types.ObjectId;
       try {
         conversationObjectId = conversationId
@@ -77,87 +75,7 @@ export class Add {
         return;
       }
 
-      // Get sender profile picture from cache/database, but don't block on it
-      // Use empty string as default, try to get from cache/database with short timeout
-      let senderProfilePicture = '';
-
-      // Try to get profile picture from cache/database, but with very short timeout
-      // If it fails, we'll use empty string (not critical for message creation)
-      try {
-        const sender = await Promise.race([
-          userCache.getUserFromCache(`${req.currentUser!.userId}`),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000))
-        ]);
-        if (sender?.profilePicture) {
-          senderProfilePicture = sender.profilePicture;
-        } else {
-          // Try database as fallback, but with very short timeout
-          try {
-            const dbSender = await Promise.race([
-              userService.getUserById(`${req.currentUser!.userId}`),
-              new Promise<IUserDocument | null>((resolve) => {
-                setTimeout(() => resolve(null), 2000);
-              })
-            ]);
-            if (dbSender?.profilePicture) {
-              senderProfilePicture = dbSender.profilePicture;
-            }
-          } catch (error) {
-            // Silently fail - profile picture is not critical
-            log.warn(`Failed to get sender profile picture: ${error}`);
-          }
-        }
-      } catch (error) {
-        // Silently fail - profile picture is not critical for message creation
-        log.warn(`Failed to get sender from cache: ${error}`);
-      }
-
-      // Handle image upload with timeout - must complete before database save
-      if (selectedImage && selectedImage.length) {
-        // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
-        const uniqueImageId = `${messageObjectId}`;
-        // Add timeout protection for Cloudinary upload (10 seconds to match DB timeout)
-        try {
-          const result = await Promise.race([
-            uploads(selectedImage, uniqueImageId, true, true),
-            new Promise<UploadApiErrorResponse>((resolve) => {
-              setTimeout(() => {
-                log.warn(`Cloudinary upload timed out for messageId: ${messageObjectId}`);
-                resolve({
-                  error: { message: 'Upload timeout' },
-                  message: 'Cloudinary upload timed out after 10 seconds',
-                  name: 'UploadTimeoutError',
-                  http_code: 408,
-                  severity: 'error'
-                } as unknown as UploadApiErrorResponse);
-              }, 10000); // 10 seconds to match database timeout
-            })
-          ]);
-
-          // Check if upload failed or returned undefined
-          if (!result || (result as UploadApiErrorResponse).error) {
-            const errorResponse = result as UploadApiErrorResponse;
-            log.warn('Cloudinary upload failed, continuing without image:', errorResponse.message);
-            // Don't throw error - just log and continue without image
-            // The message will be saved without the image
-          } else {
-            // Verify we have a valid upload response
-            const uploadResponse = result as UploadApiResponse;
-            if (uploadResponse.public_id) {
-              // Use Cloudinary's secure_url if available, otherwise construct the URL manually
-              fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
-              log.info('✅ Cloudinary upload successful:', { fileUrl, public_id: uploadResponse.public_id });
-            } else {
-              log.warn('Cloudinary upload response missing public_id, continuing without image');
-            }
-          }
-        } catch (error) {
-          log.error(`Cloudinary upload error: ${error}, continuing without image`);
-          // Don't throw error - continue without image to ensure response is sent
-        }
-      }
-
-      // Convert senderId and receiverId to ObjectId for Mongoose schema compatibility
+      // Convert senderId and receiverId to ObjectId immediately
       let senderIdObjectId: mongoose.Types.ObjectId;
       let receiverIdObjectId: mongoose.Types.ObjectId;
       try {
@@ -176,40 +94,107 @@ export class Add {
         return;
       }
 
-      const messageData: IMessageData = {
-        _id: `${messageObjectId}`,
-        conversationId: conversationObjectId,
-        receiverId: receiverIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
-        receiverAvatarColor: receiverAvatarColor || '',
-        receiverProfilePicture,
-        receiverUsername,
-        senderUsername: `${req.currentUser!.username}`,
-        senderId: senderIdObjectId as any, // Cast to any since interface says string but schema needs ObjectId
-        senderAvatarColor: `${req.currentUser!.avatarColor}`,
-        senderProfilePicture: senderProfilePicture || req.currentUser!.avatarColor || '',
-        body,
-        isRead,
-        gifUrl,
-        selectedImage: fileUrl,
-        reaction: [],
-        createdAt: new Date(),
-        deleteForEveryone: false,
-        deleteForMe: false
-      };
-
-      // Send response immediately - don't wait for database
-      // This ensures the endpoint always responds quickly, even if database is slow/unavailable
+      // SEND RESPONSE IMMEDIATELY - before any async operations
+      // This ensures the endpoint always responds quickly
       res.status(HTTP_STATUS.OK).json({
         message: 'Message added',
         conversationId: conversationObjectId
       });
 
-      // Save to database in background with timeout - use queue for reliability
-      // Queue is more reliable than direct DB save in slow/unavailable database scenarios
+      // Now do all the heavy work in the background
       setImmediate(async () => {
+        let fileUrl = '';
+        let senderProfilePicture = '';
+
+        // Get sender profile picture from cache/database in background
         try {
-          // Try direct DB save first with short timeout (3 seconds)
-          // If it succeeds quickly, great. If not, queue will handle it.
+          const sender = await Promise.race([
+            userCache.getUserFromCache(`${req.currentUser!.userId}`),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000))
+          ]);
+          if (sender?.profilePicture) {
+            senderProfilePicture = sender.profilePicture;
+          } else {
+            // Try database as fallback
+            try {
+              const dbSender = await Promise.race([
+                userService.getUserById(`${req.currentUser!.userId}`),
+                new Promise<IUserDocument | null>((resolve) => {
+                  setTimeout(() => resolve(null), 2000);
+                })
+              ]);
+              if (dbSender?.profilePicture) {
+                senderProfilePicture = dbSender.profilePicture;
+              }
+            } catch (error) {
+              log.warn(`Failed to get sender profile picture: ${error}`);
+            }
+          }
+        } catch (error) {
+          log.warn(`Failed to get sender from cache: ${error}`);
+        }
+
+        // Handle image upload in background
+        if (selectedImage && selectedImage.length) {
+          const uniqueImageId = `${messageObjectId}`;
+          try {
+            const result = await Promise.race([
+              uploads(selectedImage, uniqueImageId, true, true),
+              new Promise<UploadApiErrorResponse>((resolve) => {
+                setTimeout(() => {
+                  log.warn(`Cloudinary upload timed out for messageId: ${messageObjectId}`);
+                  resolve({
+                    error: { message: 'Upload timeout' },
+                    message: 'Cloudinary upload timed out after 10 seconds',
+                    name: 'UploadTimeoutError',
+                    http_code: 408,
+                    severity: 'error'
+                  } as unknown as UploadApiErrorResponse);
+                }, 10000);
+              })
+            ]);
+
+            if (!result || (result as UploadApiErrorResponse).error) {
+              const errorResponse = result as UploadApiErrorResponse;
+              log.warn('Cloudinary upload failed, continuing without image:', errorResponse.message);
+            } else {
+              const uploadResponse = result as UploadApiResponse;
+              if (uploadResponse.public_id) {
+                fileUrl = uploadResponse.secure_url || uploadResponse.url || `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${uploadResponse.version}/${uploadResponse.public_id}`;
+                log.info('✅ Cloudinary upload successful:', { fileUrl, public_id: uploadResponse.public_id });
+              } else {
+                log.warn('Cloudinary upload response missing public_id, continuing without image');
+              }
+            }
+          } catch (error) {
+            log.error(`Cloudinary upload error: ${error}, continuing without image`);
+          }
+        }
+
+        // Build message data with all the collected information
+        const messageData: IMessageData = {
+          _id: `${messageObjectId}`,
+          conversationId: conversationObjectId,
+          receiverId: receiverIdObjectId as any,
+          receiverAvatarColor: receiverAvatarColor || '',
+          receiverProfilePicture,
+          receiverUsername,
+          senderUsername: `${req.currentUser!.username}`,
+          senderId: senderIdObjectId as any,
+          senderAvatarColor: `${req.currentUser!.avatarColor}`,
+          senderProfilePicture: senderProfilePicture || req.currentUser!.avatarColor || '',
+          body,
+          isRead,
+          gifUrl,
+          selectedImage: fileUrl,
+          reaction: [],
+          createdAt: new Date(),
+          deleteForEveryone: false,
+          deleteForMe: false
+        };
+
+        // Save to database in background with timeout - use queue for reliability
+        try {
           await Promise.race([
             chatService.addMessageToDB(messageData),
             new Promise<never>((_, reject) => {
@@ -231,11 +216,7 @@ export class Add {
             });
           }
         }
-      });
 
-      // Fire and forget - do these operations asynchronously after response is sent
-      // This prevents blocking the response if Redis is slow/unavailable
-      setImmediate(async () => {
         // Emit socket events - wrap in try-catch to prevent crashes
         try {
           Add.prototype.emitSocketIOEvent(messageData);
