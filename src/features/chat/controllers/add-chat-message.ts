@@ -30,6 +30,15 @@ export class Add {
   @joiValidation(addChatSchema)
   public async message(req: Request, res: Response): Promise<void> {
     try {
+      // Validate required fields early
+      if (!req.currentUser || !req.currentUser.userId) {
+        res.status(HTTP_STATUS.UNAUTHORIZED).json({
+          message: 'User not authenticated',
+          error: 'Authentication required'
+        });
+        return;
+      }
+
       const {
         conversationId,
         receiverId,
@@ -41,11 +50,33 @@ export class Add {
         isRead,
         selectedImage
       } = req.body;
+
+      // Validate required fields
+      if (!receiverId || !receiverUsername || !receiverProfilePicture) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          message: 'Missing required fields: receiverId, receiverUsername, and receiverProfilePicture are required',
+          error: 'Validation error'
+        });
+        return;
+      }
+
       let fileUrl = '';
       const messageObjectId: ObjectId = new ObjectId();
-      const conversationObjectId: mongoose.Types.ObjectId = conversationId
-        ? new mongoose.Types.ObjectId(conversationId)
-        : new mongoose.Types.ObjectId();
+
+      // Safely convert conversationId to ObjectId
+      let conversationObjectId: mongoose.Types.ObjectId;
+      try {
+        conversationObjectId = conversationId
+          ? new mongoose.Types.ObjectId(conversationId)
+          : new mongoose.Types.ObjectId();
+      } catch (error) {
+        log.error(`Invalid conversationId format: ${conversationId}`, error);
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          message: 'Invalid conversationId format',
+          error: 'Validation error'
+        });
+        return;
+      }
 
       // Get sender from cache, fallback to database if not in cache
       // Use timeout to prevent hanging if Redis is slow/unavailable
@@ -85,12 +116,34 @@ export class Add {
       if (selectedImage && selectedImage.length) {
         // Generate a unique public_id using messageObjectId to ensure each image has a unique Cloudinary ID
         const uniqueImageId = `${messageObjectId}`;
-        const result: UploadApiResponse | UploadApiErrorResponse | undefined = await uploads(
-          selectedImage,
-          uniqueImageId,
-          true, // Allow overwrite in case of retries - messageObjectId should be unique anyway
-          true
-        );
+        // Add timeout protection for Cloudinary upload
+        let result: UploadApiResponse | UploadApiErrorResponse | undefined;
+        try {
+          result = await Promise.race([
+            uploads(selectedImage, uniqueImageId, true, true),
+            new Promise<UploadApiErrorResponse>((resolve) => {
+              setTimeout(() => {
+                log.warn(`Cloudinary upload timed out for messageId: ${messageObjectId}`);
+                resolve({
+                  error: { message: 'Upload timeout' },
+                  message: 'Cloudinary upload timed out after 10 seconds',
+                  name: 'UploadTimeoutError',
+                  http_code: 408,
+                  severity: 'error'
+                } as unknown as UploadApiErrorResponse);
+              }, 10000);
+            })
+          ]);
+        } catch (error) {
+          log.error(`Cloudinary upload failed: ${error}`);
+          result = {
+            error: { message: String(error) },
+            message: 'Cloudinary upload failed',
+            name: 'UploadError',
+            http_code: 500,
+            severity: 'error'
+          } as unknown as UploadApiErrorResponse;
+        }
 
         // Check if upload failed or returned undefined
         if (!result || (result as UploadApiErrorResponse).error) {
@@ -126,12 +179,23 @@ export class Add {
       }
 
       // Convert senderId and receiverId to ObjectId for Mongoose schema compatibility
-      const senderIdObjectId = typeof req.currentUser!.userId === 'string'
-        ? new mongoose.Types.ObjectId(req.currentUser!.userId)
-        : req.currentUser!.userId;
-      const receiverIdObjectId = typeof receiverId === 'string'
-        ? new mongoose.Types.ObjectId(receiverId)
-        : receiverId;
+      let senderIdObjectId: mongoose.Types.ObjectId;
+      let receiverIdObjectId: mongoose.Types.ObjectId;
+      try {
+        senderIdObjectId = typeof req.currentUser!.userId === 'string'
+          ? new mongoose.Types.ObjectId(req.currentUser!.userId)
+          : req.currentUser!.userId;
+        receiverIdObjectId = typeof receiverId === 'string'
+          ? new mongoose.Types.ObjectId(receiverId)
+          : receiverId;
+      } catch (error) {
+        log.error(`Invalid ObjectId format: senderId=${req.currentUser!.userId}, receiverId=${receiverId}`, error);
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          message: 'Invalid user ID format',
+          error: 'Validation error'
+        });
+        return;
+      }
 
       const messageData: IMessageData = {
         _id: `${messageObjectId}`,

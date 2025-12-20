@@ -10,9 +10,30 @@ export function joiValidation(schema: ObjectSchema): IJoiDecorator {
 
     descriptor.value = async function (...args: any[]) {
       const req: Request = args[0];
-      const { error } = await Promise.resolve(schema.validate(req.body, { abortEarly: false, allowUnknown: true }));
-      if (error?.details) {
-        throw new JoiRequestedValidationError(error.details[0].message);
+      // Add timeout protection for validation to prevent hanging
+      try {
+        const validationPromise = Promise.resolve(schema.validate(req.body, { abortEarly: false, allowUnknown: true }));
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('Validation timeout'));
+          }, 2000); // 2 second timeout for validation
+        });
+        
+        const { error } = await Promise.race([validationPromise, timeoutPromise]);
+        if (error?.details) {
+          throw new JoiRequestedValidationError(error.details[0].message);
+        }
+      } catch (validationError) {
+        // If it's already a JoiRequestedValidationError, rethrow it
+        if (validationError instanceof JoiRequestedValidationError) {
+          throw validationError;
+        }
+        // If it's a timeout error, throw validation error
+        if (validationError instanceof Error && validationError.message === 'Validation timeout') {
+          throw new JoiRequestedValidationError('Validation timeout - request took too long to validate');
+        }
+        // Otherwise, rethrow the original error
+        throw validationError;
       }
       return originalMethod.apply(this, args);
     };

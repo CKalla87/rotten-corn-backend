@@ -19,7 +19,7 @@ export class Update {
   public async message(req: Request, res: Response): Promise<void> {
     try {
       const { senderId, receiverId } = req.body;
-      
+
       // Add timeout protection to prevent hanging if Redis is slow/unavailable
       let updatedMessage: IMessageData = {} as IMessageData;
       try {
@@ -70,7 +70,7 @@ export class Update {
       log.error(`Error in mark-as-read endpoint: ${error}`);
       // Ensure response is sent even if there's an error
       if (!res.headersSent) {
-        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ 
+        res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
           message: 'Failed to mark message as read',
           error: 'Internal server error'
         });
