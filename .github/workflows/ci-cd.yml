@@ -48,44 +48,8 @@ jobs:
 
       - name: Create deployment package
         run: |
-          echo "Creating deployment package (chatapp.zip)..."
-          # Remove old zip if it exists
-          rm -f chatapp.zip
-          # Create zip excluding large directories and files
-          # Include build/* since we build in CI/CD and deploy pre-built artifacts
-          # IMPORTANT: Include package-lock.json for faster npm ci installs during deployment
-          zip -r chatapp.zip . \
-            -x "node_modules/*" \
-            -x ".git/*" \
-            -x "*.log" \
-            -x "coverage/*" \
-            -x ".env*" \
-            -x "dump.rdb" \
-            -x "*.zip" \
-            -x "usr/*" \
-            -x ".terraform/*" \
-            -x "deployment/.terraform/*" \
-            -x "deployment/*.tfstate*" \
-            -x "deployment/*.tfvars" \
-            -x "deployment/*.pub" \
-            -x "deployment/*.rsa" \
-            -x "deployment/connect-to-instance.sh" \
-            -x "deployment/CONNECTION_INSTRUCTIONS.txt" \
-            -x "deployment/verify-codedeploy.sh" \
-            -x "deployment/check-deployment-status.sh" \
-            -x "deployment/create-deployment.sh" \
-            -x "*.map" \
-            -x ".DS_Store" \
-            -x "*.swp" \
-            -x "*.swo" \
-            -x "*~"
-          if [ -f chatapp.zip ]; then
-            SIZE=$(ls -lh chatapp.zip | awk '{print $5}')
-            echo "✓ Created chatapp.zip ($SIZE)"
-          else
-            echo "✗ Failed to create chatapp.zip"
-            exit 1
-          fi
+          chmod +x create-deployment-package.sh
+          ./create-deployment-package.sh
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
@@ -150,7 +114,7 @@ jobs:
             done
             echo "Waiting 10 seconds for deployments to stop and clean up..."
             sleep 10
-            
+
             # Verify no deployments are still in progress
             REMAINING=$(aws deploy list-deployments \
               --application-name "$CODEDEPLOY_APP" \
@@ -159,7 +123,7 @@ jobs:
               --max-items 1 \
               --query 'deployments[0]' \
               --output text || echo "None")
-            
+
             if [ -n "$REMAINING" ] && [ "$REMAINING" != "None" ]; then
               echo "⚠ Warning: Deployment $REMAINING still in progress, waiting additional 10 seconds..."
               sleep 10
@@ -167,7 +131,7 @@ jobs:
           else
             echo "No in-progress deployments found"
           fi
-          
+
           # Additional check: Make sure we're not creating a duplicate deployment
           echo "Checking for very recent successful deployments (within last 2 minutes)..."
           RECENT_SUCCESS=$(aws deploy list-deployments \
@@ -177,13 +141,13 @@ jobs:
             --max-items 1 \
             --query 'deployments[0]' \
             --output text || echo "None")
-          
+
           if [ -n "$RECENT_SUCCESS" ] && [ "$RECENT_SUCCESS" != "None" ]; then
             DEPLOYMENT_TIME=$(aws deploy get-deployment \
               --deployment-id "$RECENT_SUCCESS" \
               --query 'deploymentInfo.completeTime' \
               --output text || echo "")
-            
+
             if [ -n "$DEPLOYMENT_TIME" ]; then
               echo "Most recent successful deployment: $RECENT_SUCCESS completed at $DEPLOYMENT_TIME"
               echo "Proceeding with new deployment..."
@@ -255,7 +219,7 @@ jobs:
               --auto-scaling-group-names "$ASG_NAME" \
               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
               --output text 2>/dev/null || echo "")
-            
+
             # Also check for Pending:Wait instances that are Healthy (they're ready for deployment, just waiting for ELB health checks)
             PENDING_HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names "$ASG_NAME" \
@@ -320,7 +284,7 @@ jobs:
             --max-items 1 \
             --query 'deployments[0]' \
             --output text || echo "None")
-          
+
           if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
             echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
             echo "Checking creation time..."
@@ -328,12 +292,12 @@ jobs:
               --deployment-id "$RECENT_DEPLOY" \
               --query 'deploymentInfo.createTime' \
               --output text || echo "")
-            
+
             if [ -n "$CREATE_TIME" ]; then
               echo "Recent deployment created at: $CREATE_TIME"
               echo "Waiting 5 seconds and re-checking..."
               sleep 5
-              
+
               # Check again
               STILL_ACTIVE=$(aws deploy list-deployments \
                 --application-name "$CODEDEPLOY_APP" \
@@ -342,7 +306,7 @@ jobs:
                 --max-items 1 \
                 --query 'deployments[0]' \
                 --output text || echo "None")
-              
+
               if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
                 echo "⚠ Another deployment is still active: $STILL_ACTIVE"
                 echo "This workflow run may be a duplicate. Skipping deployment creation."
@@ -352,7 +316,7 @@ jobs:
               fi
             fi
           fi
-          
+
           echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
@@ -462,7 +426,7 @@ jobs:
               --auto-scaling-group-names "$ASG_NAME" \
               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
               --output text 2>/dev/null || echo "")
-            
+
             # Also check for Pending:Wait instances that are Healthy (they're ready for deployment, just waiting for ELB health checks)
             PENDING_HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names "$ASG_NAME" \
@@ -527,7 +491,7 @@ jobs:
             --max-items 1 \
             --query 'deployments[0]' \
             --output text || echo "None")
-          
+
           if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
             echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
             echo "Checking creation time..."
@@ -535,12 +499,12 @@ jobs:
               --deployment-id "$RECENT_DEPLOY" \
               --query 'deploymentInfo.createTime' \
               --output text || echo "")
-            
+
             if [ -n "$CREATE_TIME" ]; then
               echo "Recent deployment created at: $CREATE_TIME"
               echo "Waiting 5 seconds and re-checking..."
               sleep 5
-              
+
               # Check again
               STILL_ACTIVE=$(aws deploy list-deployments \
                 --application-name "$CODEDEPLOY_APP" \
@@ -549,7 +513,7 @@ jobs:
                 --max-items 1 \
                 --query 'deployments[0]' \
                 --output text || echo "None")
-              
+
               if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
                 echo "⚠ Another deployment is still active: $STILL_ACTIVE"
                 echo "This workflow run may be a duplicate. Skipping deployment creation."
@@ -559,7 +523,7 @@ jobs:
               fi
             fi
           fi
-          
+
           echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
@@ -669,7 +633,7 @@ jobs:
               --auto-scaling-group-names "$ASG_NAME" \
               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
               --output text 2>/dev/null || echo "")
-            
+
             # Also check for Pending:Wait instances that are Healthy (they're ready for deployment, just waiting for ELB health checks)
             PENDING_HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names "$ASG_NAME" \
@@ -734,7 +698,7 @@ jobs:
             --max-items 1 \
             --query 'deployments[0]' \
             --output text || echo "None")
-          
+
           if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
             echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
             echo "Checking creation time..."
@@ -742,12 +706,12 @@ jobs:
               --deployment-id "$RECENT_DEPLOY" \
               --query 'deploymentInfo.createTime' \
               --output text || echo "")
-            
+
             if [ -n "$CREATE_TIME" ]; then
               echo "Recent deployment created at: $CREATE_TIME"
               echo "Waiting 5 seconds and re-checking..."
               sleep 5
-              
+
               # Check again
               STILL_ACTIVE=$(aws deploy list-deployments \
                 --application-name "$CODEDEPLOY_APP" \
@@ -756,7 +720,7 @@ jobs:
                 --max-items 1 \
                 --query 'deployments[0]' \
                 --output text || echo "None")
-              
+
               if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
                 echo "⚠ Another deployment is still active: $STILL_ACTIVE"
                 echo "This workflow run may be a duplicate. Skipping deployment creation."
@@ -766,7 +730,7 @@ jobs:
               fi
             fi
           fi
-          
+
           echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
