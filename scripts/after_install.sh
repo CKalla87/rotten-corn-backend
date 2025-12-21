@@ -184,6 +184,12 @@ if [ -f env-file.zip ]; then
 
   # Select environment file based on detected environment
   # Priority: .env.{ENV_PREFIX} > .env.production > .env.staging > .env.develop > .env
+  # CRITICAL: Remove any existing .env file from S3 sync first to avoid conflicts
+  if [ -f .env ]; then
+    echo "[$(date)] Removing existing .env file (may be from S3 sync, will replace with correct one)..."
+    rm -f .env
+  fi
+
   ENV_FILE_COPIED=false
 
   if [ -f ".env.${ENV_PREFIX}" ]; then
@@ -244,8 +250,28 @@ if [ -f env-file.zip ]; then
       echo "[$(date)] ✓ Added NODE_ENV=${ENV_PREFIX} to .env file"
     fi
 
+    # CRITICAL: Verify DATABASE_URL is set (required for app to start)
+    if grep -q "^DATABASE_URL=" .env; then
+      DATABASE_URL_VALUE=$(grep "^DATABASE_URL=" .env | head -1 | cut -d'=' -f2- | sed 's/mongodb:\/\/[^:]*:[^@]*@/mongodb:\/\/***:***@/')
+      echo "[$(date)] ✓ DATABASE_URL found in .env: ${DATABASE_URL_VALUE}"
+    else
+      echo "[$(date)] ✗ ERROR: DATABASE_URL not found in .env file - app will fail to start!"
+      echo "[$(date)] This means the .env file is missing critical backend configuration."
+      echo "[$(date)] Available .env files:"
+      ls -la .env* 2>/dev/null || echo "No .env files found"
+      echo "[$(date)] Checking if .env.production exists with DATABASE_URL..."
+      if [ -f .env.production ] && grep -q "^DATABASE_URL=" .env.production; then
+        echo "[$(date)] .env.production has DATABASE_URL - copying it now..."
+        cp .env.production .env
+        echo "[$(date)] ✓ Copied .env.production to .env (DATABASE_URL was missing)"
+      else
+        echo "[$(date)] ERROR: .env.production also missing DATABASE_URL or doesn't exist!"
+        exit 1
+      fi
+    fi
+
     # Check for REDIS_HOST to verify it's the right file
-    if grep -q "REDIS_HOST" .env; then
+    if grep -q "^REDIS_HOST=" .env; then
       REDIS_HOST_VALUE=$(grep "^REDIS_HOST=" .env | head -1 | cut -d'=' -f2- | sed 's/=.*/=***/')
       echo "[$(date)] ✓ REDIS_HOST found in .env: ${REDIS_HOST_VALUE}"
     else
@@ -257,6 +283,12 @@ if [ -f env-file.zip ]; then
     echo "[$(date)] Final NODE_ENV verification: ${FINAL_NODE_ENV} (expected: ${ENV_PREFIX})"
     if [ "$FINAL_NODE_ENV" != "$ENV_PREFIX" ]; then
       echo "[$(date)] ERROR: NODE_ENV is still not set correctly after update attempt!"
+      exit 1
+    fi
+
+    # Final verification of DATABASE_URL
+    if ! grep -q "^DATABASE_URL=" .env; then
+      echo "[$(date)] ERROR: DATABASE_URL is still missing after all attempts - deployment will fail!"
       exit 1
     fi
   fi
