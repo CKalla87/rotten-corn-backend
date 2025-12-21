@@ -6,13 +6,20 @@ import { IJWT } from './auth.mock';
 export const notificationMockRequest = (sessionData: IJWT, currentUser?: AuthPayload | null, params?: IParams) => ({
   session: sessionData,
   params,
-  currentUser
+  currentUser,
+  get: jest.fn((header: string) => {
+    if (header === 'origin') {
+      return undefined;
+    }
+    return undefined;
+  })
 });
 
 export const notificationMockResponse = (): Response => {
   const res: Response = {} as Response;
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.header = jest.fn().mockReturnValue(res);
   return res;
 };
 

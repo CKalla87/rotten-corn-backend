@@ -20,6 +20,12 @@ class Config {
   public SENDGRID_API_KEY: string | undefined;
   public SENDGRID_SENDER: string | undefined;
   public EC2_URL: string | undefined;
+  public GOOGLE_CLIENT_ID: string | undefined;
+  public GOOGLE_CLIENT_SECRET: string | undefined;
+  public GITHUB_CLIENT_ID: string | undefined;
+  public GITHUB_CLIENT_SECRET: string | undefined;
+  public FACEBOOK_APP_ID: string | undefined;
+  public FACEBOOK_APP_SECRET: string | undefined;
 
   private readonly DEFAULT_DATABASE_URL = 'mongodb://localhost:27017/rotterncornapp-backend';
 
@@ -39,10 +45,21 @@ class Config {
     this.SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
     this.SENDGRID_SENDER = process.env.SENDGRID_SENDER || '';
     this.EC2_URL = process.env.EC2_URL || '';
+    this.GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+    this.GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+    this.GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+    this.GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
+    this.FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || '';
+    this.FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET || '';
   }
 
   public createLogger(name: string): bunyan {
-    return bunyan.createLogger({ name, level: 'debug' });
+    // Reduce logging in hosted environments for better performance
+    // Only log errors and warnings in production/staging/develop hosted envs
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
+    const isHostedEnv = this.NODE_ENV === 'production' || this.NODE_ENV === 'staging' || this.NODE_ENV === 'develop';
+    const logLevel = isHostedEnv ? 'warn' : 'debug'; // 'warn' in hosted, 'debug' in local
+    return bunyan.createLogger({ name, level: logLevel });
   }
 
   public validateConfig(): void {

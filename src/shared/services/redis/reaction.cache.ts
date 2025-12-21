@@ -80,6 +80,10 @@ export class ReactionCache extends BaseCache {
 
   public async getSingleReactionByUsernameFromCache(postId: string, username: string): Promise<[IReactionDocument, number] | []> {
     try {
+      // Normalize username to match database query (first letter uppercase)
+      // This ensures cache lookup matches the database query format
+      const normalizedUsername = Helpers.firstLetterUppercase(username);
+
       if(!this.client.isOpen) {
         await this.client.connect();
       }
@@ -89,13 +93,16 @@ export class ReactionCache extends BaseCache {
         list.push(Helpers.parseJson(item));
       }
       const result: IReactionDocument = find(list, (listItem: IReactionDocument) => {
-        return listItem?.postId === postId && listItem?.username === username;
+        // Compare with normalized username to match database query format
+        return listItem?.postId === postId && listItem?.username === normalizedUsername;
       }) as IReactionDocument;
 
       return result ? [result, 1] : [];
     } catch (error) {
-      log.error(error);
-      throw new ServerError('Server error. Try again.');
+      // If cache lookup fails (Redis unavailable/slow), return empty array
+      // This allows the controller to fall back to database query
+      log.error('Cache lookup failed, will fall back to database:', error);
+      return [];
     }
   }
 
@@ -104,8 +111,10 @@ export class ReactionCache extends BaseCache {
     for(const item of response) {
       list.push(Helpers.parseJson(item) as IReactionDocument);
     }
+    // Normalize username to match stored format
+    const normalizedUsername = Helpers.firstLetterUppercase(username);
     return find(list, (listItem:IReactionDocument) => {
-      return listItem.username === username;
+      return listItem.username === normalizedUsername;
     });
   }
 }

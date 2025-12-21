@@ -55,7 +55,7 @@ variable "main_api_server_domain" {
 variable "dev_api_server_domain" {
   description = "Dev API Server Domain"
   type        = string
-  default     = "api.stg.chatappserver.space"
+  default     = "api.chatappserver.space"
 }
 
 variable "ec2_iam_role_name" {

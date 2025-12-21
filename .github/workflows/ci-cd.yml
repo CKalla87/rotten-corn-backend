@@ -7,15 +7,15 @@ on:
       - staging
       - main
   pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - closed
     branches:
       - develop
       - staging
       - main
+
+# Prevent duplicate workflow runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: 20
@@ -90,6 +90,175 @@ jobs:
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
+      - name: Stop in-progress deployments and wait for completion
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking for in-progress deployments..."
+          IN_PROGRESS=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress Ready \
+            --max-items 10 \
+            --query 'deployments' \
+            --output text || echo "None")
+
+          if [ -n "$IN_PROGRESS" ] && [ "$IN_PROGRESS" != "None" ]; then
+            echo "Found in-progress deployments, stopping them..."
+            for deployment_id in $IN_PROGRESS; do
+              echo "Stopping deployment: $deployment_id"
+              aws deploy stop-deployment \
+                --deployment-id "$deployment_id" \
+                --auto-rollback-enabled || echo "Warning: Could not stop $deployment_id"
+            done
+            echo "Waiting 10 seconds for deployments to stop and clean up..."
+            sleep 10
+            
+            # Verify no deployments are still in progress
+            REMAINING=$(aws deploy list-deployments \
+              --application-name "$CODEDEPLOY_APP" \
+              --deployment-group-name "$CODEDEPLOY_GROUP" \
+              --include-only-statuses Created Queued InProgress Ready \
+              --max-items 1 \
+              --query 'deployments[0]' \
+              --output text || echo "None")
+            
+            if [ -n "$REMAINING" ] && [ "$REMAINING" != "None" ]; then
+              echo "⚠ Warning: Deployment $REMAINING still in progress, waiting additional 10 seconds..."
+              sleep 10
+            fi
+          else
+            echo "No in-progress deployments found"
+          fi
+          
+          # Additional check: Make sure we're not creating a duplicate deployment
+          echo "Checking for very recent successful deployments (within last 2 minutes)..."
+          RECENT_SUCCESS=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Succeeded \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_SUCCESS" ] && [ "$RECENT_SUCCESS" != "None" ]; then
+            DEPLOYMENT_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_SUCCESS" \
+              --query 'deploymentInfo.completeTime' \
+              --output text || echo "")
+            
+            if [ -n "$DEPLOYMENT_TIME" ]; then
+              echo "Most recent successful deployment: $RECENT_SUCCESS completed at $DEPLOYMENT_TIME"
+              echo "Proceeding with new deployment..."
+            fi
+          fi
+
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          echo "Current deployment type: $DEPLOYMENT_TYPE"
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group (may need manual Terraform apply)"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
+      - name: Verify instances are available for deployment
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+
+          # Get ASG names from deployment group
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured in deployment group"
+            echo "Fix by running: cd deployment && ./fix-deployment-group.sh"
+            exit 1
+          fi
+
+          echo "Found ASG(s): $ASG_NAMES"
+
+          # Check each ASG for instances
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            echo "Checking ASG: $ASG_NAME"
+
+            # Get instances in InService state
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            else
+              # Get all instances to show their state
+              ALL_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG_NAME" \
+                --query 'AutoScalingGroups[0].Instances[*].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}' \
+                --output json 2>/dev/null || echo "[]")
+
+              TOTAL_COUNT=$(echo "$ALL_INSTANCES" | jq 'length')
+
+              if [ "$TOTAL_COUNT" -eq 0 ]; then
+                echo "❌ No instances in ASG $ASG_NAME"
+                echo "ASG may need to scale up. Check desired capacity:"
+                echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
+              else
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
+              fi
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo ""
+            echo "❌ ERROR: No instances available for deployment"
+            echo ""
+            echo "Possible fixes:"
+            echo "  1. Wait for instances to become healthy"
+            echo "  2. Check ASG desired capacity:"
+            echo "     aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAMES"
+            echo "  3. Manually set desired capacity if needed:"
+            echo "     aws autoscaling set-desired-capacity --auto-scaling-group-name <ASG_NAME> --desired-capacity 1"
+            echo "  4. Check instance health and logs"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -97,9 +266,53 @@ jobs:
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          # Check if a deployment was just created (within last 30 seconds) to avoid duplicates
+          echo "Checking for very recent deployments to avoid duplicates..."
+          RECENT_DEPLOY=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
+            echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
+            echo "Checking creation time..."
+            CREATE_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_DEPLOY" \
+              --query 'deploymentInfo.createTime' \
+              --output text || echo "")
+            
+            if [ -n "$CREATE_TIME" ]; then
+              echo "Recent deployment created at: $CREATE_TIME"
+              echo "Waiting 5 seconds and re-checking..."
+              sleep 5
+              
+              # Check again
+              STILL_ACTIVE=$(aws deploy list-deployments \
+                --application-name "$CODEDEPLOY_APP" \
+                --deployment-group-name "$CODEDEPLOY_GROUP" \
+                --include-only-statuses Created Queued InProgress \
+                --max-items 1 \
+                --query 'deployments[0]' \
+                --output text || echo "None")
+              
+              if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
+                echo "⚠ Another deployment is still active: $STILL_ACTIVE"
+                echo "This workflow run may be a duplicate. Skipping deployment creation."
+                echo "deployment_id=$STILL_ACTIVE" >> "$GITHUB_OUTPUT"
+                echo "Using existing deployment: $STILL_ACTIVE"
+                exit 0
+              fi
+            fi
+          fi
+          
+          echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
             --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
             --file-exists-behavior OVERWRITE \
             --query "deploymentId" \
@@ -113,14 +326,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-    if: |
-      github.ref == 'refs/heads/staging' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.action == 'closed' &&
-        github.event.pull_request.merged == true &&
-        github.event.pull_request.base.ref == 'staging'
-      )
+    if: github.ref == 'refs/heads/staging'
     outputs:
       bundle_key: ${{ steps.bundle.outputs.bundle_key }}
       deployment_id: ${{ steps.deploy.outputs.deployment_id }}
@@ -146,6 +352,111 @@ jobs:
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          echo "Current deployment type: $DEPLOYMENT_TYPE"
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group (may need manual Terraform apply)"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
+      - name: Verify instances are available for deployment
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+
+          # Get ASG names from deployment group
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured in deployment group"
+            echo "Fix by running: cd deployment && ./fix-deployment-group.sh"
+            exit 1
+          fi
+
+          echo "Found ASG(s): $ASG_NAMES"
+
+          # Check each ASG for instances
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            echo "Checking ASG: $ASG_NAME"
+
+            # Get instances in InService state
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            else
+              # Get all instances to show their state
+              ALL_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG_NAME" \
+                --query 'AutoScalingGroups[0].Instances[*].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}' \
+                --output json 2>/dev/null || echo "[]")
+
+              TOTAL_COUNT=$(echo "$ALL_INSTANCES" | jq 'length')
+
+              if [ "$TOTAL_COUNT" -eq 0 ]; then
+                echo "❌ No instances in ASG $ASG_NAME"
+                echo "ASG may need to scale up. Check desired capacity:"
+                echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
+              else
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
+              fi
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo ""
+            echo "❌ ERROR: No instances available for deployment"
+            echo ""
+            echo "Possible fixes:"
+            echo "  1. Wait for instances to become healthy"
+            echo "  2. Check ASG desired capacity:"
+            echo "     aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAMES"
+            echo "  3. Manually set desired capacity if needed:"
+            echo "     aws autoscaling set-desired-capacity --auto-scaling-group-name <ASG_NAME> --desired-capacity 1"
+            echo "  4. Check instance health and logs"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -153,9 +464,53 @@ jobs:
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          # Check if a deployment was just created (within last 30 seconds) to avoid duplicates
+          echo "Checking for very recent deployments to avoid duplicates..."
+          RECENT_DEPLOY=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
+            echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
+            echo "Checking creation time..."
+            CREATE_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_DEPLOY" \
+              --query 'deploymentInfo.createTime' \
+              --output text || echo "")
+            
+            if [ -n "$CREATE_TIME" ]; then
+              echo "Recent deployment created at: $CREATE_TIME"
+              echo "Waiting 5 seconds and re-checking..."
+              sleep 5
+              
+              # Check again
+              STILL_ACTIVE=$(aws deploy list-deployments \
+                --application-name "$CODEDEPLOY_APP" \
+                --deployment-group-name "$CODEDEPLOY_GROUP" \
+                --include-only-statuses Created Queued InProgress \
+                --max-items 1 \
+                --query 'deployments[0]' \
+                --output text || echo "None")
+              
+              if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
+                echo "⚠ Another deployment is still active: $STILL_ACTIVE"
+                echo "This workflow run may be a duplicate. Skipping deployment creation."
+                echo "deployment_id=$STILL_ACTIVE" >> "$GITHUB_OUTPUT"
+                echo "Using existing deployment: $STILL_ACTIVE"
+                exit 0
+              fi
+            fi
+          fi
+          
+          echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
             --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
             --file-exists-behavior OVERWRITE \
             --query "deploymentId" \
@@ -169,14 +524,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-    if: |
-      github.ref == 'refs/heads/main' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.action == 'closed' &&
-        github.event.pull_request.merged == true &&
-        github.event.pull_request.base.ref == 'main'
-      )
+    if: github.ref == 'refs/heads/main'
     outputs:
       bundle_key: ${{ steps.bundle.outputs.bundle_key }}
       deployment_id: ${{ steps.deploy.outputs.deployment_id }}
@@ -202,6 +550,111 @@ jobs:
           echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
           aws s3 cp chatapp.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          echo "Current deployment type: $DEPLOYMENT_TYPE"
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group (may need manual Terraform apply)"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
+      - name: Verify instances are available for deployment
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+
+          # Get ASG names from deployment group
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured in deployment group"
+            echo "Fix by running: cd deployment && ./fix-deployment-group.sh"
+            exit 1
+          fi
+
+          echo "Found ASG(s): $ASG_NAMES"
+
+          # Check each ASG for instances
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            echo "Checking ASG: $ASG_NAME"
+
+            # Get instances in InService state
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            else
+              # Get all instances to show their state
+              ALL_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names "$ASG_NAME" \
+                --query 'AutoScalingGroups[0].Instances[*].{Id:InstanceId,State:LifecycleState,Health:HealthStatus}' \
+                --output json 2>/dev/null || echo "[]")
+
+              TOTAL_COUNT=$(echo "$ALL_INSTANCES" | jq 'length')
+
+              if [ "$TOTAL_COUNT" -eq 0 ]; then
+                echo "❌ No instances in ASG $ASG_NAME"
+                echo "ASG may need to scale up. Check desired capacity:"
+                echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
+              else
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
+              fi
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo ""
+            echo "❌ ERROR: No instances available for deployment"
+            echo ""
+            echo "Possible fixes:"
+            echo "  1. Wait for instances to become healthy"
+            echo "  2. Check ASG desired capacity:"
+            echo "     aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAMES"
+            echo "  3. Manually set desired capacity if needed:"
+            echo "     aws autoscaling set-desired-capacity --auto-scaling-group-name <ASG_NAME> --desired-capacity 1"
+            echo "  4. Check instance health and logs"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
       - name: Create CodeDeploy deployment
         id: deploy
         env:
@@ -209,9 +662,53 @@ jobs:
           CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          # Check if a deployment was just created (within last 30 seconds) to avoid duplicates
+          echo "Checking for very recent deployments to avoid duplicates..."
+          RECENT_DEPLOY=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress \
+            --max-items 1 \
+            --query 'deployments[0]' \
+            --output text || echo "None")
+          
+          if [ -n "$RECENT_DEPLOY" ] && [ "$RECENT_DEPLOY" != "None" ]; then
+            echo "⚠ Found recent deployment $RECENT_DEPLOY in progress"
+            echo "Checking creation time..."
+            CREATE_TIME=$(aws deploy get-deployment \
+              --deployment-id "$RECENT_DEPLOY" \
+              --query 'deploymentInfo.createTime' \
+              --output text || echo "")
+            
+            if [ -n "$CREATE_TIME" ]; then
+              echo "Recent deployment created at: $CREATE_TIME"
+              echo "Waiting 5 seconds and re-checking..."
+              sleep 5
+              
+              # Check again
+              STILL_ACTIVE=$(aws deploy list-deployments \
+                --application-name "$CODEDEPLOY_APP" \
+                --deployment-group-name "$CODEDEPLOY_GROUP" \
+                --include-only-statuses Created Queued InProgress \
+                --max-items 1 \
+                --query 'deployments[0]' \
+                --output text || echo "None")
+              
+              if [ -n "$STILL_ACTIVE" ] && [ "$STILL_ACTIVE" != "None" ]; then
+                echo "⚠ Another deployment is still active: $STILL_ACTIVE"
+                echo "This workflow run may be a duplicate. Skipping deployment creation."
+                echo "deployment_id=$STILL_ACTIVE" >> "$GITHUB_OUTPUT"
+                echo "Using existing deployment: $STILL_ACTIVE"
+                exit 0
+              fi
+            fi
+          fi
+          
+          echo "Creating new deployment..."
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_APP" \
             --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
             --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
             --file-exists-behavior OVERWRITE \
             --query "deploymentId" \
@@ -228,6 +725,8 @@ jobs:
       - deploy_staging
       - deploy_production
     if: always()
+    environment:
+      name: ${{ github.ref == 'refs/heads/develop' && 'develop' || github.ref == 'refs/heads/staging' && 'staging' || github.ref == 'refs/heads/main' && 'production' || 'notify' }}
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:

@@ -7,6 +7,7 @@ import { NotificationModel } from '@notification/models/notification.schema';
 import { socketIONotificationObject } from '@socket/notification';
 import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
 import { emailQueue } from '@service/queues/email.queue';
+import { AuthModel } from '@auth/models/auth.schema';
 import mongoose from 'mongoose';
 import { ObjectId, BulkWriteResult } from 'mongodb';
 
@@ -15,31 +16,44 @@ class FollowerService {
     const followeeObjectId: ObjectId = new mongoose.Types.ObjectId(followeeId);
     const followerObjectId: ObjectId = new mongoose.Types.ObjectId(userId);
 
-    await FollowerModel.create({
-      _id: followerDocumentId,
-      followeeId: followeeObjectId,
-      followerId: followerObjectId
-    });
+    // Create follower relationship and update user counts in parallel for speed
+    const [followerDoc, usersResult] = await Promise.all([
+      FollowerModel.create({
+        _id: followerDocumentId,
+        followeeId: followeeObjectId,
+        followerId: followerObjectId
+      }),
+      UserModel.bulkWrite([
+        {
+          updateOne: {
+            filter: { _id: followerObjectId },
+            update: { $inc: { followingCount: 1 } }
+          }
+        },
+        {
+          updateOne: {
+            filter: { _id: followeeObjectId },
+            update: { $inc: { followersCount: 1 } }
+          }
+        }
+      ], { maxTimeMS: 5000 })
+    ]);
 
-    const users: Promise<BulkWriteResult> = UserModel.bulkWrite([
-      {
-        updateOne: {
-          filter: { _id: followerObjectId },
-          update: { $inc: { followingCount: 1 } }
-        }
-      },
-      {
-        updateOne: {
-          filter: { _id: followeeObjectId },
-          update: { $inc: { followersCount: 1 } }
-        }
+    // Get followee user data only if needed for notifications (with timeout)
+    let followeeUser: IUserDocument | null = null;
+    if (userId !== followeeId) {
+      try {
+        followeeUser = await UserModel.findOne({ _id: followeeObjectId })
+          .maxTimeMS(3000)
+          .lean()
+          .exec() as IUserDocument | null;
+      } catch (error) {
+        // If user lookup fails, continue without notification
+        followeeUser = null;
       }
-    ]);
+    }
 
-    const response: [BulkWriteResult, IUserDocument | null] = await Promise.all([
-      users,
-      UserModel.findOne({ _id: followeeObjectId })
-    ]);
+    const response: [BulkWriteResult, IUserDocument | null] = [usersResult, followeeUser];
 
     if (response[1]?.notifications?.follows && userId !== followeeId) {
       const notificationModel: INotificationDocument = new NotificationModel();
@@ -80,98 +94,213 @@ class FollowerService {
     const followeeObjectId: ObjectId = new mongoose.Types.ObjectId(followeeId);
     const followerObjectId: ObjectId = new mongoose.Types.ObjectId(followerId);
 
-    await FollowerModel.deleteOne({
-      followeeId: followeeObjectId,
-      followerId: followerObjectId
-    });
-
-    const users: Promise<BulkWriteResult> = UserModel.bulkWrite([
-      {
-        updateOne: {
-          filter: { _id: followeeObjectId },
-          update: { $inc: { followersCount: -1 } }
+    // Delete follower relationship and update user counts in parallel for speed
+    await Promise.all([
+      FollowerModel.deleteOne({
+        followeeId: followeeObjectId,
+        followerId: followerObjectId
+      }).maxTimeMS(5000).exec(),
+      UserModel.bulkWrite([
+        {
+          updateOne: {
+            filter: { _id: followeeObjectId },
+            update: { $inc: { followersCount: -1 } }
+          }
+        },
+        {
+          updateOne: {
+            filter: { _id: followerObjectId },
+            update: { $inc: { followingCount: -1 } }
+          }
         }
-      },
-      {
-        updateOne: {
-          filter: { _id: followerObjectId },
-          update: { $inc: { followingCount: -1 } }
-        }
-      }
+      ], { maxTimeMS: 5000 })
     ]);
-
-    await Promise.all([users, UserModel.findOne({ _id: followeeObjectId })]);
   }
 
   public async getFolloweeData(userObjectId: ObjectId): Promise<IFollowerData[]> {
-    const followee: IFollowerData[] = await FollowerModel.aggregate([
-      { $match: { followerId: userObjectId } },
-      { $lookup: { from: 'User', localField: 'followeeId', foreignField: '_id', as: 'followeeId' } },
-      { $unwind: '$followeeId' },
-      { $lookup: { from: 'Auth', localField: 'followeeId.authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      {
-        $addFields: {
-          _id: '$followeeId._id',
-          username: '$authId.username',
-          avatarColor: '$authId.avatarColor',
-          uId: '$authId.uId',
-          postCount: '$followeeId.postsCount',
-          followersCount: '$followeeId.followersCount',
-          followingCount: '$followeeId.followingCount',
-          profilePicture: '$followeeId.profilePicture',
-          userProfile: '$followeeId'
-        }
-      },
-      {
-        $project: {
-          authId: 0,
-          followerId: 0,
-          followeeId: 0,
-          createdAt: 0,
-          __v: 0
-        }
+    // Fast approach: Get follower IDs first, then fetch users in parallel
+    // This avoids expensive $lookup operations
+    try {
+      // Step 1: Get all followee IDs (fast - just IDs)
+      // Use hint to ensure index is used
+      const followers = await FollowerModel.find({ followerId: userObjectId })
+        .select('followeeId')
+        .lean()
+        .hint({ followerId: 1 }) // Force use of followerId index
+        .maxTimeMS(5000)
+        .exec();
+
+      if (!followers || followers.length === 0) {
+        return [];
       }
-    ]);
-    return followee;
+
+      // Remove duplicates by converting to Set (using string IDs for comparison)
+      const uniqueFolloweeIds = Array.from(new Set(followers.map((f: any) => f.followeeId.toString())));
+      const followeeIds = uniqueFolloweeIds.map(id => new mongoose.Types.ObjectId(id));
+
+      // Step 2: Get users (with authId reference)
+      // _id queries are automatically indexed, no hint needed
+      const users = await UserModel.find({ _id: { $in: followeeIds } })
+        .select('_id postsCount followersCount followingCount profilePicture authId')
+        .lean()
+        .maxTimeMS(5000)
+        .exec();
+
+      if (!users || users.length === 0) {
+        return [];
+      }
+
+      // Step 3: Get auth IDs from users and fetch auth data in parallel
+      const authIds = users.map((u: any) => u.authId).filter(Boolean);
+      if (authIds.length === 0) {
+        return [];
+      }
+
+      const authData = await AuthModel.find({ _id: { $in: authIds } })
+        .select('_id username avatarColor uId')
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
+
+      // Step 4: Create maps for quick lookup
+      const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
+      const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
+
+      // Step 5: Combine data - iterate over unique followeeIds to prevent duplicates
+      const followeeDataList = uniqueFolloweeIds
+        .map((followeeIdStr: string) => {
+          const user = userMap.get(followeeIdStr);
+          if (!user) return null;
+
+          const auth = authMap.get(user.authId?.toString() || '');
+          if (!auth) return null;
+
+          return {
+            _id: user._id,
+            username: auth.username || '',
+            avatarColor: auth.avatarColor || '',
+            uId: auth.uId || '',
+            postCount: user.postsCount || 0,
+            followersCount: user.followersCount || 0,
+            followingCount: user.followingCount || 0,
+            profilePicture: user.profilePicture || '',
+            userProfile: user
+          } as IFollowerData;
+        })
+        .filter((f): f is IFollowerData => f !== null);
+
+      // Additional deduplication by _id as a safety measure
+      const uniqueFollowees = new Map<string, IFollowerData>();
+      followeeDataList.forEach((followee: IFollowerData) => {
+        const id = followee._id?.toString() || '';
+        if (id && !uniqueFollowees.has(id)) {
+          uniqueFollowees.set(id, followee);
+        }
+      });
+
+      return Array.from(uniqueFollowees.values());
+    } catch (error) {
+      // If parallel approach fails, return empty array to prevent 503
+      return [];
+    }
   }
 
   public async getFollowerData(userObjectId: ObjectId): Promise<IFollowerData[]> {
-    const follower: IFollowerData[] = await FollowerModel.aggregate([
-      { $match: { followeeId: userObjectId } },
-      { $lookup: { from: 'User', localField: 'followerId', foreignField: '_id', as: 'followerId' } },
-      { $unwind: '$followerId' },
-      { $lookup: { from: 'Auth', localField: 'followerId.authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      {
-        $addFields: {
-          _id: '$followerId._id',
-          username: '$authId.username',
-          avatarColor: '$authId.avatarColor',
-          uId: '$authId.uId',
-          postCount: '$followerId.postsCount',
-          followersCount: '$followerId.followersCount',
-          followingCount: '$followerId.followingCount',
-          profilePicture: '$followerId.profilePicture',
-          userProfile: '$followerId'
-        }
-      },
-      {
-        $project: {
-          authId: 0,
-          followerId: 0,
-          followeeId: 0,
-          createdAt: 0,
-          __v: 0
-        }
+    // Fast approach: Get follower IDs first, then fetch users in parallel
+    // This avoids expensive $lookup operations
+    try {
+      // Step 1: Get all follower IDs (fast - just IDs)
+      // Use hint to ensure index is used
+      const followers = await FollowerModel.find({ followeeId: userObjectId })
+        .select('followerId')
+        .lean()
+        .hint({ followeeId: 1 }) // Force use of followeeId index
+        .maxTimeMS(5000)
+        .exec();
+
+      if (!followers || followers.length === 0) {
+        return [];
       }
-    ]);
-    return follower;
+
+      // Remove duplicates by converting to Set (using string IDs for comparison)
+      const uniqueFollowerIds = Array.from(new Set(followers.map((f: any) => f.followerId.toString())));
+      const followerIds = uniqueFollowerIds.map(id => new mongoose.Types.ObjectId(id));
+
+      // Step 2: Get users (with authId reference)
+      // _id queries are automatically indexed
+      const users = await UserModel.find({ _id: { $in: followerIds } })
+        .select('_id postsCount followersCount followingCount profilePicture authId')
+        .lean()
+        .maxTimeMS(5000)
+        .exec();
+
+      if (!users || users.length === 0) {
+        return [];
+      }
+
+      // Step 3: Get auth IDs from users and fetch auth data
+      const authIds = users.map((u: any) => u.authId).filter(Boolean);
+      if (authIds.length === 0) {
+        return [];
+      }
+
+      const authData = await AuthModel.find({ _id: { $in: authIds } })
+        .select('_id username avatarColor uId')
+        .lean()
+        .maxTimeMS(3000)
+        .exec();
+
+      // Step 4: Create maps for quick lookup
+      const authMap = new Map(authData.map((a: any) => [a._id.toString(), a]));
+      const userMap = new Map(users.map((u: any) => [u._id.toString(), u]));
+
+      // Step 5: Combine data - iterate over unique followerIds to prevent duplicates
+      const followerDataList = uniqueFollowerIds
+        .map((followerIdStr: string) => {
+          const user = userMap.get(followerIdStr);
+          if (!user) return null;
+
+          const auth = authMap.get(user.authId?.toString() || '');
+          if (!auth) return null;
+
+          return {
+            _id: user._id,
+            username: auth.username || '',
+            avatarColor: auth.avatarColor || '',
+            uId: auth.uId || '',
+            postCount: user.postsCount || 0,
+            followersCount: user.followersCount || 0,
+            followingCount: user.followingCount || 0,
+            profilePicture: user.profilePicture || '',
+            userProfile: user
+          } as IFollowerData;
+        })
+        .filter((f): f is IFollowerData => f !== null);
+
+      // Additional deduplication by _id as a safety measure
+      const uniqueFollowers = new Map<string, IFollowerData>();
+      followerDataList.forEach((follower: IFollowerData) => {
+        const id = follower._id?.toString() || '';
+        if (id && !uniqueFollowers.has(id)) {
+          uniqueFollowers.set(id, follower);
+        }
+      });
+
+      return Array.from(uniqueFollowers.values());
+    } catch (error) {
+      // If parallel approach fails, return empty array to prevent 503
+      return [];
+    }
   }
 
   public async getFolloweesIds(userId: string): Promise<string[]> {
-    const followees = await FollowerModel.find({ followerId: new mongoose.Types.ObjectId(userId) }).exec();
-    return followees.map((followee) => followee.followeeId.toString());
+    // Use lean() and only select the field we need for much faster query
+    const followees = await FollowerModel.find({ followerId: new mongoose.Types.ObjectId(userId) })
+      .select('followeeId')
+      .lean()
+      .maxTimeMS(5000)
+      .exec();
+    return followees.map((followee: any) => followee.followeeId.toString());
   }
 }
 

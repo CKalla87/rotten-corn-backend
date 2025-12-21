@@ -9,10 +9,23 @@ import { BadRequestError } from '@global/helpers/error-handler';
 import { loginSchema } from '@auth/schemes/signin';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { userService } from '@service/db/user.service';
+import Logger from 'bunyan';
 
 export class SignIn {
   @joiValidation(loginSchema)
   public async read(req: Request, res: Response): Promise<void> {
+    // Log request for debugging
+    const log: Logger = config.createLogger('signin');
+    log.info('Signin request received', {
+      method: req.method,
+      url: req.url,
+      body: req.body,
+      bodyKeys: Object.keys(req.body || {}),
+      hasBody: !!req.body,
+      contentType: req.get('content-type'),
+      origin: req.get('origin')
+    });
+
     const { username, password } = req.body;
     const existingUser: IAuthDocument = await authService.getAuthUserByUsername(username);
     if (!existingUser) {
@@ -37,7 +50,34 @@ export class SignIn {
       config.JWT_TOKEN!
     );
 
-    req.session = { jwt: userJwt };
+    // Set session - cookie-session middleware will handle persisting this
+    // We need to modify the existing session object, not replace it
+    if (!req.session) {
+      (req as any).session = {};
+    }
+    (req.session as any).jwt = userJwt;
+
+    // ALSO set a regular cookie with the JWT as a fallback
+    // Deployed environments are: 'develop', 'staging', 'production'
+    // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space
+    const isLocalDev = config.NODE_ENV === 'development' &&
+                       (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                       !config.CLIENT_URL?.includes('chatappserver.space');
+
+    const cookieOptions: any = {
+      maxAge: 24 * 7 * 3600000,
+      httpOnly: true,
+      secure: !isLocalDev,
+      sameSite: isLocalDev ? 'lax' : 'none',
+      path: '/'
+    };
+
+    if (!isLocalDev) {
+      cookieOptions.domain = '.chatappserver.space';
+    }
+
+    res.cookie('jwt', userJwt, cookieOptions);
+
     const userDocument: IUserDocument = {
       ...user,
       authId: existingUser!._id,

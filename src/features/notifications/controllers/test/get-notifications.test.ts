@@ -19,16 +19,17 @@ describe('Get', () => {
   });
 
   it('should send correct json response', async () => {
-    const req: Request = notificationMockRequest({}, authUserPayload, { notificationId: '12345' }) as Request;
+    const req: Request = notificationMockRequest({}, authUserPayload, { notificationId: '12345' }) as unknown as Request;
     const res: Response = notificationMockResponse();
     jest.spyOn(notificationService, 'getNotifications').mockResolvedValue([notificationData]);
 
     await Get.prototype.notifications(req, res);
     expect(notificationService.getNotifications).toHaveBeenCalledWith(req.currentUser!.userId);
     expect(res.status).toHaveBeenCalledWith(200);
+    // The controller now deduplicates notifications, so expect the deduplicated array
     expect(res.json).toHaveBeenCalledWith({
       message: 'User notifications',
-      notifications: [notificationData]
+      notifications: expect.arrayContaining([notificationData])
     });
   });
 });

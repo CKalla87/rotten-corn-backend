@@ -5,6 +5,7 @@ import { Get } from '@chat/controllers/get-chat-message';
 import { Delete } from '@chat/controllers/delete-chat-message';
 import { Update } from '@chat/controllers/update-chat-message';
 import { Message } from '@chat/controllers/add-message-reaction';
+import { Typing } from '@chat/controllers/typing-indicator';
 
 class ChatRoutes {
   private router: Router;
@@ -21,6 +22,8 @@ class ChatRoutes {
     this.router.post('/chat/message/remove-chat-users', authMiddleware.checkAuthentication, Add.prototype.removeChatUsers);
     this.router.put('/chat/message/mark-as-read', authMiddleware.checkAuthentication, Update.prototype.message);
     this.router.put('/chat/message/reaction', authMiddleware.checkAuthentication, Message.prototype.reaction);
+    this.router.post('/chat/message/typing', authMiddleware.checkAuthentication, Typing.prototype.startTyping);
+    this.router.post('/chat/message/stop-typing', authMiddleware.checkAuthentication, Typing.prototype.stopTyping);
     this.router.delete(
       '/chat/message/mark-as-deleted/:messageId/:senderId/:receiverId/:type',
       authMiddleware.checkAuthentication,

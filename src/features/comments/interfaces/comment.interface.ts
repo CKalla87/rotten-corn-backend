@@ -8,8 +8,10 @@ export interface ICommentDocument extends Document {
   postId: string;
   profilePicture: string;
   comment: string;
+  gifUrl?: string;
   createdAt?: Date;
   userTo?: string | ObjectId;
+  reaction?: Array<{ senderName?: string; username?: string; type?: string; [key: string]: unknown }>;
 }
 
 export interface ICommentJob {

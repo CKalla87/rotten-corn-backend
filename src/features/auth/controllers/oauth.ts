@@ -1,0 +1,889 @@
+import { Request, Response, NextFunction } from 'express';
+import passport from 'passport';
+import HTTP_STATUS from 'http-status-codes';
+import { BadRequestError } from '@global/helpers/error-handler';
+import { IAuthDocument } from '@auth/interfaces/auth.interface';
+import { IUserDocument } from '@user/interfaces/user.interface';
+import { authCodeService } from '@service/oauth/auth-code.service';
+import { userService } from '@service/db/user.service';
+import JWT from 'jsonwebtoken';
+import { config } from '@root/config';
+import Logger from 'bunyan';
+import { ObjectId } from 'mongodb';
+import { generateAvatarImage, generateAvatarColor } from '@global/helpers/oauth-helpers';
+
+const log: Logger = config.createLogger('oauthController');
+
+// Helper function for structured OAuth error logging
+const logOAuthError = (provider: string, error: Error, context: Record<string, any>): void => {
+  log.error(`OAuth error for ${provider}:`, {
+    provider,
+    error: error.message,
+    stack: error.stack,
+    ...context,
+    timestamp: new Date().toISOString()
+  });
+};
+
+export class OAuthController {
+  /**
+   * Validate redirect URI to prevent open redirects
+   */
+  private validateRedirectUri(redirectUri: string): boolean {
+    try {
+      const url = new URL(redirectUri);
+
+      // Allow localhost for development (any port)
+      if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+        log.info(`Redirect URI validation passed (localhost): ${redirectUri}`);
+        return true;
+      }
+
+      // Check against allowed origins from config
+      const allowedOrigins = [
+        config.CLIENT_URL,
+        config.EC2_URL,
+        'https://dev.chatappserver.space',
+        'https://api.dev.chatappserver.space',
+        'https://staging.chatappserver.space',
+        'https://api.staging.chatappserver.space',
+        'https://chatappserver.space',
+        'https://api.chatappserver.space',
+        // Explicitly allow common localhost ports for development
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:8080',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://127.0.0.1:8080'
+      ].filter(Boolean);
+
+      const isValid = allowedOrigins.some(origin => {
+        if (!origin) return false;
+        try {
+          const originUrl = new URL(origin);
+          // Check if same protocol, hostname, and port
+          const matches = url.protocol === originUrl.protocol &&
+                 url.hostname === originUrl.hostname &&
+                 url.port === originUrl.port;
+          if (matches) {
+            log.info(`Redirect URI validation passed (matched origin): ${redirectUri} matches ${origin}`);
+          }
+          return matches;
+        } catch {
+          return false;
+        }
+      });
+
+      if (!isValid) {
+        log.warn(`Redirect URI validation failed: ${redirectUri}`, {
+          allowedOrigins: allowedOrigins.filter(Boolean),
+          urlHostname: url.hostname,
+          urlPort: url.port,
+          urlProtocol: url.protocol
+        });
+      }
+
+      return isValid;
+    } catch (error) {
+      log.error(`Redirect URI validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        redirectUri,
+        error: error instanceof Error ? error.stack : String(error)
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Get the expected callback URL for a provider
+   * NOTE: Callback URL must point to the BACKEND server, not the frontend CLIENT_URL
+   */
+  private getExpectedCallbackUrl(provider: string): string {
+    // Check if we're truly in local development (not deployed)
+    // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space
+    const isTrulyLocal = config.NODE_ENV === 'development' &&
+                        (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                        !config.CLIENT_URL?.includes('chatappserver.space');
+
+    if (isTrulyLocal) {
+      return `http://localhost:5000/api/v1/auth/${provider}/callback`;
+    }
+
+    // For staging and production, check EC2_URL first (backend server URL)
+    if (config.EC2_URL && !config.EC2_URL.includes('169.254.169.254') &&
+        (config.EC2_URL.startsWith('http://') || config.EC2_URL.startsWith('https://'))) {
+      return `${config.EC2_URL.replace(/\/$/, '')}/api/v1/auth/${provider}/callback`;
+    }
+
+    // Environment-specific fallbacks based on NODE_ENV
+    if (config.NODE_ENV === 'staging') {
+      return `https://api.staging.chatappserver.space/api/v1/auth/${provider}/callback`;
+    }
+
+    if (config.NODE_ENV === 'production') {
+      return `https://api.chatappserver.space/api/v1/auth/${provider}/callback`;
+    }
+
+    // Final fallback for development (deployed)
+    return `https://api.dev.chatappserver.space/api/v1/auth/${provider}/callback`;
+  }
+
+  /**
+   * Initiate OAuth flow - redirect to provider
+   */
+  public initiate(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const { provider } = req.params;
+      const redirectUri = req.query.redirect_uri as string;
+
+      log.warn(`OAuth initiate request: provider=${provider}, redirect_uri=${redirectUri}`, {
+        origin: req.get('origin'),
+        referer: req.get('referer'),
+        method: req.method,
+        path: req.path,
+        query: req.query,
+        params: req.params
+      });
+
+      if (!redirectUri) {
+        log.error('OAuth initiate failed: redirect_uri is missing', {
+          provider,
+          query: req.query,
+          allQueryKeys: Object.keys(req.query)
+        });
+        throw new BadRequestError('redirect_uri is required');
+      }
+
+      // Validate redirect URI to prevent open redirects
+      if (!this.validateRedirectUri(redirectUri)) {
+        log.error(`OAuth initiate failed: Invalid redirect_uri: ${redirectUri}`, {
+          provider,
+          redirectUri,
+          origin: req.get('origin'),
+          allowedOrigins: [
+            config.CLIENT_URL,
+            config.EC2_URL,
+            'http://localhost:8080',
+            'http://localhost:3000',
+            'http://localhost:3001'
+          ].filter(Boolean)
+        });
+        throw new BadRequestError(`Invalid redirect_uri: ${redirectUri}. The redirect URI must be from an allowed origin (localhost is allowed for development).`);
+      }
+
+      const validProviders = ['google', 'github', 'facebook'];
+      if (!validProviders.includes(provider)) {
+        throw new BadRequestError(`Invalid provider. Must be one of: ${validProviders.join(', ')}`);
+      }
+
+      // Check if OAuth credentials are configured
+      if (provider === 'google' && (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET)) {
+        log.error('Google OAuth credentials not configured');
+        throw new BadRequestError('OAuth provider not configured');
+      }
+      if (provider === 'github' && (!config.GITHUB_CLIENT_ID || !config.GITHUB_CLIENT_SECRET)) {
+        log.error('GitHub OAuth credentials not configured');
+        throw new BadRequestError('OAuth provider not configured');
+      }
+      if (provider === 'facebook' && (!config.FACEBOOK_APP_ID || !config.FACEBOOK_APP_SECRET)) {
+        log.error('Facebook OAuth credentials not configured');
+        throw new BadRequestError('OAuth provider not configured');
+      }
+
+      // Log the expected callback URL for debugging
+      const expectedCallbackUrl = this.getExpectedCallbackUrl(provider);
+      log.info(`Expected OAuth callback URL for ${provider}: ${expectedCallbackUrl}`);
+      log.warn(`IMPORTANT: Make sure this callback URL is registered in your ${provider} OAuth app settings: ${expectedCallbackUrl}`);
+
+      // Store redirect_uri in state parameter (base64 encoded)
+      const state = Buffer.from(redirectUri).toString('base64');
+
+      log.info(`Initiating ${provider} OAuth with state: ${state.substring(0, 20)}...`);
+      log.info('OAuth request details:', {
+        provider,
+        expectedCallbackUrl,
+        frontendRedirectUri: redirectUri,
+        requestUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
+        userAgent: req.get('user-agent'),
+        nodeEnv: config.NODE_ENV,
+        ec2Url: config.EC2_URL,
+        clientUrl: config.CLIENT_URL
+      });
+
+      // Authenticate with the provider
+      // Note: passport.authenticate will redirect to the OAuth provider
+      // The callbackURL is set in the Passport strategy configuration (passport.config.ts)
+      // CRITICAL: The callbackURL in the strategy config is what Google will redirect to
+      // This must ALWAYS be the backend API URL, never the frontend URL
+      log.warn(`About to call passport.authenticate('${provider}') - callback URL should be: ${expectedCallbackUrl}`);
+
+      // Google OAuth requires scope as a space-separated string for the authorization URL
+      // Other providers (GitHub, Facebook) can use arrays
+      // passport-google-oauth20 accepts both string and array formats, but using string ensures proper URL encoding
+      const scope = provider === 'google'
+        ? 'profile email'  // Space-separated string for Google OAuth 2.0
+        : provider === 'github'
+          ? ['user:email']
+          : ['email'];
+
+      log.info(`OAuth scope for ${provider}:`, { scope, scopeType: typeof scope });
+
+      passport.authenticate(provider, {
+        scope: scope,
+        state
+        // Note: We cannot override callbackURL here - it's set in the strategy config
+        // If Google redirects to the wrong URL, check the strategy configuration in passport.config.ts
+      })(req, res, next);
+    } catch (error) {
+      log.error('Error in OAuth initiate:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Handle OAuth provider callback (GET)
+   * This is called by the OAuth provider after user authorization
+   */
+  public async callback(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const { provider } = req.params;
+
+    // Set CORS headers immediately
+    const origin = req.get('origin') || 'https://dev.chatappserver.space';
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+
+    // Log callback request for debugging
+    log.info(`OAuth callback received for ${provider}`, {
+      path: req.path,
+      fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
+      query: req.query,
+      origin: req.get('origin'),
+      referer: req.get('referer'),
+      userAgent: req.get('user-agent')
+    });
+
+    // Log before passport authenticate
+    log.info(`About to call passport.authenticate for ${provider}`, {
+      query: req.query,
+      hasCode: !!req.query.code,
+      hasState: !!req.query.state,
+      error: req.query.error,
+      fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`
+    });
+
+    passport.authenticate(
+      provider,
+      { session: false, failureRedirect: undefined }, // Don't use failureRedirect, handle errors manually
+      async (err: Error | null, user: IAuthDocument | null) => {
+        // Helper function to safely get redirect URI
+        const getRedirectUri = (): string => {
+          try {
+            if (req.query.state) {
+              const decoded = Buffer.from(req.query.state as string, 'base64').toString();
+              // Ensure HTTPS for production (but keep http:// for localhost)
+              if (decoded && decoded.startsWith('http://') && !decoded.includes('localhost')) {
+                return decoded.replace('http://', 'https://');
+              }
+              if (decoded) {
+                return decoded;
+              }
+            }
+          } catch (error) {
+            log.error('Error decoding state parameter:', error);
+          }
+          // Default: redirect to frontend OAuth callback route
+          // Check if we're in local development first
+          const isTrulyLocal = config.NODE_ENV === 'development' &&
+                              (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                              !config.CLIENT_URL?.includes('chatappserver.space');
+
+          if (isTrulyLocal) {
+            // For local development, try to detect the frontend port from the referer or origin
+            const referer = req.get('referer');
+            const origin = req.get('origin');
+            if (referer) {
+              try {
+                const refererUrl = new URL(referer);
+                if (refererUrl.hostname === 'localhost' || refererUrl.hostname === '127.0.0.1') {
+                  return `${refererUrl.origin}/auth/${provider}/callback`;
+                }
+              } catch (e) {
+                // Invalid referer URL, continue to fallback
+              }
+            }
+            if (origin) {
+              try {
+                const originUrl = new URL(origin);
+                if (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1') {
+                  return `${originUrl.origin}/auth/${provider}/callback`;
+                }
+              } catch (e) {
+                // Invalid origin URL, continue to fallback
+              }
+            }
+            // Fallback for local: use common localhost ports
+            return `http://localhost:8080/auth/${provider}/callback`;
+          }
+
+          // For deployed environments, use CLIENT_URL or default
+          const frontendUrl = config.CLIENT_URL || 'https://dev.chatappserver.space';
+          // Ensure we redirect to the OAuth callback route, not just the root
+          return `${frontendUrl}/auth/${provider}/callback`;
+        };
+
+        try {
+          // Log passport authenticate result
+          log.info(`passport.authenticate callback for ${provider}`, {
+            hasError: !!err,
+            hasUser: !!user,
+            errorMessage: err?.message,
+            query: req.query
+          });
+
+          if (err || !user) {
+            let errorMessage = err?.message || 'Authentication failed';
+
+            // Log detailed error info
+            log.error(`OAuth authentication failed for ${provider}`, {
+              error: err?.message,
+              errorStack: err?.stack,
+              query: req.query,
+              fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`
+            });
+
+            // Provide more helpful error messages for common OAuth errors
+            if (err?.message?.includes('redirect_uri_mismatch') ||
+                err?.message?.includes('redirect_uri') ||
+                err?.message?.includes('invalid_request')) {
+              const expectedCallbackUrl = this.getExpectedCallbackUrl(provider);
+              errorMessage = `OAuth callback URL mismatch. Expected: ${expectedCallbackUrl}. Please verify this URL is registered in your ${provider} OAuth app settings.`;
+              log.error(`OAuth callback URL mismatch for ${provider}:`, {
+                expected: expectedCallbackUrl,
+                error: err?.message,
+                hasState: !!req.query.state,
+                userAgent: req.get('user-agent'),
+                ip: req.ip
+              });
+            }
+
+            const redirectUri = getRedirectUri();
+            if (err) {
+              logOAuthError(provider, err, {
+                redirectUri,
+                hasState: !!req.query.state,
+                userAgent: req.get('user-agent'),
+                ip: req.ip,
+                expectedCallbackUrl: this.getExpectedCallbackUrl(provider)
+              });
+            } else {
+              log.error(`OAuth callback failed for ${provider}:`, {
+                error: errorMessage,
+                redirectUri,
+                hasState: !!req.query.state,
+                userAgent: req.get('user-agent'),
+                ip: req.ip,
+                expectedCallbackUrl: this.getExpectedCallbackUrl(provider),
+                timestamp: new Date().toISOString()
+              });
+            }
+            // Ensure redirect URI includes callback path
+            const finalRedirectUri = redirectUri.includes('/auth/')
+              ? redirectUri
+              : `${redirectUri}/auth/${provider}/callback`;
+            res.redirect(`${finalRedirectUri}?error=${encodeURIComponent(errorMessage)}`);
+            return;
+          }
+
+          const redirectUri = getRedirectUri();
+
+          // Get user document with timeout protection
+          let userDocument: IUserDocument | null = null;
+          try {
+            const dbPromise = userService.getUserByAuthId(`${user._id}`);
+            const dbTimeoutPromise = new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error('Database operation timeout')), 3000);
+            });
+            userDocument = await Promise.race([dbPromise, dbTimeoutPromise]) as IUserDocument;
+          } catch (dbError) {
+            log.error(`Failed to get user document for authId: ${user._id}`, {
+              provider,
+              error: dbError instanceof Error ? dbError.message : 'Unknown error',
+              userId: user._id,
+              email: user.email
+            });
+            res.redirect(`${redirectUri}?error=${encodeURIComponent('Failed to retrieve user profile. Please try again.')}`);
+            return;
+          }
+
+          // If user document doesn't exist, try to create it synchronously (fallback for queued creation)
+          if (!userDocument) {
+            log.warn(`User document not found for authId: ${user._id}, attempting to create synchronously`, {
+              provider,
+              userId: user._id,
+              email: user.email
+            });
+
+            try {
+              // Create user document from auth data
+              const userObjectId = new ObjectId();
+              const avatarColor = user.avatarColor || generateAvatarColor();
+              const avatarImage = generateAvatarImage(user.username || user.email || 'User', avatarColor);
+
+              const newUserData: IUserDocument = {
+                _id: userObjectId,
+                authId: user._id,
+                uId: user.uId || `${Math.floor(Math.random() * 1000000000000)}`,
+                username: user.username || 'User',
+                email: user.email || '',
+                avatarColor: avatarColor,
+                profilePicture: avatarImage,
+                blocked: [],
+                blockedBy: [],
+                work: '',
+                location: '',
+                school: '',
+                quote: '',
+                bgImageVersion: '',
+                bgImageId: '',
+                followersCount: 0,
+                followingCount: 0,
+                postsCount: 0,
+                notifications: {
+                  messages: true,
+                  reactions: true,
+                  comments: true,
+                  follows: true
+                },
+                social: {
+                  facebook: '',
+                  instagram: '',
+                  twitter: '',
+                  youtube: ''
+                }
+              } as unknown as IUserDocument;
+
+              // Create user document synchronously
+              await userService.addUserData(newUserData);
+              userDocument = newUserData;
+
+              log.info('Created user document synchronously for OAuth user', {
+                provider,
+                userId: user._id,
+                userObjectId: userObjectId.toString()
+              });
+            } catch (createError) {
+              log.error(`Failed to create user document synchronously for authId: ${user._id}`, {
+                provider,
+                error: createError instanceof Error ? createError.message : 'Unknown error',
+                userId: user._id,
+                email: user.email
+              });
+              res.redirect(`${redirectUri}?error=${encodeURIComponent('User profile not found. Please try again in a moment.')}`);
+              return;
+            }
+          }
+
+          // Generate JWT token
+          const token = JWT.sign(
+            {
+              userId: userDocument._id,
+              uId: user.uId,
+              email: user.email,
+              username: user.username,
+              avatarColor: user.avatarColor
+            },
+            config.JWT_TOKEN!
+          );
+
+          // Generate authorization code - if Redis fails, embed token directly in code (base64)
+          try {
+            // Check Redis availability first for better logging
+            const redisAvailableBefore = await authCodeService.isRedisAvailable().catch(() => false);
+            log.info('Redis availability before code generation', {
+              redisAvailable: redisAvailableBefore,
+              environment: config.NODE_ENV,
+              redisHost: config.REDIS_HOST ? 'configured' : 'not configured'
+            });
+
+            // Try to generate code with Redis (with fast timeout)
+            const codePromise = authCodeService.generateCode(`${userDocument._id}`, token);
+            const codeTimeoutPromise = new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error('Code generation timeout')), 1000);
+            });
+            let code: string;
+            let codeSource: 'redis' | 'fallback' = 'redis';
+            try {
+              code = await Promise.race([codePromise, codeTimeoutPromise]) as string;
+              log.info('Code generated successfully via Redis', {
+                codeLength: code.length,
+                codePrefix: code.substring(0, 10),
+                environment: config.NODE_ENV
+              });
+            } catch (codeError) {
+              // If Redis fails, create a temporary code with embedded token (valid for 5 minutes)
+              codeSource = 'fallback';
+              const errorMsg = codeError instanceof Error ? codeError.message : 'Unknown error';
+              log.warn('Redis code generation failed, using fallback method:', {
+                error: errorMsg,
+                environment: config.NODE_ENV,
+                redisAvailable: redisAvailableBefore
+              });
+              // Create a temporary code by encoding token data (valid for 5 minutes)
+              const tempData = {
+                userId: userDocument._id,
+                token,
+                createdAt: Date.now()
+              };
+              code = Buffer.from(JSON.stringify(tempData)).toString('base64');
+              log.info('Fallback code generated (base64-encoded token)', {
+                codeLength: code.length,
+                codePrefix: code.substring(0, 10),
+                expiresIn: '5 minutes (300 seconds)',
+                environment: config.NODE_ENV
+              });
+            }
+
+            log.info(`OAuth callback successful for ${provider}`, {
+              userId: userDocument._id,
+              email: user.email,
+              codeSource: codeSource,
+              codeLength: code.length,
+              environment: config.NODE_ENV
+            });
+            // If redirectUri already has the callback path, use it as-is
+            // Otherwise, append the callback path
+            const finalRedirectUri = redirectUri.includes('/auth/')
+              ? redirectUri
+              : `${redirectUri}/auth/${provider}/callback`;
+            res.redirect(`${finalRedirectUri}?code=${code}`);
+          } catch (codeError) {
+            // Fallback: redirect with token directly if everything fails
+            log.error(`Failed to generate auth code for ${provider}, using direct token redirect:`, {
+              error: codeError instanceof Error ? codeError.message : 'Unknown error',
+              userId: userDocument._id,
+              email: user.email
+            });
+            // Last resort: redirect with token (less secure but ensures OAuth works)
+            const finalRedirectUri = redirectUri.includes('/auth/')
+              ? redirectUri
+              : `${redirectUri}/auth/${provider}/callback`;
+            res.redirect(`${finalRedirectUri}?token=${encodeURIComponent(token)}&userId=${userDocument._id}`);
+          }
+        } catch (error) {
+          // Catch-all for any unexpected errors
+          if (error instanceof Error) {
+            logOAuthError(provider, error, {
+              redirectUri: getRedirectUri(),
+              hasState: !!req.query.state,
+              userAgent: req.get('user-agent'),
+              ip: req.ip
+            });
+          } else {
+            log.error(`Unexpected error in OAuth callback for ${provider}:`, {
+              error,
+              stack: error instanceof Error ? error.stack : undefined,
+              redirectUri: getRedirectUri(),
+              hasState: !!req.query.state,
+              userAgent: req.get('user-agent'),
+              ip: req.ip,
+              timestamp: new Date().toISOString()
+            });
+          }
+          const redirectUri = getRedirectUri();
+          const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+          res.redirect(`${redirectUri}?error=${encodeURIComponent(errorMessage)}`);
+        }
+      }
+    )(req, res, next);
+  }
+
+  /**
+   * Exchange authorization code for token and user data (POST)
+   * This is called by the frontend after receiving the code
+   */
+  public async exchangeCode(req: Request, res: Response): Promise<void> {
+    // Set CORS headers immediately
+    const origin = req.get('origin');
+    // Allow localhost origins for local development
+    if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+      res.header('Access-Control-Allow-Origin', origin);
+    } else if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+    } else {
+      // Fallback: check if we're in local development
+      const isTrulyLocal = config.NODE_ENV === 'development' &&
+                          (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                          !config.CLIENT_URL?.includes('chatappserver.space');
+      if (isTrulyLocal) {
+        res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
+      } else {
+        res.header('Access-Control-Allow-Origin', config.CLIENT_URL || 'https://dev.chatappserver.space');
+      }
+    }
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+
+    try {
+      // Log the full request for debugging
+      log.info('Code exchange request received', {
+        method: req.method,
+        url: req.url,
+        path: req.path,
+        body: req.body,
+        bodyKeys: Object.keys(req.body || {}),
+        query: req.query,
+        queryKeys: Object.keys(req.query || {}),
+        headers: {
+          'content-type': req.get('content-type'),
+          origin: req.get('origin'),
+          referer: req.get('referer')
+        },
+        hasBody: !!req.body,
+        bodyType: typeof req.body,
+        rawBody: req.body ? JSON.stringify(req.body) : 'empty'
+      });
+
+      // Check if body is empty or not parsed correctly
+      if (!req.body || (typeof req.body === 'object' && Object.keys(req.body).length === 0)) {
+        log.warn('Request body is empty or not parsed', {
+          contentType: req.get('content-type'),
+          body: req.body,
+          query: req.query
+        });
+      }
+
+      // Try to get code from body first, then from query (in case frontend sends it as query param)
+      // Also check if code is in URL params (some frontends might send it that way)
+      // IMPORTANT: Frontend should send code in POST body as JSON: { "code": "..." }
+      // But we also check query string as fallback
+      const code = req.body?.code || req.query?.code || (req as any).params?.code;
+
+      log.info('Code extraction result', {
+        hasCode: !!code,
+        codeSource: req.body?.code ? 'body' : req.query?.code ? 'query' : req.params?.code ? 'params' : 'none',
+        codeLength: code?.length || 0,
+        codePrefix: code?.substring(0, 30) || 'N/A',
+        bodyHasCode: !!req.body?.code,
+        queryHasCode: !!req.query?.code,
+        bodyType: typeof req.body,
+        bodyKeys: Object.keys(req.body || {})
+      });
+
+      if (!code) {
+        const errorDetails = {
+          body: req.body,
+          bodyKeys: Object.keys(req.body || {}),
+          query: req.query,
+          queryKeys: Object.keys(req.query || {}),
+          params: req.params,
+          contentType: req.get('content-type'),
+          rawBody: req.body ? JSON.stringify(req.body).substring(0, 200) : 'empty',
+          url: req.url,
+          method: req.method
+        };
+
+        log.error('No authorization code provided in exchange request', errorDetails);
+
+        // Provide helpful error message based on what we found
+        let errorMessage = 'Authorization code is required. ';
+        if (!req.body || Object.keys(req.body).length === 0) {
+          errorMessage += 'The request body is empty. Please send the code in the POST body as JSON: { "code": "..." }';
+        } else if (req.body && typeof req.body === 'object' && !req.body.code) {
+          errorMessage += `The request body was received but does not contain a "code" field. Body keys: ${Object.keys(req.body).join(', ')}`;
+        } else {
+          errorMessage += 'Please ensure the OAuth callback completed successfully and the code is included in the request.';
+        }
+
+        throw new BadRequestError(errorMessage);
+      }
+
+      // Exchange code for user data and token with timeout protection
+      // Also handle direct token (fallback when Redis unavailable)
+      let authData;
+
+      // Check if code is actually a base64-encoded token (fallback method)
+      // This happens when Redis is unavailable during code generation
+      try {
+        const decodedStr = Buffer.from(code, 'base64').toString();
+        const decoded = JSON.parse(decodedStr);
+        if (decoded && decoded.token && decoded.userId && decoded.createdAt) {
+          // Check if token is still valid (within 5 minutes for fallback codes - more lenient)
+          const age = Date.now() - decoded.createdAt;
+          if (age < 300000) { // 5 minutes
+            authData = { userId: decoded.userId, token: decoded.token };
+            log.info('Used fallback token code (Redis unavailable)', {
+              userId: decoded.userId,
+              age: Math.round(age / 1000) + 's',
+              codeLength: code.length
+            });
+          } else {
+            log.warn('Fallback token code expired', {
+              age: Math.round(age / 1000) + 's',
+              maxAge: '300s (5 minutes)',
+              createdAt: new Date(decoded.createdAt).toISOString()
+            });
+            throw new BadRequestError(`Authorization code has expired. The code was created ${Math.round(age / 1000)} seconds ago and is only valid for 5 minutes. Please try signing in again.`);
+          }
+        } else {
+          log.debug('Decoded base64 but missing required fields', {
+            hasToken: !!decoded?.token,
+            hasUserId: !!decoded?.userId,
+            hasCreatedAt: !!decoded?.createdAt
+          });
+        }
+      } catch (decodeError) {
+        // Check if it's a BadRequestError (expired code) - rethrow it
+        if (decodeError instanceof BadRequestError) {
+          throw decodeError;
+        }
+        // Not a fallback code or invalid base64/JSON - proceed with normal Redis exchange
+        log.debug('Code is not base64-encoded fallback token, trying Redis exchange', {
+          error: decodeError instanceof Error ? decodeError.message : 'Unknown decode error',
+          codeLength: code.length,
+          codePrefix: code.substring(0, 20)
+        });
+      }
+
+      // If not a fallback code, try Redis exchange
+      if (!authData) {
+        try {
+          // Increase timeout to 3 seconds to give Redis more time
+          const codePromise = authCodeService.exchangeCode(code);
+          const codeTimeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Code exchange timeout')), 3000);
+          });
+          authData = await Promise.race([codePromise, codeTimeoutPromise]);
+
+          if (authData) {
+            log.info('Code exchanged successfully from Redis', {
+              userId: authData.userId,
+              codeLength: code.length
+            });
+          }
+        } catch (codeError) {
+          log.error('Failed to exchange authorization code from Redis:', {
+            error: codeError instanceof Error ? codeError.message : 'Unknown error',
+            code: code?.substring(0, 30),
+            codeLength: code?.length || 0,
+            errorType: codeError instanceof Error ? codeError.constructor.name : 'Unknown'
+          });
+          // Continue to check if authData was set
+        }
+      }
+
+      // Check for direct token parameter (last resort fallback)
+      if (!authData && req.body.token && req.body.userId) {
+        authData = { userId: req.body.userId, token: req.body.token };
+        log.info('Used direct token parameter (fallback method)');
+      }
+
+      if (!authData) {
+        // Check Redis availability to provide better error message
+        const redisAvailable = await authCodeService.isRedisAvailable().catch(() => false);
+
+        log.error('Authorization code exchange failed - code not found in Redis and no fallback token', {
+          codeLength: code?.length || 0,
+          codePrefix: code?.substring(0, 20) || 'N/A',
+          code: code, // Log full code for debugging
+          hasBody: !!req.body,
+          bodyKeys: req.body ? Object.keys(req.body) : [],
+          redisAvailable: redisAvailable,
+          codeType: 'normal' // Normal code (not base64 fallback)
+        });
+
+        let errorMessage = 'Invalid or expired authorization code. ';
+        if (!redisAvailable) {
+          errorMessage += 'Redis is currently unavailable. If this code was generated when Redis was down, it may have expired. ';
+        } else {
+          errorMessage += 'The code may have expired (codes are valid for 10 minutes) or was already used. ';
+        }
+        errorMessage += 'Please try signing in again.';
+
+        throw new BadRequestError(errorMessage);
+      }
+
+      // Get user from database with timeout protection
+      let user: IUserDocument;
+      try {
+        const dbPromise = userService.getUserById(authData.userId);
+        const dbTimeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Database operation timeout')), 3000);
+        });
+        user = await Promise.race([dbPromise, dbTimeoutPromise]) as IUserDocument;
+      } catch (dbError) {
+        log.error('Failed to get user from database during code exchange:', {
+          error: dbError instanceof Error ? dbError.message : 'Unknown error',
+          userId: authData.userId
+        });
+        throw new BadRequestError('Failed to retrieve user data. Please try again.');
+      }
+
+      if (!user) {
+        throw new BadRequestError('User not found');
+      }
+
+      // Set session - DO NOT replace req.session, only modify it
+      // cookie-session uses a Proxy to detect changes, so we must modify the existing object
+      if (!req.session) {
+        (req as any).session = {};
+      }
+      (req.session as any).jwt = authData.token;
+
+      // ALSO set a regular cookie with the JWT as a fallback
+      // Deployed environments are: 'develop', 'staging', 'production'
+      // Local development is: 'development' (or undefined) with no EC2_URL or CLIENT_URL with chatappserver.space
+      const isLocalDev = config.NODE_ENV === 'development' &&
+                         !config.EC2_URL &&
+                         !config.CLIENT_URL?.includes('chatappserver.space');
+
+      const cookieOptions: any = {
+        maxAge: 24 * 7 * 3600000,
+        httpOnly: true,
+        secure: !isLocalDev,
+        sameSite: isLocalDev ? 'lax' : 'none',
+        path: '/'
+      };
+
+      if (!isLocalDev) {
+        cookieOptions.domain = '.chatappserver.space';
+      }
+
+      res.cookie('jwt', authData.token, cookieOptions);
+
+      // Return token and user data
+      log.info('Code exchange successful', {
+        userId: user._id,
+        email: user.email,
+        hasToken: !!authData.token
+      });
+
+      res.status(HTTP_STATUS.OK).json({
+        token: authData.token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          email: user.email,
+          avatarColor: user.avatarColor,
+          avatarImage: user.profilePicture,
+          profilePicture: user.profilePicture,
+          createdAt: user.createdAt
+        }
+      });
+    } catch (error) {
+      log.error('Error in code exchange:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        body: req.body,
+        query: req.query
+      });
+
+      if (error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new BadRequestError((error as Error).message || 'An error occurred during code exchange');
+    }
+  }
+}

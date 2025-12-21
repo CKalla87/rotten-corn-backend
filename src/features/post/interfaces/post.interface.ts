@@ -26,6 +26,7 @@ export interface IPostDocument extends Document {
 
 export interface IGetPostsQuery {
   _id?: ObjectId | string;
+  userId?: ObjectId | string;
   username?: string;
   imgId?: string;
   gifUrl?: string;

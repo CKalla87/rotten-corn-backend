@@ -23,7 +23,13 @@ class AuthService {
   }
 
   public async getAuthUserByUsername(username: string): Promise<IAuthDocument> {
-    const user: IAuthDocument = await AuthModel.findOne({ username: Helpers.firstLetterUppercase(username) }).exec() as IAuthDocument;
+    // Try normalized username first (how it should be stored)
+    let user: IAuthDocument = await AuthModel.findOne({ username: Helpers.firstLetterUppercase(username) }).exec() as IAuthDocument;
+    // If not found, try case-insensitive search as fallback
+    if (!user) {
+      const escapedUsername = Helpers.escapeRegex(username);
+      user = await AuthModel.findOne({ username: { $regex: new RegExp(`^${escapedUsername}$`, 'i') } }).exec() as IAuthDocument;
+    }
     return user;
   }
 

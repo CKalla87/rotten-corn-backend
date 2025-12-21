@@ -6,14 +6,28 @@ const SALT_ROUND = 10;
 
 const authSchema: Schema = new Schema(
   {
-    username: { type: String },
-    uId: { type: String },
-    email: { type: String },
+    username: { type: String, index: true, unique: true },
+    uId: { type: String, index: true },
+    email: { type: String, index: true, unique: true },
     password: { type: String },
     avatarColor: { type: String },
     createdAt: { type: Date, default: Date.now },
     passwordResetToken: { type: String, default: '' },
-    passwordResetExpires: { type: Number }
+    passwordResetExpires: { type: Number },
+    oauth: {
+      google: {
+        id: { type: String },
+        email: { type: String }
+      },
+      github: {
+        id: { type: String },
+        username: { type: String }
+      },
+      facebook: {
+        id: { type: String },
+        email: { type: String }
+      }
+    }
   },
   {
     toJSON: {
@@ -26,8 +40,11 @@ const authSchema: Schema = new Schema(
 );
 
 authSchema.pre('save', async function (this: IAuthDocument, next: () => void) {
-  const hashedPassword: string = await hash(this.password as string, SALT_ROUND);
-  this.password = hashedPassword;
+  // Only hash password if it exists and is not already hashed (OAuth users don't have passwords)
+  if (this.password && !this.password.startsWith('$2')) {
+    const hashedPassword: string = await hash(this.password as string, SALT_ROUND);
+    this.password = hashedPassword;
+  }
   next();
 });
 
