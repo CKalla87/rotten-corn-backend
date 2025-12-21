@@ -27,4 +27,4 @@ Create GitHub environments named `develop`, `staging`, and `production`, then ad
 
 ### Manual deployment tooling
 
-Helper scripts such as `create-deployment-package.sh` and the contents of `deployment/` remain available for direct deployments or troubleshooting outside of the CI/CD workflow.
+Helper scripts in the `deployment/` directory remain available for direct deployments or troubleshooting outside of the CI/CD workflow. The deployment package is created automatically by the CI/CD workflow.

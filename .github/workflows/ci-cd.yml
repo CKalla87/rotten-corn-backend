@@ -48,8 +48,44 @@ jobs:
 
       - name: Create deployment package
         run: |
-          chmod +x create-deployment-package.sh
-          ./create-deployment-package.sh
+          echo "Creating deployment package (chatapp.zip)..."
+          # Remove old zip if it exists
+          rm -f chatapp.zip
+          # Create zip excluding large directories and files
+          # Include build/* since we build in CI/CD and deploy pre-built artifacts
+          # Include package-lock.json for faster npm ci installs during deployment
+          zip -r chatapp.zip . \
+            -x "node_modules/*" \
+            -x ".git/*" \
+            -x "*.log" \
+            -x "coverage/*" \
+            -x ".env*" \
+            -x "dump.rdb" \
+            -x "*.zip" \
+            -x "usr/*" \
+            -x ".terraform/*" \
+            -x "deployment/.terraform/*" \
+            -x "deployment/*.tfstate*" \
+            -x "deployment/*.tfvars" \
+            -x "deployment/*.pub" \
+            -x "deployment/*.rsa" \
+            -x "deployment/connect-to-instance.sh" \
+            -x "deployment/CONNECTION_INSTRUCTIONS.txt" \
+            -x "deployment/verify-codedeploy.sh" \
+            -x "deployment/check-deployment-status.sh" \
+            -x "deployment/create-deployment.sh" \
+            -x "*.map" \
+            -x ".DS_Store" \
+            -x "*.swp" \
+            -x "*.swo" \
+            -x "*~"
+          if [ -f chatapp.zip ]; then
+            SIZE=$(ls -lh chatapp.zip | awk '{print $5}')
+            echo "✓ Created chatapp.zip ($SIZE)"
+          else
+            echo "✗ Failed to create chatapp.zip"
+            exit 1
+          fi
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
