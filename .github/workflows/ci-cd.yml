@@ -53,7 +53,7 @@ jobs:
           rm -f chatapp.zip
           # Create zip excluding large directories and files
           # Include build/* since we build in CI/CD and deploy pre-built artifacts
-          # Include package-lock.json for faster npm ci installs during deployment
+          # IMPORTANT: Include package-lock.json for faster npm ci installs during deployment
           zip -r chatapp.zip . \
             -x "node_modules/*" \
             -x ".git/*" \
