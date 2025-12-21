@@ -78,7 +78,7 @@ if [ -n "$ARCHIVE_PATH" ] && [ -d "$ARCHIVE_PATH" ]; then
     echo "[$(date)] Archive src directory contents:"
     find "$ARCHIVE_PATH/src" -type f 2>/dev/null | head -30 || echo "Cannot list archive src"
     echo "[$(date)] Archive src directory size: $(du -sh "$ARCHIVE_PATH/src" 2>/dev/null || echo 'unknown')"
-    
+
     echo "[$(date)] Restoring entire src directory from archive..."
     # Remove existing incomplete src and restore from archive
     rm -rf src
@@ -131,32 +131,39 @@ ENV_BUCKET="chattapplication1-env-files"
 ENV_PREFIX=""
 
 if [ -n "$DEPLOYMENT_GROUP_NAME" ]; then
+  echo "[$(date)] DEPLOYMENT_GROUP_NAME is: ${DEPLOYMENT_GROUP_NAME}"
   # Extract environment from deployment group name
-  # Pattern: extract "develop", "staging", or "production" from group name
-  if echo "$DEPLOYMENT_GROUP_NAME" | grep -qE "-(develop|staging|production)-group"; then
-    ENV_PREFIX=$(echo "$DEPLOYMENT_GROUP_NAME" | sed -E 's/.*-(develop|staging|production)-group.*/\1/')
-    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME: ${ENV_PREFIX}"
+  # Try multiple patterns to handle different naming conventions
+  # Pattern 1: something-production-group (standard)
+  if echo "$DEPLOYMENT_GROUP_NAME" | grep -qiE "-(develop|staging|production)-group"; then
+    ENV_PREFIX=$(echo "$DEPLOYMENT_GROUP_NAME" | sed -E 's/.*-(develop|staging|production)-group.*/\1/i')
+    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME (pattern 1): ${ENV_PREFIX}"
+  # Pattern 2: production-group (no prefix)
+  elif echo "$DEPLOYMENT_GROUP_NAME" | grep -qiE "^(develop|staging|production)-group"; then
+    ENV_PREFIX=$(echo "$DEPLOYMENT_GROUP_NAME" | sed -E 's/^(develop|staging|production)-group.*/\1/i')
+    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME (pattern 2): ${ENV_PREFIX}"
+  # Pattern 3: contains production/staging/develop anywhere in name
+  elif echo "$DEPLOYMENT_GROUP_NAME" | grep -qi "production"; then
+    ENV_PREFIX="production"
+    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME (contains 'production'): ${ENV_PREFIX}"
+  elif echo "$DEPLOYMENT_GROUP_NAME" | grep -qi "staging"; then
+    ENV_PREFIX="staging"
+    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME (contains 'staging'): ${ENV_PREFIX}"
+  elif echo "$DEPLOYMENT_GROUP_NAME" | grep -qi "develop"; then
+    ENV_PREFIX="develop"
+    echo "[$(date)] Detected environment from DEPLOYMENT_GROUP_NAME (contains 'develop'): ${ENV_PREFIX}"
   fi
 fi
 
-# Fallback: try to detect from S3 bucket structure
+# CRITICAL: Remove the flawed S3 fallback detection - it picks the first environment found
+# which is unreliable. Only use DEPLOYMENT_GROUP_NAME or explicit fallback.
+# Fallback: default to production for main branch deployments (common case)
 if [ -z "$ENV_PREFIX" ]; then
-  echo "[$(date)] DEPLOYMENT_GROUP_NAME not available or doesn't match pattern, checking S3..."
-  for env in develop staging production; do
-    if aws s3 ls "s3://${ENV_BUCKET}/${env}/" >/dev/null 2>&1; then
-      # Check if this is the only environment folder (likely the correct one)
-      ENV_PREFIX="$env"
-      echo "[$(date)] Found environment folder in S3: ${env}"
-      break
-    fi
-  done
-fi
-
-# Ultimate fallback: default to staging (but log warning)
-if [ -z "$ENV_PREFIX" ]; then
-  ENV_PREFIX="staging"
-  echo "[$(date)] WARNING: Could not detect environment, defaulting to staging"
+  echo "[$(date)] DEPLOYMENT_GROUP_NAME not available or doesn't match any pattern"
   echo "[$(date)] DEPLOYMENT_GROUP_NAME was: ${DEPLOYMENT_GROUP_NAME:-not set}"
+  echo "[$(date)] WARNING: Could not detect environment from DEPLOYMENT_GROUP_NAME"
+  echo "[$(date)] Defaulting to production (common for main branch deployments)"
+  ENV_PREFIX="production"
 fi
 
 echo "[$(date)] Using environment: ${ENV_PREFIX}"
@@ -170,11 +177,11 @@ fi
 if [ -f env-file.zip ]; then
   echo "[$(date)] Extracting environment files"
   unzip -o env-file.zip
-  
+
   # List available env files for debugging
   echo "[$(date)] Available environment files after extraction:"
   ls -la .env* 2>/dev/null || echo "No .env files found"
-  
+
   # Select environment file based on detected environment
   # Priority: .env.{ENV_PREFIX} > .env.production > .env.staging > .env.develop > .env
   ENV_FILE_COPIED=false
@@ -207,17 +214,50 @@ if [ -f env-file.zip ]; then
     ls -la .env* 2>/dev/null || echo "No .env files found"
     exit 1
   fi
-  
+
   # Verify the .env file has the expected content for the environment
   echo "[$(date)] Verifying .env file was set correctly for ${ENV_PREFIX} environment..."
   if [ -f .env ]; then
     echo "[$(date)] .env file exists ($(wc -l < .env) lines)"
+
+    # CRITICAL: Verify NODE_ENV is set correctly for the detected environment
+    if grep -q "^NODE_ENV=" .env; then
+      CURRENT_NODE_ENV=$(grep "^NODE_ENV=" .env | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
+      echo "[$(date)] Current NODE_ENV in .env: ${CURRENT_NODE_ENV}"
+
+      # Update NODE_ENV if it doesn't match the detected environment
+      if [ "$CURRENT_NODE_ENV" != "$ENV_PREFIX" ]; then
+        echo "[$(date)] ⚠ WARNING: NODE_ENV (${CURRENT_NODE_ENV}) doesn't match detected environment (${ENV_PREFIX})"
+        echo "[$(date)] Updating NODE_ENV to ${ENV_PREFIX} in .env file..."
+        # Use sed to update NODE_ENV, handling cases where it might be quoted or unquoted
+        if grep -q "^NODE_ENV=" .env; then
+          sed -i.bak "s/^NODE_ENV=.*/NODE_ENV=${ENV_PREFIX}/" .env
+          rm -f .env.bak
+          echo "[$(date)] ✓ Updated NODE_ENV to ${ENV_PREFIX}"
+        fi
+      else
+        echo "[$(date)] ✓ NODE_ENV correctly set to ${ENV_PREFIX}"
+      fi
+    else
+      echo "[$(date)] ⚠ WARNING: NODE_ENV not found in .env file, adding it..."
+      echo "NODE_ENV=${ENV_PREFIX}" >> .env
+      echo "[$(date)] ✓ Added NODE_ENV=${ENV_PREFIX} to .env file"
+    fi
+
     # Check for REDIS_HOST to verify it's the right file
     if grep -q "REDIS_HOST" .env; then
       REDIS_HOST_VALUE=$(grep "^REDIS_HOST=" .env | head -1 | cut -d'=' -f2- | sed 's/=.*/=***/')
       echo "[$(date)] ✓ REDIS_HOST found in .env: ${REDIS_HOST_VALUE}"
     else
       echo "[$(date)] ⚠ WARNING: REDIS_HOST not found in .env file"
+    fi
+
+    # Final verification of NODE_ENV
+    FINAL_NODE_ENV=$(grep "^NODE_ENV=" .env | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
+    echo "[$(date)] Final NODE_ENV verification: ${FINAL_NODE_ENV} (expected: ${ENV_PREFIX})"
+    if [ "$FINAL_NODE_ENV" != "$ENV_PREFIX" ]; then
+      echo "[$(date)] ERROR: NODE_ENV is still not set correctly after update attempt!"
+      exit 1
     fi
   fi
 else
@@ -417,7 +457,7 @@ if [ -f "package-lock.json" ]; then
       npm install --production --prefer-offline --no-audit --ignore-scripts 2>&1 | tee -a /tmp/npm-install.log
       NPM_EXIT_CODE=${PIPESTATUS[0]}
       set -e
-      
+
       if [ $NPM_EXIT_CODE -ne 0 ]; then
         echo "[$(date)] ERROR: All npm install attempts failed"
       echo "[$(date)] Last 100 lines of npm output:"
@@ -446,12 +486,12 @@ else
     echo "[$(date)] Checking error details..."
     grep -i "enoent\|spawn\|sh" /tmp/npm-install.log | tail -20 || echo "No shell-related errors found"
     echo "[$(date)] Trying with ignore-scripts as fallback..."
-    
+
     set +e
     npm install --production --prefer-offline --no-audit --ignore-scripts 2>&1 | tee -a /tmp/npm-install.log
     NPM_EXIT_CODE=${PIPESTATUS[0]}
     set -e
-    
+
     if [ $NPM_EXIT_CODE -ne 0 ]; then
       echo "[$(date)] ERROR: npm install failed even with --ignore-scripts"
     echo "[$(date)] Last 100 lines of npm output:"
