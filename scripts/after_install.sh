@@ -124,13 +124,25 @@ rm -rf env-file.zip .env .env.production
 # Download and extract environment files
 ENV_BUCKET="chattapplication1-env-files"
 
-# Detect environment from CodeDeploy deployment group name
-# CodeDeploy automatically provides DEPLOYMENT_GROUP_NAME environment variable
-# Deployment group names follow pattern: ${prefix}-group
-# Examples: chatapp-develop-group, chatapp-staging-group, chatapp-production-group
+# Detect environment from multiple sources (priority order):
+# 1. .deployment-environment file in the deployment bundle (most reliable)
+# 2. DEPLOYMENT_GROUP_NAME environment variable (from CodeDeploy)
+# 3. Fallback: try to detect from S3 bucket contents
+
 ENV_PREFIX=""
 
-if [ -n "$DEPLOYMENT_GROUP_NAME" ]; then
+# Priority 1: Check for .deployment-environment file in the deployment bundle
+# This file is created by the CI/CD workflow and contains the environment name
+if [ -f ".deployment-environment" ]; then
+  ENV_PREFIX=$(cat .deployment-environment | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+  echo "[$(date)] Detected environment from .deployment-environment file: ${ENV_PREFIX}"
+elif [ -n "$DEPLOYMENT_ARCHIVE" ] && [ -f "${ARCHIVE_PATH}/.deployment-environment" ]; then
+  ENV_PREFIX=$(cat "${ARCHIVE_PATH}/.deployment-environment" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+  echo "[$(date)] Detected environment from .deployment-environment file in archive: ${ENV_PREFIX}"
+fi
+
+# Priority 2: Try to detect from DEPLOYMENT_GROUP_NAME if not already detected
+if [ -z "$ENV_PREFIX" ] && [ -n "$DEPLOYMENT_GROUP_NAME" ]; then
   echo "[$(date)] DEPLOYMENT_GROUP_NAME is: ${DEPLOYMENT_GROUP_NAME}"
   # Extract environment from deployment group name
   # Try multiple patterns to handle different naming conventions
@@ -155,14 +167,28 @@ if [ -n "$DEPLOYMENT_GROUP_NAME" ]; then
   fi
 fi
 
-# CRITICAL: Remove the flawed S3 fallback detection - it picks the first environment found
-# which is unreliable. Only use DEPLOYMENT_GROUP_NAME or explicit fallback.
-# Fallback: default to production for main branch deployments (common case)
+# Priority 3: Fallback - check which environment's env-file.zip exists in S3
+# This is a last resort and tries environments in order
 if [ -z "$ENV_PREFIX" ]; then
   echo "[$(date)] DEPLOYMENT_GROUP_NAME not available or doesn't match any pattern"
   echo "[$(date)] DEPLOYMENT_GROUP_NAME was: ${DEPLOYMENT_GROUP_NAME:-not set}"
-  echo "[$(date)] WARNING: Could not detect environment from DEPLOYMENT_GROUP_NAME"
-  echo "[$(date)] Defaulting to production (common for main branch deployments)"
+  echo "[$(date)] WARNING: Could not detect environment from DEPLOYMENT_GROUP_NAME or .deployment-environment file"
+  echo "[$(date)] Attempting to detect from S3 bucket contents..."
+  
+  # Try each environment in order
+  for env in develop staging production; do
+    if aws s3 ls "s3://${ENV_BUCKET}/${env}/env-file.zip" >/dev/null 2>&1; then
+      ENV_PREFIX="$env"
+      echo "[$(date)] Found env-file.zip in S3 for ${env} environment"
+      break
+    fi
+  done
+fi
+
+# Final fallback: default to production (should rarely happen)
+if [ -z "$ENV_PREFIX" ]; then
+  echo "[$(date)] ERROR: Could not detect environment from any source!"
+  echo "[$(date)] Defaulting to production (this may cause incorrect configuration)"
   ENV_PREFIX="production"
 fi
 

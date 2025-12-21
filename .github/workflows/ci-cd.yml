@@ -48,6 +48,19 @@ jobs:
 
       - name: Create deployment package
         run: |
+          # Determine environment from branch name
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            ENV="production"
+          elif [ "${{ github.ref_name }}" = "staging" ]; then
+            ENV="staging"
+          elif [ "${{ github.ref_name }}" = "develop" ]; then
+            ENV="develop"
+          else
+            # Default to develop for other branches
+            ENV="develop"
+          fi
+          echo "Creating .deployment-environment file with: $ENV"
+          echo "$ENV" > .deployment-environment
           chmod +x create-deployment-package.sh
           ./create-deployment-package.sh
 
