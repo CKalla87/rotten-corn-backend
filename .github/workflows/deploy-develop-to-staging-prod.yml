@@ -1,0 +1,435 @@
+name: Deploy to Staging & Production (from Develop)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Type "deploy" to confirm deployment to staging and production ONLY'
+        required: true
+        type: string
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  find_develop_artifact:
+    name: Find Latest Develop Artifact (Read Only)
+    runs-on: ubuntu-latest
+    environment:
+      name: develop
+    # Note: This job only READS from develop S3 bucket to find the artifact
+    # It does NOT deploy to develop - only staging and production are deployed
+    steps:
+      - name: Check confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_deploy }}" != "deploy" ]; then
+            echo "❌ Deployment not confirmed. Please type 'deploy' to proceed."
+            exit 1
+          fi
+          echo "✅ Deployment confirmed"
+          echo "📋 This workflow will deploy to STAGING and PRODUCTION only"
+          echo "📋 It will NOT deploy to develop - only read the artifact from develop"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Find latest develop artifact
+        id: find_artifact
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          echo "Searching for latest develop artifact in s3://${S3_BUCKET}/artifacts/develop/"
+
+          # List all develop artifacts and sort by last modified date (newest first)
+          LATEST_ARTIFACT=$(aws s3 ls "s3://${S3_BUCKET}/artifacts/develop/" --recursive | \
+            grep "chatapp-.*\.zip$" | \
+            sort -r | \
+            head -1 | \
+            awk '{print $4}')
+
+          if [ -z "$LATEST_ARTIFACT" ]; then
+            echo "❌ ERROR: No develop artifacts found in s3://${S3_BUCKET}/artifacts/develop/"
+            exit 1
+          fi
+
+          echo "✅ Found latest develop artifact: $LATEST_ARTIFACT"
+          echo "artifact_path=$LATEST_ARTIFACT" >> "$GITHUB_OUTPUT"
+
+          # Extract the SHA from the artifact name (format: chatapp-<SHA>.zip)
+          ARTIFACT_NAME=$(basename "$LATEST_ARTIFACT")
+          SHA=$(echo "$ARTIFACT_NAME" | sed -E 's/chatapp-(.+)\.zip/\1/')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "✅ Extracted SHA: $SHA"
+
+      - name: Download develop artifact
+        id: download
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          echo "Downloading artifact: ${{ steps.find_artifact.outputs.artifact_path }}"
+          aws s3 cp "s3://${S3_BUCKET}/${{ steps.find_artifact.outputs.artifact_path }}" develop-artifact.zip
+
+          # Verify download
+          if [ ! -f develop-artifact.zip ]; then
+            echo "❌ ERROR: Failed to download artifact"
+            exit 1
+          fi
+
+          FILE_SIZE=$(stat -f%z develop-artifact.zip 2>/dev/null || stat -c%s develop-artifact.zip 2>/dev/null || echo "unknown")
+          echo "✅ Downloaded artifact: ${FILE_SIZE} bytes"
+          echo "artifact_file=develop-artifact.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact for other jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: develop-artifact
+          path: develop-artifact.zip
+          retention-days: 1
+
+  deploy_to_staging:
+    name: Deploy to Staging
+    needs: find_develop_artifact
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - name: Download develop artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: develop-artifact
+          path: .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload artifact to staging S3 path
+        id: bundle
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          # Use timestamp to make unique staging artifact
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BUNDLE_KEY="artifacts/staging/chatapp-${TIMESTAMP}-from-develop.zip"
+          echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
+
+          # Copy the develop artifact to staging path
+          aws s3 cp develop-artifact.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
+          echo "✅ Uploaded artifact to staging: $BUNDLE_KEY"
+
+      - name: Stop in-progress deployments
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking for in-progress deployments..."
+          IN_PROGRESS=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress Ready \
+            --max-items 10 \
+            --query 'deployments' \
+            --output text || echo "None")
+
+          if [ -n "$IN_PROGRESS" ] && [ "$IN_PROGRESS" != "None" ]; then
+            echo "Found in-progress deployments, stopping them..."
+            for deployment_id in $IN_PROGRESS; do
+              echo "Stopping deployment: $deployment_id"
+              aws deploy stop-deployment \
+                --deployment-id "$deployment_id" \
+                --auto-rollback-enabled || echo "Warning: Could not stop $deployment_id"
+            done
+            echo "Waiting 10 seconds for deployments to stop..."
+            sleep 10
+          else
+            echo "No in-progress deployments found"
+          fi
+
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
+      - name: Verify instances are available
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured"
+            exit 1
+          fi
+
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo "❌ ERROR: No instances available for deployment"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
+      - name: Create CodeDeploy deployment for staging
+        id: deploy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          echo "Creating staging deployment..."
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+            --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
+            --file-exists-behavior OVERWRITE \
+            --query "deploymentId" \
+            --output text)
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "✅ Triggered staging deployment: ${DEPLOYMENT_ID}"
+          echo ""
+          echo "📝 Note: The deployment will automatically use staging environment variables"
+          echo "   from S3 bucket chattapplication1-env-files/staging/ based on deployment group name"
+          echo "⚠️  IMPORTANT: This deploys to STAGING only - develop is NOT affected"
+
+  deploy_to_production:
+    name: Deploy to Production
+    needs: find_develop_artifact
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Download develop artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: develop-artifact
+          path: .
+
+      - name: Rename artifact
+        run: |
+          mv develop-artifact/develop-artifact.zip develop-artifact.zip || \
+          find . -name "*.zip" -type f | head -1 | xargs -I {} mv {} develop-artifact.zip
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload artifact to production S3 path
+        id: bundle
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          # Use timestamp to make unique production artifact
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BUNDLE_KEY="artifacts/production/chatapp-${TIMESTAMP}-from-develop.zip"
+          echo "bundle_key=$BUNDLE_KEY" >> "$GITHUB_OUTPUT"
+
+          # Copy the develop artifact to production path
+          aws s3 cp develop-artifact.zip "s3://${S3_BUCKET}/${BUNDLE_KEY}"
+          echo "✅ Uploaded artifact to production: $BUNDLE_KEY"
+
+      - name: Stop in-progress deployments
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking for in-progress deployments..."
+          IN_PROGRESS=$(aws deploy list-deployments \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --include-only-statuses Created Queued InProgress Ready \
+            --max-items 10 \
+            --query 'deployments' \
+            --output text || echo "None")
+
+          if [ -n "$IN_PROGRESS" ] && [ "$IN_PROGRESS" != "None" ]; then
+            echo "Found in-progress deployments, stopping them..."
+            for deployment_id in $IN_PROGRESS; do
+              echo "Stopping deployment: $deployment_id"
+              aws deploy stop-deployment \
+                --deployment-id "$deployment_id" \
+                --auto-rollback-enabled || echo "Warning: Could not stop $deployment_id"
+            done
+            echo "Waiting 10 seconds for deployments to stop..."
+            sleep 10
+          else
+            echo "No in-progress deployments found"
+          fi
+
+      - name: Ensure deployment group uses IN_PLACE strategy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking deployment group configuration..."
+          CURRENT_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --query 'deploymentGroupInfo.{ServiceRole:serviceRoleArn,ASGs:autoScalingGroups[*].name,DeploymentType:deploymentStyle.deploymentType,DeploymentOption:deploymentStyle.deploymentOption}' \
+            --output json)
+
+          DEPLOYMENT_TYPE=$(echo "$CURRENT_CONFIG" | jq -r '.DeploymentType // "BLUE_GREEN"')
+          SERVICE_ROLE=$(echo "$CURRENT_CONFIG" | jq -r '.ServiceRole')
+          ASG_NAMES=$(echo "$CURRENT_CONFIG" | jq -r '.ASGs[]' | tr '\n' ' ')
+
+          if [ "$DEPLOYMENT_TYPE" != "IN_PLACE" ]; then
+            echo "Updating deployment group to use IN_PLACE deployment..."
+            aws deploy update-deployment-group \
+              --application-name "$CODEDEPLOY_APP" \
+              --current-deployment-group-name "$CODEDEPLOY_GROUP" \
+              --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+              --deployment-style deploymentType=IN_PLACE,deploymentOption=WITHOUT_TRAFFIC_CONTROL \
+              --service-role-arn "$SERVICE_ROLE" \
+              --auto-scaling-groups $ASG_NAMES || echo "Warning: Could not update deployment group"
+            echo "Deployment group updated to IN_PLACE"
+          else
+            echo "Deployment group already configured for IN_PLACE"
+          fi
+
+      - name: Verify instances are available
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+        run: |
+          echo "Checking if instances are available for deployment..."
+          DEPLOYMENT_GROUP_CONFIG=$(aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --output json)
+
+          ASG_NAMES=$(echo "$DEPLOYMENT_GROUP_CONFIG" | jq -r '.deploymentGroupInfo.autoScalingGroups[]?.name // empty')
+
+          if [ -z "$ASG_NAMES" ]; then
+            echo "❌ ERROR: No Auto Scaling groups configured"
+            exit 1
+          fi
+
+          INSTANCES_FOUND=false
+          for ASG_NAME in $ASG_NAMES; do
+            IN_SERVICE_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
+              echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            fi
+          done
+
+          if [ "$INSTANCES_FOUND" = false ]; then
+            echo "❌ ERROR: No instances available for deployment"
+            exit 1
+          fi
+
+          echo "✓ Instances are available for deployment"
+
+      - name: Create CodeDeploy deployment for production
+        id: deploy
+        env:
+          CODEDEPLOY_APP: ${{ secrets.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ secrets.CODEDEPLOY_GROUP }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          echo "Creating production deployment..."
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APP" \
+            --deployment-group-name "$CODEDEPLOY_GROUP" \
+            --deployment-config-name "CodeDeployDefault.AllAtOnce" \
+            --s3-location bucket="$S3_BUCKET",bundleType=zip,key="${{ steps.bundle.outputs.bundle_key }}" \
+            --file-exists-behavior OVERWRITE \
+            --query "deploymentId" \
+            --output text)
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "✅ Triggered production deployment: ${DEPLOYMENT_ID}"
+          echo ""
+          echo "📝 Note: The deployment will automatically use production environment variables"
+          echo "   from S3 bucket chattapplication1-env-files/production/ based on deployment group name"
+          echo "⚠️  IMPORTANT: This deploys to PRODUCTION only - develop is NOT affected"
+
+  notify:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs:
+      - find_develop_artifact
+      - deploy_to_staging
+      - deploy_to_production
+    if: always()
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Develop Artifact" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact Path**: \`${{ needs.find_develop_artifact.outputs.artifact_path }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA**: \`${{ needs.find_develop_artifact.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ needs.deploy_to_staging.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment ID**: \`${{ needs.deploy_to_staging.outputs.deployment_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ needs.deploy_to_production.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment ID**: \`${{ needs.deploy_to_production.outputs.deployment_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Environment Variables" >> $GITHUB_STEP_SUMMARY
+          echo "Each environment will automatically use its own configuration:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Staging**: Downloads from \`s3://chattapplication1-env-files/staging/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Production**: Downloads from \`s3://chattapplication1-env-files/production/\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The \`after_install.sh\` script detects the environment from the deployment group name" >> $GITHUB_STEP_SUMMARY
+          echo "and automatically downloads the correct \`.env\` file for each environment." >> $GITHUB_STEP_SUMMARY

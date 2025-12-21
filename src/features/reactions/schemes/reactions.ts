@@ -7,6 +7,9 @@ const addReactionSchema: ObjectSchema = Joi.object().keys({
   postId: Joi.string().required().messages({
     'any.required': 'postId is a required property'
   }),
+  commentId: Joi.string().optional().allow(null, '').messages({
+    'any.required': 'commentId is optional for comment reactions'
+  }),
   type: Joi.string().required().messages({
     'any.required': 'Reaction type is a required property'
   }),

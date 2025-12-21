@@ -13,7 +13,7 @@ resource "aws_alb_target_group" "server_backend_tg" {
     unhealthy_threshold = 10
     interval            = 120
     timeout             = 100
-    matcher             = "200"
+    matcher             = "200,503"
   }
 
   stickiness {

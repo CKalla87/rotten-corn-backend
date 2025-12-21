@@ -11,11 +11,25 @@ class RedisConnection extends BaseCache {
 
   async connect(): Promise<void> {
     try {
-      await this.client.connect();
+      // Add a timeout to prevent blocking the app startup
+      const connectPromise = this.client.connect();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Redis connection timeout after 5 seconds')), 5000)
+      );
+      
+      await Promise.race([connectPromise, timeoutPromise]);
+      
       const res = await this.client.ping();
-      console.log(res, 'redis');
+      // Only log in local development (not in hosted environments for performance)
+      const isLocal = config.NODE_ENV === 'local' || !config.NODE_ENV;
+      if (isLocal) {
+        log.info(res, 'redis');
+      }
+      log.info('Redis connection established successfully');
     } catch (error) {
-      log.error(error);
+      // Log error but don't throw - allow app to continue without Redis
+      log.error('Redis connection failed, app will continue without Redis cache', error);
+      // Don't throw the error - allow the app to start even if Redis is unavailable
     }
   }
 }

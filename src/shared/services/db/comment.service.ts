@@ -10,22 +10,65 @@ import { NotificationModel } from '@notification/models/notification.schema';
 import { socketIONotificationObject } from '@socket/notification';
 import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
 import { emailQueue } from '@service/queues/email.queue';
+import { Helpers } from '@global/helpers/helpers';
+import { config } from '@root/config';
 
 const userCache: UserCache = new UserCache();
 
 class CommentService {
   public async addCommentToDB(commentData: ICommentJob): Promise<void> {
     const { postId, userTo, userFrom, username, comment } = commentData;
-    const commentPromise: Promise<ICommentDocument> = CommentsModel.create(comment);
-    const postPromise: Query<IPostDocument, IPostDocument> = PostModel.findOneAndUpdate(
-      { _id: postId },
-      { $inc: { commentsCount: 1 } },
-      { new: true }
-    ) as Query<IPostDocument, IPostDocument>;
-    const userPromise: Promise<IUserDocument> = userCache.getUserFromCache(userTo) as Promise<IUserDocument>;
-    const response = await Promise.all([commentPromise, postPromise, userPromise]) as [ICommentDocument, IPostDocument, IUserDocument];
 
-    if (response[2]?.notifications?.comments && userFrom !== userTo) {
+    // Ensure postId is converted to ObjectId
+    const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
+
+    // Ensure comment.postId is ObjectId
+    const commentToCreate = { ...comment };
+    if (commentToCreate.postId && typeof commentToCreate.postId === 'string') {
+      (commentToCreate as any).postId = postIdObj;
+    } else if (!commentToCreate.postId) {
+      (commentToCreate as any).postId = postIdObj;
+    }
+
+    // Save comment and update post in parallel for speed
+    const [commentDoc, postDoc] = await Promise.all([
+      CommentsModel.create(commentToCreate),
+      PostModel.findOneAndUpdate(
+        { _id: postIdObj },
+        { $inc: { commentsCount: 1 } },
+        { new: true }
+      ).maxTimeMS(5000).exec()
+    ]);
+
+    // Get user data only if needed for notifications (skip cache to avoid slow Redis)
+    let userDoc: IUserDocument | null = null;
+    if (userTo && userFrom && userTo !== userFrom) {
+      try {
+        // Try cache first with timeout, fallback to database
+        const cachePromise = userCache.getUserFromCache(userTo);
+        const timeoutPromise = new Promise<IUserDocument | null>((resolve) => {
+          setTimeout(() => resolve(null), 2000);
+        });
+        userDoc = await Promise.race([cachePromise, timeoutPromise]) as IUserDocument | null;
+
+        // If cache failed or timed out, get from database
+        if (!userDoc) {
+          const { userService } = await import('@service/db/user.service');
+          userDoc = await userService.getUserById(userTo);
+        }
+      } catch (error) {
+        // If user lookup fails, continue without notification
+        userDoc = null;
+      }
+    }
+
+    const response: [ICommentDocument, IPostDocument, IUserDocument | null] = [
+      commentDoc,
+      postDoc as IPostDocument,
+      userDoc
+    ];
+
+    if (response[2] && response[2]?.notifications?.comments && userFrom !== userTo) {
       const notificationModel: INotificationDocument = new NotificationModel();
       const notifications: INotificationDocument[] = await notificationModel.insertNotification({
         userFrom,
@@ -49,27 +92,117 @@ class CommentService {
         message: `${username} commented on your post.`,
         header: 'Comment Notification'
       };
-      const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
-      emailQueue.addEmailJob('commentsEmail', { receiverEmail: response[2]?.email!, template, subject: 'Post notification' });
+      const recipientEmail = response[2]?.email;
+      if (recipientEmail) {
+        const template: string = notificationTemplate.notificationMessageTemplate(templateParams);
+        emailQueue.addEmailJob('commentsEmail', { receiverEmail: recipientEmail, template, subject: 'Post notification' });
+      }
     }
   }
 
   public async getPostComments(query: IQueryComment, sort: Record<string, 1 | -1>): Promise<ICommentDocument[]> {
-    const comments: ICommentDocument[] = await CommentsModel.aggregate([
-      { $match: { query } },
-      { $sort: sort },
-    ]);
+    // Use find() instead of aggregate - much faster with indexes
+    const comments: ICommentDocument[] = await CommentsModel.find(query)
+      .sort(sort)
+      .lean()
+      .maxTimeMS(5000)
+      .exec() as ICommentDocument[];
+
+    // Normalize profile picture URLs to fix Cloudinary cloud name issues
+    comments.forEach((comment) => {
+      if (comment.profilePicture && Helpers.isCloudinaryUrl(comment.profilePicture)) {
+        const urlParts = comment.profilePicture.split('/');
+        const versionIndex = urlParts.findIndex((part: string) => part.startsWith('v'));
+        if (versionIndex !== -1 && versionIndex < urlParts.length - 1) {
+          const version = urlParts[versionIndex];
+          const publicId = urlParts[versionIndex + 1];
+          comment.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/${version}/${publicId}`;
+        }
+      }
+    });
+
     return comments;
   }
 
   public async getPostCommentNames(query: IQueryComment, sort: Record<string, 1 | -1>): Promise<ICommentNameList[]> {
+    // Use aggregate but with timeout and optimized
     const commentsNameList: ICommentNameList[] = await CommentsModel.aggregate([
-      { $match: { query } },
+      { $match: query },
       { $sort: sort },
       { $group: { _id: null, names: { $addToSet: '$username' }, count: { $sum: 1 } } },
       { $project: { _id: 0 } }
-    ]);
+    ], { allowDiskUse: true, maxTimeMS: 5000 });
     return commentsNameList;
+  }
+
+  public async addReactionToComment(
+    commentId: string,
+    username: string,
+    type: string,
+    previousReaction: string | null
+  ): Promise<void> {
+    const commentIdObj = typeof commentId === 'string' ? new mongoose.Types.ObjectId(commentId) : commentId;
+
+    // Get the current comment to access its reaction array
+    const comment = await CommentsModel.findById(commentIdObj).maxTimeMS(5000).exec();
+    if (!comment) {
+      throw new Error(`Comment with id ${commentId} not found`);
+    }
+
+    // Get current reactions array or initialize it
+    const reactions = Array.isArray(comment.reaction) ? [...comment.reaction] : [];
+
+    // Remove previous reaction if it exists
+    if (previousReaction && previousReaction.trim()) {
+      const indexToRemove = reactions.findIndex(
+        (r: any) => r.username === username || r.senderName === username
+      );
+      if (indexToRemove !== -1) {
+        reactions.splice(indexToRemove, 1);
+      }
+    }
+
+    // Add new reaction
+    const newReaction = {
+      username,
+      senderName: username, // Support both fields for compatibility
+      type
+    };
+
+    reactions.push(newReaction);
+
+    // Update comment with new reactions array
+    await CommentsModel.updateOne(
+      { _id: commentIdObj },
+      { $set: { reaction: reactions } }
+    ).maxTimeMS(5000).exec();
+  }
+
+  public async removeReactionFromComment(
+    commentId: string,
+    username: string
+  ): Promise<void> {
+    const commentIdObj = typeof commentId === 'string' ? new mongoose.Types.ObjectId(commentId) : commentId;
+
+    // Get the current comment to access its reaction array
+    const comment = await CommentsModel.findById(commentIdObj).maxTimeMS(5000).exec();
+    if (!comment) {
+      throw new Error(`Comment with id ${commentId} not found`);
+    }
+
+    // Get current reactions array
+    const reactions = Array.isArray(comment.reaction) ? [...comment.reaction] : [];
+
+    // Remove reaction for this user
+    const filteredReactions = reactions.filter(
+      (r: any) => r.username !== username && r.senderName !== username
+    );
+
+    // Update comment with filtered reactions array
+    await CommentsModel.updateOne(
+      { _id: commentIdObj },
+      { $set: { reaction: filteredReactions } }
+    ).maxTimeMS(5000).exec();
   }
 }
 

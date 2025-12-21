@@ -35,21 +35,54 @@ notificationSchema.methods.insertNotification = async function(body: INotificati
     gifUrl
   } = body;
 
-  await NotificationModel.create({
-    userTo,
-    userFrom,
-    message,
+  // Convert userTo and userFrom strings to ObjectId for Mongoose schema compatibility
+  const userToObjectId = typeof userTo === 'string'
+    ? new mongoose.Types.ObjectId(userTo)
+    : (userTo as any) instanceof mongoose.Types.ObjectId ? (userTo as mongoose.Types.ObjectId) : new mongoose.Types.ObjectId(String(userTo));
+  const userFromObjectId = typeof userFrom === 'string'
+    ? new mongoose.Types.ObjectId(userFrom)
+    : (userFrom as any) instanceof mongoose.Types.ObjectId ? (userFrom as mongoose.Types.ObjectId) : new mongoose.Types.ObjectId(String(userFrom));
+
+  // Convert entityId to ObjectId if it's not already one
+  const entityIdObjectId = entityId instanceof mongoose.Types.ObjectId
+    ? entityId
+    : (typeof entityId === 'string' ? new mongoose.Types.ObjectId(entityId) : new mongoose.Types.ObjectId(String(entityId)));
+
+  // Convert createdItemId to ObjectId if it's not already one
+  const createdItemIdObjectId = createdItemId instanceof mongoose.Types.ObjectId
+    ? createdItemId
+    : (typeof createdItemId === 'string' ? new mongoose.Types.ObjectId(createdItemId) : new mongoose.Types.ObjectId(String(createdItemId)));
+
+  // Check if a duplicate notification already exists to prevent duplicates
+  // Look for notifications with the same userTo, userFrom, notificationType, and entityId created in the last 5 seconds
+  // This prevents race conditions where multiple requests create the same notification
+  const fiveSecondsAgo = new Date(Date.now() - 5000);
+  const existingNotification = await NotificationModel.findOne({
+    userTo: userToObjectId,
+    userFrom: userFromObjectId,
     notificationType,
-    entityId,
-    createdItemId,
-    createdAt,
-    comment,
-    reaction,
-    post,
-    imgId,
-    imgVersion,
-    gifUrl
-  });
+    entityId: entityIdObjectId,
+    createdAt: { $gte: fiveSecondsAgo }
+  }).maxTimeMS(2000);
+
+  // Only create if no duplicate exists within the last 5 seconds
+  if (!existingNotification) {
+    await NotificationModel.create({
+      userTo: userToObjectId,
+      userFrom: userFromObjectId,
+      message,
+      notificationType,
+      entityId: entityIdObjectId,
+      createdItemId: createdItemIdObjectId,
+      createdAt,
+      comment,
+      reaction,
+      post,
+      imgId,
+      imgVersion,
+      gifUrl
+    });
+  }
 
   try {
     const { notificationService } = await import('@service/db/notification.service');

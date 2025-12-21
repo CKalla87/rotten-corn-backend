@@ -13,8 +13,33 @@ class HealthRoutes {
   }
 
   public routes(): Router {
-    this.router.get('/health', (req: Request, res: Response) => {
-      res.status(HTTP_STATUS.OK).send(`Health: Server instance is healthy with process id ${process.pid} on ${moment().format('LL')}`);
+    this.router.get('/health', async (req: Request, res: Response) => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mongoose = require('mongoose');
+      const dbStatus = mongoose.connection.readyState;
+      // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+      const dbStatusText = dbStatus === 1 ? 'connected' : dbStatus === 2 ? 'connecting' : dbStatus === 3 ? 'disconnecting' : 'disconnected';
+      
+      const healthInfo = {
+        status: 'healthy',
+        processId: process.pid,
+        timestamp: moment().format('LL'),
+        database: {
+          status: dbStatusText,
+          readyState: dbStatus
+        }
+      };
+      
+      // If database is not connected, return 503 (Service Unavailable)
+      if (dbStatus !== 1) {
+        return res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+          ...healthInfo,
+          status: 'unhealthy',
+          message: `Database is ${dbStatusText}. Login will not work until database is connected.`
+        });
+      }
+      
+      res.status(HTTP_STATUS.OK).json(healthInfo);
     });
 
     this.router.get('/env', (req: Request, res: Response) => {

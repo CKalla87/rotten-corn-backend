@@ -9,14 +9,50 @@ export abstract class BaseCache {
   log: Logger;
 
   constructor(cacheName: string) {
-    this.client = createClient({ url: config.REDIS_HOST });
+    // Optimize Redis connection for hosted environments
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
+    const isHostedEnv = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'develop';
+    const redisOptions = isHostedEnv ? {
+      url: config.REDIS_HOST,
+      socket: {
+        connectTimeout: 5000, // 5 second connection timeout
+        reconnectStrategy: (retries: number) => {
+          if (retries > 10) {
+            return new Error('Too many retries');
+          }
+          return Math.min(retries * 100, 3000); // Exponential backoff, max 3 seconds
+        }
+      },
+      // Enable connection pooling
+      pingInterval: 30000, // Ping every 30 seconds to keep connection alive
+    } : { url: config.REDIS_HOST };
+
+    this.client = createClient(redisOptions);
     this.log = config.createLogger(cacheName);
     this.cacheError();
   }
 
   private cacheError(): void {
     this.client.on('error', (error: unknown) => {
-      this.log.error(error);
+      this.log.error('Redis client error (non-fatal, app will continue)', error);
+      // Don't throw - just log the error
+    });
+
+    // Handle connection errors gracefully
+    this.client.on('connect', () => {
+      this.log.info('Redis client connected');
+    });
+
+    this.client.on('ready', () => {
+      this.log.info('Redis client ready');
+    });
+
+    this.client.on('reconnecting', () => {
+      this.log.info('Redis client reconnecting...');
+    });
+
+    this.client.on('end', () => {
+      this.log.warn('Redis client connection ended');
     });
   }
 }

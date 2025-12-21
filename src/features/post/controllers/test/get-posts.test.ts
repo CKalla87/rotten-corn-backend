@@ -20,32 +20,15 @@ describe('Get', () => {
   });
 
   describe('posts', () => {
-    it('should send correct json response if posts exist in cache', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as Request;
+    it('should send correct json response with posts from database', async () => {
+      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as unknown as Request;
       const res: Response = postMockResponse();
-      jest.spyOn(PostCache.prototype, 'getPostsFromCache').mockResolvedValue([postMockData]);
-      jest.spyOn(PostCache.prototype, 'getTotalPostsInCache').mockResolvedValue(1);
-
-      await Get.prototype.posts(req, res);
-      expect(PostCache.prototype.getPostsFromCache).toHaveBeenCalledWith('post', 0, 10);
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'All posts',
-        posts: [postMockData],
-        totalPosts: 1
-      });
-    });
-
-    it('should send correct json response if posts exist in database', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as Request;
-      const res: Response = postMockResponse();
-      jest.spyOn(PostCache.prototype, 'getPostsFromCache').mockResolvedValue([]);
-      jest.spyOn(PostCache.prototype, 'getTotalPostsInCache').mockResolvedValue(0);
       jest.spyOn(postService, 'getPosts').mockResolvedValue([postMockData]);
       jest.spyOn(postService, 'postsCount').mockResolvedValue(1);
 
       await Get.prototype.posts(req, res);
       expect(postService.getPosts).toHaveBeenCalledWith({}, 0, 10, { createdAt: -1 });
+      expect(postService.postsCount).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'All posts',
@@ -55,10 +38,8 @@ describe('Get', () => {
     });
 
     it('should send empty posts', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as Request;
+      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as unknown as Request;
       const res: Response = postMockResponse();
-      jest.spyOn(PostCache.prototype, 'getPostsFromCache').mockResolvedValue([]);
-      jest.spyOn(PostCache.prototype, 'getTotalPostsInCache').mockResolvedValue(0);
       jest.spyOn(postService, 'getPosts').mockResolvedValue([]);
       jest.spyOn(postService, 'postsCount').mockResolvedValue(0);
 
@@ -73,24 +54,9 @@ describe('Get', () => {
   });
 
   describe('postWithImages', () => {
-    it('should send correct json response if posts exist in cache', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as Request;
+    it('should send correct json response with posts from database', async () => {
+      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as unknown as Request;
       const res: Response = postMockResponse();
-      jest.spyOn(PostCache.prototype, 'getPostsWithImagesFromCache').mockResolvedValue([postMockData]);
-
-      await Get.prototype.postsWithImages(req, res);
-      expect(PostCache.prototype.getPostsWithImagesFromCache).toHaveBeenCalledWith('post', 0, 10);
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        message: 'All posts with images',
-        posts: [postMockData]
-      });
-    });
-
-    it('should send correct json response if posts exist in database', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as Request;
-      const res: Response = postMockResponse();
-      jest.spyOn(PostCache.prototype, 'getPostsWithImagesFromCache').mockResolvedValue([]);
       jest.spyOn(postService, 'getPosts').mockResolvedValue([postMockData]);
 
       await Get.prototype.postsWithImages(req, res);
@@ -103,9 +69,8 @@ describe('Get', () => {
     });
 
     it('should send empty posts', async () => {
-      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as Request;
+      const req: Request = postMockRequest(newPost, authUserPayload, { page: '1' }) as unknown as Request;
       const res: Response = postMockResponse();
-      jest.spyOn(PostCache.prototype, 'getPostsWithImagesFromCache').mockResolvedValue([]);
       jest.spyOn(postService, 'getPosts').mockResolvedValue([]);
 
       await Get.prototype.postsWithImages(req, res);

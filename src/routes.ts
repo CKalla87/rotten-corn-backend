@@ -1,4 +1,8 @@
 import { serverAdapter } from './shared/services/queues/base.queue';
+// Import queues to ensure serverAdapter is initialized before routes use it
+import '@service/queues/auth.queue';
+import '@service/queues/user.queue';
+import '@service/queues/post.queue';
 import { authRoutes } from './features/auth/routes/authRoutes';
 import { Application } from 'express';
 import { currentUserRoutes } from '@auth/routes/currentRoutes';
@@ -17,7 +21,10 @@ const BASE_PATH = '/api/v1';
 
 export default (app: Application) => {
   const routes = () => {
-    app.use('/queues', serverAdapter.getRouter());
+    // Guard against undefined serverAdapter - only mount if initialized
+    if (serverAdapter) {
+      app.use('/queues', serverAdapter.getRouter());
+    }
     app.use('', healthRoutes.routes());
     app.use(BASE_PATH, authRoutes.routes());
     app.use(BASE_PATH, authRoutes.signoutRoute());

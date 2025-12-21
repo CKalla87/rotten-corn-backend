@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import hpp from 'hpp';
 import compression from 'compression';
 import cookieSession from 'cookie-session';
+import cookieParser from 'cookie-parser';
 import HTTP_STATUS from 'http-status-codes';
 import { Server } from 'socket.io';
 import { createClient } from 'redis';
@@ -12,6 +13,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Logger from 'bunyan';
 import statusMonitor from 'express-status-monitor';
 import 'express-async-errors';
+import passport from 'passport';
 import { config } from '@root/config';
 import applicationRoutes from '@root/routes';
 import { CustomError, IErrorResponse } from '@global/helpers/error-handler';
@@ -35,6 +37,19 @@ export class RottenCornServer {
   public start(): void {
     this.securityMiddleware(this.app);
     this.standardMiddleware(this.app);
+
+    // Add request logging middleware to see all incoming requests
+    this.app.use((req, res, next) => {
+      log.info('Incoming request', {
+        method: req.method,
+        url: req.url,
+        originalUrl: req.originalUrl,
+        path: req.path,
+        hasAuthHeader: !!(req.headers.authorization || req.headers.Authorization)
+      });
+      next();
+    });
+
     this.routeMiddleware(this.app);
     this.apiMonitoring(this.app);
     this.globalErrorHandler(this.app);
@@ -42,28 +57,80 @@ export class RottenCornServer {
   }
 
   private securityMiddleware(app: Application): void {
+    // Parse cookies first (needed for JWT cookie fallback)
+    app.use(cookieParser());
+
+    // Determine if we're in local development
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
+    const isLocalDev = config.NODE_ENV === 'development' &&
+                       (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                       !config.CLIENT_URL?.includes('chatappserver.space');
+
     app.use(
       cookieSession({
         name: 'session',
         keys: [config.SECRET_KEY_ONE!, config.SECRET_KEY_TWO!],
-        maxAge: 24 * 7 * 360000,
-        secure: config.NODE_ENV !== 'development'
+        maxAge: 24 * 7 * 3600000, // 7 days in milliseconds (was missing a zero)
+        secure: !isLocalDev, // false for localhost, true for deployed
+        sameSite: isLocalDev ? 'lax' : 'none', // lax for localhost, none for cross-site
+        httpOnly: true
       })
     );
+    // Initialize Passport middleware (required for OAuth)
+    app.use(passport.initialize());
     app.use(hpp());
     app.use(helmet());
-    app.use(
-      cors({
-        origin: config.CLIENT_URL,
+    // CORS configuration - allow localhost for local development (reuse isLocalDev)
+
+    const corsOptions = {
+      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) {
+          return callback(null, true);
+        }
+
+        // Allow localhost for local development
+        if (isLocalDev && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+          return callback(null, true);
+        }
+
+        // Allow configured CLIENT_URL and common deployed URLs
+        const allowedOrigins = [
+          config.CLIENT_URL,
+          'https://dev.chatappserver.space',
+          'https://staging.chatappserver.space',
+          'https://chatappserver.space'
+        ].filter(Boolean);
+
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+
+        callback(new Error('Not allowed by CORS'));
+      },
         credentials: true,
         optionsSuccessStatus: 200,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-      })
-    );
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
+    };
+
+    app.use(cors(corsOptions));
   }
 
   private standardMiddleware(app: Application): void {
-    app.use(compression());
+    // Optimize compression for hosted environments - use higher compression level
+    // 'development' = local, 'develop'/'staging'/'production' = hosted
+    const isProduction = config.NODE_ENV === 'production' || config.NODE_ENV === 'staging' || config.NODE_ENV === 'develop';
+    app.use(compression({
+      level: isProduction ? 6 : 1, // Higher compression in hosted envs (6), lower in local (1) for speed
+      threshold: 1024, // Only compress responses > 1KB
+      filter: (req, res) => {
+        // Compress JSON and text responses
+        if (req.headers['x-no-compression']) {
+          return false;
+        }
+        return compression.filter(req, res);
+      }
+    }));
     app.use(json({ limit: '50mb' }));
     app.use(urlencoded({ extended: true, limit: '50mb' }));
   }
@@ -99,15 +166,40 @@ export class RottenCornServer {
   private globalErrorHandler(app: Application): void {
     // Handling urls that do not exist.
     app.all('*', (req: Request, res: Response) => {
+      // Set CORS headers for 404 responses
+      const origin = req.get('origin');
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+      }
       res.status(HTTP_STATUS.NOT_FOUND).json({ message: `${req.originalUrl} not found` });
     });
 
-    app.use((error: IErrorResponse, _req: Request, res: Response, next: NextFunction) => {
-      log.error(error);
+    app.use((error: IErrorResponse, req: Request, res: Response, _next: NextFunction) => {
+      log.error('Error handler caught:', error);
+
+      // Set CORS headers for error responses
+      const origin = req.get('origin');
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cookie');
+      }
+
       if (error instanceof CustomError) {
         return res.status(error.statusCode).json(error.serializeErrors());
       }
-      next();
+
+      // Always send a response - don't call next() without a response
+      // This prevents requests from hanging when non-CustomError errors occur
+      const statusCode = error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+      const message = error.message || 'An unexpected error occurred';
+      return res.status(statusCode).json({
+        message,
+        status: 'error',
+        statusCode
+      });
     });
   }
 
@@ -130,10 +222,39 @@ export class RottenCornServer {
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
       }
     });
-    const pubClient = createClient({ url: config.REDIS_HOST });
+
+    // Try to connect to Redis for Socket.IO adapter, but don't crash if it fails
+    // Socket.IO will work without Redis adapter (single instance mode)
+    try {
+      const pubClient = createClient({
+        url: config.REDIS_HOST,
+        socket: {
+          connectTimeout: 5000,
+          reconnectStrategy: (retries: number) => {
+            if (retries > 5) {
+              return false; // Stop retrying after 5 attempts
+            }
+            return Math.min(retries * 100, 2000);
+          }
+        }
+      });
     const subClient = pubClient.duplicate();
-    await Promise.all([pubClient.connect(), subClient.connect()]);
+
+      // Set a timeout for Redis connection
+      const connectPromise = Promise.all([pubClient.connect(), subClient.connect()]);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Redis connection timeout')), 10000)
+      );
+
+      await Promise.race([connectPromise, timeoutPromise]);
     io.adapter(createAdapter(pubClient, subClient));
+      log.info('Socket.IO Redis adapter connected successfully');
+    } catch (error) {
+      log.error('Failed to connect Redis adapter for Socket.IO, continuing without it', error);
+      // Continue without Redis adapter - Socket.IO will work in single-instance mode
+      // This allows the app to start even if Redis is unavailable
+    }
+
     return io;
   }
 

@@ -30,7 +30,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -47,7 +47,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -58,13 +58,13 @@ describe('SignUp', () => {
 
   it('should throw an error if username length is greater than maximum length', () => {
     const req: Request = authMockRequest({}, {
-      username: 'mathematics',
+      username: 'mathematicsmathematics1', // 21 characters to exceed max length of 20
       email: 'manny@test.com',
       password: 'qwerty',
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -81,7 +81,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -98,7 +98,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -115,7 +115,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -132,7 +132,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -149,7 +149,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -162,11 +162,11 @@ describe('SignUp', () => {
     const req: Request = authMockRequest({}, {
       username: 'Manny',
       email: 'manny@test.com',
-      password: 'mathematics1',
+      password: 'a'.repeat(129), // 129 characters to exceed max length of 128
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     SignUp.prototype.create(req, res).catch((error: CustomError) => {
@@ -183,7 +183,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     jest.spyOn(authService, 'getUserByUsernameOrEmail').mockResolvedValue(authMock);
@@ -201,7 +201,7 @@ describe('SignUp', () => {
       avatarColor: 'red',
       avatarImage: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='
 
-    }) as Request;
+    }) as unknown as Request;
     const res: Response = authMockResponse();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

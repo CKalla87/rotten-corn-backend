@@ -23,6 +23,8 @@ export class SignUp {
   @joiValidation(signupSchema)
   public async create(req: Request, res: Response): Promise<void> {
     const { username, email, password, avatarColor, avatarImage } = req.body;
+    // Generate default avatar color if not provided
+    const defaultAvatarColor = avatarColor || `#${Math.floor(Math.random() * 16777215).toString(16)}`;
     const checkIfUserExists: IAuthDocument = await authService.getUserByUsernameOrEmail(username, email);
     if (checkIfUserExists) {
       throw new BadRequestError('Invalid credentials');
@@ -37,7 +39,7 @@ export class SignUp {
       username,
       email,
       password,
-      avatarColor
+      avatarColor: defaultAvatarColor
     });
 
     const result: UploadApiResponse = await uploads(avatarImage, `${userObjectId}`, true, true) as UploadApiResponse;
@@ -47,7 +49,7 @@ export class SignUp {
 
     // Add to redis cache
     const userDataForCache: IUserDocument = SignUp.prototype.userData(authData, userObjectId);
-    userDataForCache.profilePicture = `https://res/cloudingary.com/dajmo61zu/image/upload/v${result.version}/${userObjectId}`
+    userDataForCache.profilePicture = `https://res/cloudingary.com/dajmo61zu/image/upload/v${result.version}/${userObjectId}`;
     await userCache.saveUserToCache(`${userObjectId}`, uId, userDataForCache);
 
     // Add to database
@@ -57,6 +59,27 @@ export class SignUp {
 
     const userJwt: string = SignUp.prototype.signToken(authData, userObjectId);
     req.session = { jwt: userJwt };
+
+    // ALSO set a regular cookie with the JWT as a fallback
+    // Deployed environments are: 'develop', 'staging', 'production'
+    // Local development is: 'development' (or undefined) with no real EC2_URL (ignore AWS metadata service URL) or CLIENT_URL with chatappserver.space
+    const isLocalDev = config.NODE_ENV === 'development' &&
+                       (!config.EC2_URL || config.EC2_URL.includes('169.254.169.254')) &&
+                       !config.CLIENT_URL?.includes('chatappserver.space');
+
+    const cookieOptions: any = {
+      maxAge: 24 * 7 * 3600000,
+      httpOnly: true,
+      secure: !isLocalDev,
+      sameSite: isLocalDev ? 'lax' : 'none',
+      path: '/'
+    };
+
+    if (!isLocalDev) {
+      cookieOptions.domain = '.chatappserver.space';
+    }
+
+    res.cookie('jwt', userJwt, cookieOptions);
 
     res.status(HTTP_STATUS.CREATED).json({ message: 'User created successfully', user: userDataForCache, token: userJwt });
   }

@@ -10,24 +10,63 @@ const commentCache: CommentCache = new CommentCache();
 export class Get {
   public async comments(req: Request, res: Response): Promise<void> {
     const { postId } = req.params;
-    const cachedComments: ICommentDocument[] = await commentCache.getCommentsFromCache(postId);
-    const comments: ICommentDocument[] = cachedComments.length ? cachedComments : await commentService.getPostComments({ postId: new mongoose.Types.ObjectId(postId) }, { createdAt: -1 });
+    // Always fetch from database to ensure we get the latest reactions
+    // Cache might have stale data without reactions
+    // Sort by createdAt: 1 (ascending) so oldest comments appear first, newest at bottom
+    const comments: ICommentDocument[] = await commentService.getPostComments({ postId: new mongoose.Types.ObjectId(postId) }, { createdAt: 1 });
 
-    res.status(HTTP_STATUS.OK).json({ message: 'Post comments', comments });
+    // Comments now have reactions stored directly in the schema
+    // Convert mongoose documents to plain objects and ensure reaction array exists
+    // Ensure consistent data structure to prevent frontend re-render issues with GIFs
+    const commentsWithReactions = comments.map((comment) => {
+      const commentObj = comment.toObject ? comment.toObject() : comment;
+      const reactionArray = Array.isArray(commentObj.reaction) ? commentObj.reaction : [];
+
+      // Handle both avatarColor (interface) and avataColor (schema typo) for compatibility
+      const avatarColor = (commentObj as any).avatarColor || (commentObj as any).avataColor || '';
+
+      return {
+        _id: commentObj._id,
+        postId: commentObj.postId,
+        username: commentObj.username || '',
+        avatarColor: avatarColor,
+        profilePicture: commentObj.profilePicture || '',
+        comment: commentObj.comment || '',
+        gifUrl: commentObj.gifUrl || '',
+        reaction: reactionArray,
+        createdAt: commentObj.createdAt,
+        userTo: commentObj.userTo || null
+      };
+    });
+
+    // Only log in local development (not in hosted environments for performance)
+    const isLocal = process.env.NODE_ENV === 'local' || !process.env.NODE_ENV;
+    if (isLocal) {
+      console.log(`📝 Returning ${commentsWithReactions.length} comments for postId ${postId}, ${commentsWithReactions.filter(c => Array.isArray(c.reaction) && c.reaction.length > 0).length} with reactions`);
+    }
+
+    res.status(HTTP_STATUS.OK).json({ message: 'Post comments', comments: commentsWithReactions });
   }
 
   public async commentsNamesFromCache(req: Request, res: Response): Promise<void> {
     const { postId } = req.params;
-    const cachedCommentsNames: ICommentNameList[] = await commentCache.getCommentsNamesFromCache(postId);
-    const commentsNames: ICommentNameList[] = cachedCommentsNames.length ? cachedCommentsNames : await commentService.getPostCommentNames({ postId: new mongoose.Types.ObjectId(postId) }, { createdAt: -1 });
+    // Skip cache - go directly to database for faster response
+    // Database query is now optimized with timeout
+    const commentsNames: ICommentNameList[] = await commentService.getPostCommentNames(
+      { postId: new mongoose.Types.ObjectId(postId) },
+      { createdAt: -1 }
+    );
 
     res.status(HTTP_STATUS.OK).json({ message: 'Post comments names', comments: commentsNames });
   }
 
   public async singleComment(req: Request, res: Response): Promise<void> {
     const { postId, commentId } = req.params;
-    const cachedComments: ICommentDocument[] = await commentCache.getSingleCommentFromCache(postId, commentId);
-    const comments: ICommentDocument[] = cachedComments.length ? cachedComments : await commentService.getPostComments({ _id: new mongoose.Types.ObjectId(commentId) }, { createdAt: -1 });
+    // Skip cache - go directly to database for faster response
+    const comments: ICommentDocument[] = await commentService.getPostComments(
+      { _id: new mongoose.Types.ObjectId(commentId) },
+      { createdAt: -1 }
+    );
 
     res.status(HTTP_STATUS.OK).json({ message: 'Single comment', comments: comments[0] });
   }

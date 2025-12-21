@@ -29,7 +29,7 @@ describe('Delete', () => {
   });
 
   it('should send correct json response', async () => {
-    const req: Request = postMockRequest(newPost, authUserPayload, { postId: '12345' }) as Request;
+    const req: Request = postMockRequest(newPost, authUserPayload, { postId: '12345' }) as unknown as Request;
     const res: Response = postMockResponse();
     jest.spyOn(postServer.socketIOPostObject, 'emit');
     jest.spyOn(PostCache.prototype, 'deletePostFromCache');
