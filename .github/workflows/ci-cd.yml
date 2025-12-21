@@ -219,9 +219,18 @@ jobs:
               --auto-scaling-group-names "$ASG_NAME" \
               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
               --output text 2>/dev/null || echo "")
+            
+            # Also check for Pending:Wait instances that are Healthy (they're ready for deployment, just waiting for ELB health checks)
+            PENDING_HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`Pending:Wait` && HealthStatus==`Healthy`].InstanceId' \
+              --output text 2>/dev/null || echo "")
 
             if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
               echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            elif [ -n "$PENDING_HEALTHY_INSTANCES" ] && [ "$PENDING_HEALTHY_INSTANCES" != "None" ]; then
+              echo "✓ Found healthy instances in 'Pending:Wait' state (ready for deployment): $PENDING_HEALTHY_INSTANCES"
               INSTANCES_FOUND=true
             else
               # Get all instances to show their state
@@ -237,7 +246,7 @@ jobs:
                 echo "ASG may need to scale up. Check desired capacity:"
                 echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
               else
-                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' or 'Pending:Wait (Healthy)' state:"
                 echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
               fi
             fi
@@ -417,9 +426,18 @@ jobs:
               --auto-scaling-group-names "$ASG_NAME" \
               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
               --output text 2>/dev/null || echo "")
+            
+            # Also check for Pending:Wait instances that are Healthy (they're ready for deployment, just waiting for ELB health checks)
+            PENDING_HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`Pending:Wait` && HealthStatus==`Healthy`].InstanceId' \
+              --output text 2>/dev/null || echo "")
 
             if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
               echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            elif [ -n "$PENDING_HEALTHY_INSTANCES" ] && [ "$PENDING_HEALTHY_INSTANCES" != "None" ]; then
+              echo "✓ Found healthy instances in 'Pending:Wait' state (ready for deployment): $PENDING_HEALTHY_INSTANCES"
               INSTANCES_FOUND=true
             else
               # Get all instances to show their state
@@ -435,7 +453,7 @@ jobs:
                 echo "ASG may need to scale up. Check desired capacity:"
                 echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
               else
-                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' or 'Pending:Wait (Healthy)' state:"
                 echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
               fi
             fi
@@ -615,9 +633,18 @@ jobs:
               --auto-scaling-group-names "$ASG_NAME" \
               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
               --output text 2>/dev/null || echo "")
+            
+            # Also check for Pending:Wait instances that are Healthy (they're ready for deployment, just waiting for ELB health checks)
+            PENDING_HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`Pending:Wait` && HealthStatus==`Healthy`].InstanceId' \
+              --output text 2>/dev/null || echo "")
 
             if [ -n "$IN_SERVICE_INSTANCES" ] && [ "$IN_SERVICE_INSTANCES" != "None" ]; then
               echo "✓ Found instances in 'InService' state: $IN_SERVICE_INSTANCES"
+              INSTANCES_FOUND=true
+            elif [ -n "$PENDING_HEALTHY_INSTANCES" ] && [ "$PENDING_HEALTHY_INSTANCES" != "None" ]; then
+              echo "✓ Found healthy instances in 'Pending:Wait' state (ready for deployment): $PENDING_HEALTHY_INSTANCES"
               INSTANCES_FOUND=true
             else
               # Get all instances to show their state
@@ -633,7 +660,7 @@ jobs:
                 echo "ASG may need to scale up. Check desired capacity:"
                 echo "  aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG_NAME"
               else
-                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' state:"
+                echo "⚠ Found $TOTAL_COUNT instance(s) but none in 'InService' or 'Pending:Wait (Healthy)' state:"
                 echo "$ALL_INSTANCES" | jq -r '.[] | "  - \(.Id): \(.State) (Health: \(.Health))"'
               fi
             fi
