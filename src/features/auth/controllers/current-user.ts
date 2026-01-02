@@ -2,6 +2,7 @@ import HTTP_STATUS from 'http-status-codes';
 import { Request, Response } from 'express';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { userService } from '@service/db/user.service';
+import { followerService } from '@service/db/follower.service';
 import { config } from '@root/config';
 import Logger from 'bunyan';
 
@@ -68,7 +69,16 @@ export class CurrentUser {
       if (existingUser && Object.keys(existingUser).length > 0) {
         isUser = true;
         token = req.session?.jwt;
-        user = existingUser;
+        
+        // Calculate actual counts from FollowerModel to ensure accuracy
+        const actualCounts = await followerService.getActualFollowerCounts(`${req.currentUser?.userId}`);
+        
+        // Override the stored counts with actual counts
+        user = {
+          ...existingUser,
+          followersCount: actualCounts.followersCount,
+          followingCount: actualCounts.followingCount
+        };
       } else {
         log.warn('User data is empty', { userId: req.currentUser?.userId });
         res.status(HTTP_STATUS.NOT_FOUND).json({
