@@ -4,10 +4,12 @@ import { authMockRequest, authMockResponse, authUserPayload } from '@root/mocks/
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { existingUser } from '@root/mocks/user.mock';
 import { userService } from '@service/db/user.service';
+import { followerService } from '@service/db/follower.service';
 
 jest.mock('@service/queues/base.queue');
 jest.mock('@service/redis/user.cache');
 jest.mock('@service/db/user.service');
+jest.mock('@service/db/follower.service');
 
 const USERNAME = 'Manny';
 const PASSWORD = 'manny1';
@@ -40,13 +42,18 @@ describe('CurrentUser', () => {
       const req: Request = authMockRequest({ jwt: '12djdj34' }, { username: USERNAME, password: PASSWORD }, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
+      jest.spyOn(followerService, 'getActualFollowerCounts').mockResolvedValue({ followersCount: 1, followingCount: 1 });
+
+      const userWithActualCounts = { ...existingUser, followersCount: 1, followingCount: 1 };
 
       await CurrentUser.prototype.read(req, res);
+      expect(userService.getUserById).toHaveBeenCalledWith(`${req.currentUser?.userId}`);
+      expect(followerService.getActualFollowerCounts).toHaveBeenCalledWith(`${req.currentUser?.userId}`);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         token: req.session?.jwt,
         isUser: true,
-        user: existingUser
+        user: userWithActualCounts
       });
     });
   });
