@@ -3,7 +3,8 @@ This is the api for The Rotten Corn Horror App
 
 ## CI/CD pipeline
 
-> Deployment triggered to fix production instances after cost optimization (January 2026)
+> Deployment triggered to fix production instances after cost optimization (January 2026)  
+> Re-deploying after fixing infrastructure configuration and replacing instances
 
 Pushes to `develop`, `staging`, and `main` now trigger the GitHub Actions workflow at `.github/workflows/ci-cd.yml`.
 
