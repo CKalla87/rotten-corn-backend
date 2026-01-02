@@ -78,14 +78,36 @@ export class Get {
   public async profile(req: Request, res: Response): Promise<void> {
     // Skip cache - go directly to database for instant response
     const existingUser: IUserDocument = await userService.getUserById(`${req.currentUser!.userId}`);
-    res.status(HTTP_STATUS.OK).json({ message: 'Get user profile', user: existingUser });
+    
+    // Calculate actual counts from FollowerModel to ensure accuracy
+    const actualCounts = await followerService.getActualFollowerCounts(`${req.currentUser!.userId}`);
+    
+    // Override the stored counts with actual counts
+    const userWithActualCounts = {
+      ...existingUser,
+      followersCount: actualCounts.followersCount,
+      followingCount: actualCounts.followingCount
+    };
+    
+    res.status(HTTP_STATUS.OK).json({ message: 'Get user profile', user: userWithActualCounts });
   }
 
   public async profileByUserId(req: Request, res: Response): Promise<void> {
     const { userId } = req.params;
     // Skip cache - go directly to database for instant response
     const existingUser: IUserDocument = await userService.getUserById(userId);
-    res.status(HTTP_STATUS.OK).json({ message: 'Get user profile by id', user: existingUser });
+    
+    // Calculate actual counts from FollowerModel to ensure accuracy
+    const actualCounts = await followerService.getActualFollowerCounts(userId);
+    
+    // Override the stored counts with actual counts
+    const userWithActualCounts = {
+      ...existingUser,
+      followersCount: actualCounts.followersCount,
+      followingCount: actualCounts.followingCount
+    };
+    
+    res.status(HTTP_STATUS.OK).json({ message: 'Get user profile by id', user: userWithActualCounts });
   }
 
   public async profileAndPosts(req: Request, res: Response): Promise<void> {
@@ -106,6 +128,16 @@ export class Get {
       throw error;
     }
 
+    // Calculate actual counts from FollowerModel to ensure accuracy
+    const actualCounts = await followerService.getActualFollowerCounts(userId);
+    
+    // Override the stored counts with actual counts
+    const userWithActualCounts = {
+      ...existingUser,
+      followersCount: actualCounts.followersCount,
+      followingCount: actualCounts.followingCount
+    };
+
     // Get user posts from database - query by userId for better performance and accuracy
     try {
       // Skip cache - go directly to database for instant response
@@ -118,7 +150,7 @@ export class Get {
     }
 
     log.info(`Returning ${userPosts.length} posts to client for user ${username}`);
-    res.status(HTTP_STATUS.OK).json({ message: 'Get user profile and posts', user: existingUser, posts: userPosts });
+    res.status(HTTP_STATUS.OK).json({ message: 'Get user profile and posts', user: userWithActualCounts, posts: userPosts });
   }
 
   private async allUsers({ newSkip, limit, skip, userId }: IUserAll): Promise<IAllUsers> {

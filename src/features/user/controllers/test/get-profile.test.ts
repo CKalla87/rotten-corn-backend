@@ -58,13 +58,17 @@ describe('Get', () => {
       const req: Request = authMockRequest({}, {}, authUserPayload) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
+      jest.spyOn(followerService, 'getActualFollowerCounts').mockResolvedValue({ followersCount: 1, followingCount: 1 });
+
+      const userWithActualCounts = { ...existingUser, followersCount: 1, followingCount: 1 };
 
       await Get.prototype.profile(req, res);
       expect(userService.getUserById).toHaveBeenCalledWith(`${req.currentUser?.userId}`);
+      expect(followerService.getActualFollowerCounts).toHaveBeenCalledWith(`${req.currentUser?.userId}`);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Get user profile',
-        user: existingUser
+        user: userWithActualCounts
       });
     });
   });
@@ -79,11 +83,14 @@ describe('Get', () => {
       const res: Response = authMockResponse();
       jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
       jest.spyOn(postService, 'getPosts').mockResolvedValue([postMockData]);
+      jest.spyOn(followerService, 'getActualFollowerCounts').mockResolvedValue({ followersCount: 1, followingCount: 1 });
 
+      const userWithActualCounts = { ...existingUser, followersCount: 1, followingCount: 1 };
       const userName: string = Helpers.firstLetterUppercase(req.params.username);
 
       await Get.prototype.profileAndPosts(req, res);
       expect(userService.getUserById).toHaveBeenCalledWith(existingUser._id);
+      expect(followerService.getActualFollowerCounts).toHaveBeenCalledWith(existingUser._id);
       expect(postService.getPosts).toHaveBeenCalledWith(
         { userId: new mongoose.Types.ObjectId(existingUser._id) },
         0,
@@ -93,7 +100,7 @@ describe('Get', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Get user profile and posts',
-        user: existingUser,
+        user: userWithActualCounts,
         posts: [postMockData]
       });
     });
@@ -106,13 +113,17 @@ describe('Get', () => {
       }) as unknown as Request;
       const res: Response = authMockResponse();
       jest.spyOn(userService, 'getUserById').mockResolvedValue(existingUser);
+      jest.spyOn(followerService, 'getActualFollowerCounts').mockResolvedValue({ followersCount: 1, followingCount: 1 });
+
+      const userWithActualCounts = { ...existingUser, followersCount: 1, followingCount: 1 };
 
       await Get.prototype.profileByUserId(req, res);
       expect(userService.getUserById).toHaveBeenCalledWith(req.params.userId);
+      expect(followerService.getActualFollowerCounts).toHaveBeenCalledWith(req.params.userId);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         message: 'Get user profile by id',
-        user: existingUser
+        user: userWithActualCounts
       });
     });
   });

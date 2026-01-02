@@ -302,6 +302,22 @@ class FollowerService {
       .exec();
     return followees.map((followee: any) => followee.followeeId.toString());
   }
+
+  public async getActualFollowerCounts(userId: string): Promise<{ followersCount: number; followingCount: number }> {
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    
+    // Count actual followers (people who follow this user)
+    const followersCount = await FollowerModel.countDocuments({ followeeId: userObjectId })
+      .maxTimeMS(5000)
+      .exec();
+    
+    // Count actual following (people this user follows)
+    const followingCount = await FollowerModel.countDocuments({ followerId: userObjectId })
+      .maxTimeMS(5000)
+      .exec();
+    
+    return { followersCount, followingCount };
+  }
 }
 
 export const followerService: FollowerService = new FollowerService();

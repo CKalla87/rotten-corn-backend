@@ -204,6 +204,17 @@ class CommentService {
       { $set: { reaction: filteredReactions } }
     ).maxTimeMS(5000).exec();
   }
+
+  public async getActualCommentCount(postId: string): Promise<number> {
+    const postIdObj = typeof postId === 'string' ? new mongoose.Types.ObjectId(postId) : postId;
+    
+    // Count actual comments for this post
+    const commentsCount = await CommentsModel.countDocuments({ postId: postIdObj })
+      .maxTimeMS(5000)
+      .exec();
+    
+    return commentsCount;
+  }
 }
 
 export const commentService: CommentService = new CommentService();

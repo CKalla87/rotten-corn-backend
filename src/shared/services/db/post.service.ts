@@ -5,6 +5,7 @@ import { UserModel } from '@user/models/user.schema';
 import mongoose, { Query, UpdateQuery } from 'mongoose';
 import { Helpers } from '@global/helpers/helpers';
 import { config } from '@root/config';
+import { commentService } from '@service/db/comment.service';
 
 class PostService {
   public async addPostToDB(userId: string, createdPost: IPostDocument): Promise<void> {
@@ -57,11 +58,21 @@ class PostService {
     // Ensure video and image fields are set to empty strings if undefined to prevent undefined in URLs
     // Also ensure reactions object is properly initialized
     // Normalize Cloudinary URLs to fix wrong cloud name issues
-    for (const post of posts) {
+    // Calculate actual comment counts for all posts in parallel
+    const commentCountPromises = posts.map(post => 
+      post._id ? commentService.getActualCommentCount(post._id.toString()).catch(() => 0) : Promise.resolve(0)
+    );
+    const actualCommentCounts = await Promise.all(commentCountPromises);
+
+    for (let i = 0; i < posts.length; i++) {
+      const post = posts[i];
       if (!post.videoVersion) post.videoVersion = '';
       if (!post.videoId) post.videoId = '';
       if (!post.imgVersion) post.imgVersion = '';
       if (!post.imgId) post.imgId = '';
+
+      // Override stored commentsCount with actual count from CommentsModel
+      post.commentsCount = actualCommentCounts[i];
 
       // Normalize profile picture URL to fix Cloudinary cloud name issues
       if (post.profilePicture && Helpers.isCloudinaryUrl(post.profilePicture)) {
