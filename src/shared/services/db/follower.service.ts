@@ -306,15 +306,17 @@ class FollowerService {
   public async getActualFollowerCounts(userId: string): Promise<{ followersCount: number; followingCount: number }> {
     const userObjectId = new mongoose.Types.ObjectId(userId);
     
-    // Count actual followers (people who follow this user)
-    const followersCount = await FollowerModel.countDocuments({ followeeId: userObjectId })
+    // Count distinct followers (people who follow this user) - use distinct to avoid counting duplicates
+    const distinctFollowers = await FollowerModel.distinct('followerId', { followeeId: userObjectId })
       .maxTimeMS(5000)
       .exec();
+    const followersCount = distinctFollowers ? distinctFollowers.length : 0;
     
-    // Count actual following (people this user follows)
-    const followingCount = await FollowerModel.countDocuments({ followerId: userObjectId })
+    // Count distinct following (people this user follows) - use distinct to avoid counting duplicates
+    const distinctFollowing = await FollowerModel.distinct('followeeId', { followerId: userObjectId })
       .maxTimeMS(5000)
       .exec();
+    const followingCount = distinctFollowing ? distinctFollowing.length : 0;
     
     return { followersCount, followingCount };
   }
