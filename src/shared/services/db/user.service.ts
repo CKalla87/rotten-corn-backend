@@ -69,14 +69,14 @@ class UserService {
       const users = await UserModel.find({ _id: { $ne: new mongoose.Types.ObjectId(userId) } })
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit)
+        .limit(limit * 2) // Get more to account for potential duplicates
         .populate('authId')
         .lean()
         .maxTimeMS(10000)
         .exec();
 
       // Transform the populated results to match expected format
-      return users.map((user: any) => {
+      const transformedUsers = users.map((user: any) => {
         const authData = user.authId;
         if (authData && typeof authData === 'object') {
           return {
@@ -90,18 +90,60 @@ class UserService {
         }
         return user as IUserDocument;
       });
+
+      // Remove duplicates by authId (using Set like in follower service pattern)
+      // Keep only first occurrence of each unique authId
+      const seenAuthIds = new Set<string>();
+      const deduplicatedByAuthId = transformedUsers.filter((user: any) => {
+        const authIdStr = user.authId?.toString();
+        if (!authIdStr || seenAuthIds.has(authIdStr)) return false;
+        seenAuthIds.add(authIdStr);
+        return true;
+      });
+
+      // Additional deduplication by _id as a safety measure (like in follower service)
+      const uniqueUsers = new Map<string, IUserDocument>();
+      deduplicatedByAuthId.forEach((user: IUserDocument) => {
+        const id = user._id?.toString() || '';
+        if (id && !uniqueUsers.has(id)) {
+          uniqueUsers.set(id, user);
+        }
+      });
+
+      // Return only the requested limit of unique users
+      return Array.from(uniqueUsers.values()).slice(0, limit);
     } catch (error) {
       // Fallback to aggregate if populate fails
       const users: IUserDocument[] = await UserModel.aggregate([
         { $match: { _id: { $ne: new mongoose.Types.ObjectId(userId) } } },
         { $sort: { createdAt: -1 } },
         { $skip: skip },
-        { $limit: limit },
+        { $limit: limit * 2 }, // Get more to account for potential duplicates
         { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
         { $unwind: '$authId' },
         { $project: this.aggregateProject() }
       ], { allowDiskUse: true, maxTimeMS: 10000 });
-      return users;
+      
+      // Remove duplicates by authId (using Set like in follower service pattern)
+      const seenAuthIds = new Set<string>();
+      const deduplicatedByAuthId = users.filter((user: any) => {
+        const authIdStr = user.authId?.toString();
+        if (!authIdStr || seenAuthIds.has(authIdStr)) return false;
+        seenAuthIds.add(authIdStr);
+        return true;
+      });
+
+      // Additional deduplication by _id as a safety measure (like in follower service)
+      const uniqueUsers = new Map<string, IUserDocument>();
+      deduplicatedByAuthId.forEach((user: IUserDocument) => {
+        const id = user._id?.toString() || '';
+        if (id && !uniqueUsers.has(id)) {
+          uniqueUsers.set(id, user);
+        }
+      });
+
+      // Return only the requested limit of unique users
+      return Array.from(uniqueUsers.values()).slice(0, limit);
     }
   }
 
@@ -121,8 +163,27 @@ class UserService {
         return [];
       }
 
+      // Step 1.5: Remove duplicates by authId (using Set like in follower service pattern)
+      const seenAuthIds = new Set<string>();
+      const deduplicatedByAuthId = users.filter((user: any) => {
+        const authIdStr = user.authId?.toString();
+        if (!authIdStr || seenAuthIds.has(authIdStr)) return false;
+        seenAuthIds.add(authIdStr);
+        return true;
+      });
+
+      // Additional deduplication by _id as a safety measure (like in follower service)
+      const uniqueUsersMap = new Map<string, any>();
+      deduplicatedByAuthId.forEach((user: any) => {
+        const id = user._id?.toString() || '';
+        if (id && !uniqueUsersMap.has(id)) {
+          uniqueUsersMap.set(id, user);
+        }
+      });
+      const uniqueUsers = Array.from(uniqueUsersMap.values());
+
       // Step 2: Shuffle and take 10 random users
-      const shuffled = users.sort(() => 0.5 - Math.random());
+      const shuffled = uniqueUsers.sort(() => 0.5 - Math.random());
       const selectedUsers = shuffled.slice(0, 10);
 
       // Step 3: Get followers list and auth data in parallel
