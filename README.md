@@ -1,5 +1,5 @@
 # rotten-corn-backend
-This is the api for The Rotten Corn Horror App
+The backend powering Rotten Corn, a modern social media platform. Provides authentication, user profiles, posts, comments, likes, follows, notifications, messaging, media uploads, search, and the APIs that power the entire Rotten Corn ecosystem. Built for scalability, security, and real-time social interactions.
 
 ## CI/CD pipeline
 
